@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydraulic Hose Repair Dashboard</title>
+    <!-- Fonts from Edward & Christie invoice -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar no-print">
+            <div class="sidebar-header">
+                <div class="logo" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
+                    <img src="logo.png" alt="Edward and Christie" style="max-height: 35px;" onerror="this.style.display='none'">
+                    <span style="font-size: 0.85rem; font-weight: normal; color: #a0aec0; letter-spacing: 0.5px;">Hydraulic Hose Repair</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-target="dashboard">
+                    <i class="ri-dashboard-line"></i> Dashboard
+                </a>
+                <a href="#" class="nav-item" data-target="inventory">
+                    <i class="ri-box-3-line"></i> Inventory
+                </a>
+                <a href="#" class="nav-item" data-target="new-invoice">
+                    <i class="ri-file-add-line"></i> New Invoice
+                </a>
+                <a href="#" class="nav-item" data-target="history">
+                    <i class="ri-history-line"></i> Invoice History
+                </a>
+                <a href="#" class="nav-item" data-target="transactions">
+                    <i class="ri-exchange-dollar-line"></i> Transactions
+                </a>
+                <a href="#" class="nav-item" data-target="export-invoices">
+                    <i class="ri-file-excel-line"></i> Export Invoices
+                </a>
+                <a href="#" class="nav-item" data-target="cost-analysis">
+                    <i class="ri-pie-chart-line"></i> Cost Analysis
+                </a>
+                <a href="#" class="nav-item" data-target="invoice-comparison">
+                    <i class="ri-scales-line"></i> Invoice Comparison
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header no-print">
+                <h1 id="page-title">Dashboard</h1>
+                <div class="header-actions">
+                    <button class="btn btn-primary" onclick="showSection('new-invoice'); startNewInvoice();"><i class="ri-add-line"></i> Create Invoice</button>
+                </div>
+            </header>
+
+            <div class="content-area">
+                <!-- Dashboard Section -->
+                <section id="dashboard" class="page-section active no-print">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">
+                                <i class="ri-box-1-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Total Unique Products</h3>
+                                <p id="stat-products">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+                                <i class="ri-stack-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Total Quantity</h3>
+                                <p id="stat-qty">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+                                <i class="ri-alert-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Low Stock Items</h3>
+                                <p id="stat-low-stock">0</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-widgets">
+                        <div class="widget">
+                            <div class="widget-header">
+                                <h2>Recent Finalized Invoices</h2>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Invoice No</th>
+                                            <th>Date</th>
+                                            <th>Customer</th>
+                                            <th>Grand Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-invoices-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="widget">
+                            <div class="widget-header">
+                                <h2>Recent Stock Movements</h2>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Product</th>
+                                            <th>Type</th>
+                                            <th>Qty Change</th>
+                                            <th>New Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-movements-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Inventory Section -->
+                <section id="inventory" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Manage Inventory</h2>
+                        <div class="header-actions">
+                            <input type="text" id="inventorySearch" placeholder="Search inventory..." class="form-control" style="width:250px" onkeyup="searchInventory()">
+                            <input type="file" id="importFile" accept=".xlsx, .xls, .csv" style="display:none" onchange="handleImportFile(event)">
+                            <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()"><i class="ri-upload-2-line"></i> Import</button>
+                            <button class="btn btn-secondary" onclick="exportInventory()"><i class="ri-download-2-line"></i> Export</button>
+                            <button class="btn btn-primary" onclick="openModal('addProductModal')"><i class="ri-add-line"></i> Add Product</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Unique ID</th>
+                                        <th>Product Name</th>
+                                        <th>Spec Code</th>
+                                        <th>Size</th>
+                                        <th>Length</th>
+                                        <th>Qty</th>
+                                        <th>Unit</th>
+                                        <th>Price (Rs)</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inventory-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- New Invoice / Invoice View Section -->
+                <section id="new-invoice" class="page-section print-only-section">
+                    <div class="invoice-toolbar no-print">
+                        <h2 id="invoice-view-title">New Invoice</h2>
+                        <div class="header-actions">
+                            <button class="btn" onclick="startNewInvoice()"><i class="ri-refresh-line"></i> Clear</button>
+                        </div>
+                    </div>
+
+                    <!-- The Extracted A4 Document -->
+                    <div class="page-container">
+                      <div class="page" id="invoice-page">
+                        <div class="page-header">
+                          <div class="header-left">
+                            <img src="logo.png" alt="Edward and Christie" style="max-height: 45px; margin-bottom: 5px;" onerror="this.style.display='none'">
+                            <div class="workshop-tag">Hydraulic Hose Repair</div>
+                          </div>
+                          <div class="doc-badge">
+                            <div class="label" id="docLabel">Invoice</div>
+                            <div class="ref">REF · <strong contenteditable="true" id="refInvoice">INV/2026/05/001</strong></div>
+                          </div>
+                        </div>
+                        
+                        <div class="page-content-area">
+                          <div class="page-content-inner" id="pageContentInner">
+                            <div class="page-body">
+                              <div class="meta-strip">
+                                <div class="cell"><div class="key">Invoice Date</div><div class="val"><input type="date" id="invDate" class="cell center"></div></div>
+                              </div>
+                              
+                              <div class="section">
+                                <div class="section-head"><span class="section-num">01</span><span class="section-title">Parties</span><span class="section-line"></span></div>
+                                <div class="party-grid" style="grid-template-columns: 1fr;">
+                                  <div class="party">
+                                    <div class="key">Billed To</div>
+                                    <div class="body">
+                                      <input type="text" id="billedToName" class="cell left" placeholder="Customer Name" style="font-weight:600"><br>
+                                      <textarea id="billedToAddress" class="cell left" placeholder="Address Details..." rows="3"></textarea>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div class="section">
+                                <div class="section-head"><span class="section-num">02</span><span class="section-title">Items & Services</span><span class="section-line"></span></div>
+                                <table class="items" id="itemsTable">
+                                  <thead>
+                                    <tr>
+                                      <th style="width: 32px;">#</th>
+                                      <th>Description</th>
+                                      <th style="width: 56px;">Unit</th>
+                                      <th style="width: 56px;" class="num">Length</th>
+                                      <th style="width: 56px;" class="num">Qty</th>
+                                      <th style="width: 96px;" class="num">Rate (Rs.)</th>
+                                      <th style="width: 110px;" class="num">Amount (Rs.)</th>
+                                      <th style="width: 30px;" class="row-actions no-print"></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody id="invItemsBody"></tbody>
+                                </table>
+                                <div class="add-buttons no-print" id="addItemBtnContainer">
+                                  <button type="button" onclick="openModal('selectInventoryModal')">+ Select from Inventory</button>
+                                  <button type="button" onclick="addCustomRow()">+ Add Custom Row</button>
+                                  <button type="button" onclick="addStandardCharges()">+ Add Technical & Sundries</button>
+                                </div>
+                              </div>
+
+                              <div class="section">
+                                <div class="section-head"><span class="section-num">03</span><span class="section-title">Summary</span><span class="section-line"></span></div>
+                                <div class="totals-wrap">
+                                  <div class="notes">
+                                    <div class="key">Notes</div>
+                                    <div contenteditable="true" id="invNotes">Thank you for your business. Please reference the document number on all correspondence and payments.</div>
+                                  </div>
+                                  <table class="totals">
+                                    <tr><td>Sub Total</td><td id="invSubTotal">Rs. 0.00</td></tr>
+                                    <tr><td>SSCL <input type="number" class="tax-rate no-print" id="invSsclRate" value="2.5" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invSsclRateText" style="display:none">2.5</span>%</td><td id="invSscl">Rs. 0.00</td></tr>
+                                    <tr><td>VAT <input type="number" class="tax-rate no-print" id="invVatRate" value="18" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invVatRateText" style="display:none">18</span>%</td><td id="invVat">Rs. 0.00</td></tr>
+                                    <tr class="grand"><td>Total Due</td><td id="invGrandTotal">Rs. 0.00</td></tr>
+                                  </table>
+                                </div>
+                              </div>
+
+                              <div class="section">
+                                <div class="section-head"><span class="section-num">04</span><span class="section-title">Payment Details</span><span class="section-line"></span></div>
+                                <div class="payment-block">
+                                  <div>
+                                    <div class="key">Payment Terms</div>
+                                    <div class="val" contenteditable="true" id="invPaymentTerms">Payment is due within 30 days of invoice date. A 30-day guarantee applies to all repair work including leakage and internal faults. Please note: this guarantee does not cover external physical damage to the hose. Thank you for choosing our service!</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div class="signatures" style="display: flex; justify-content: flex-end; border: none; padding-top: 20px;">
+                                <div style="text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
+                                  <img src="signature.png" alt="E-Signature" style="max-height: 60px; margin-bottom: 5px;" onerror="this.style.display='none'">
+                                  <div style="font-size: 0.8rem; color: #64748b; font-weight: 500;">System Generated Invoice</div>
+                                </div>
+                              </div>
+
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div class="page-footer">
+                          <div class="brand-mini">Edward and <span>Christie</span></div>
+                          <div class="contacts">
+                            <div class="item"><div class="ic">✆</div><div>+94-11 2812990, 2812991<br>Fax: +94-11 2812441</div></div>
+                            <div class="item"><div class="ic">✉</div><div>edchrist@sltnet.lk<br>reply.enc@gmail.com</div></div>
+                            <div class="item"><div class="ic">◎</div><div>No. 64/9, Nawala Road,<br>Nugegoda, Sri Lanka</div></div>
+                          </div>
+                          <div class="vat"><span class="k">VAT REG</span>174042756-7000</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="invoice-save-actions no-print" id="invoice-save-actions">
+                        <button class="btn btn-secondary" id="btnSaveDraft" onclick="saveInvoice('Draft')"><i class="ri-save-line"></i> Save Draft</button>
+                        <button class="btn btn-primary" id="btnFinalize" onclick="saveInvoice('Finalized')"><i class="ri-check-double-line"></i> Finalize Invoice (Deducts Stock)</button>
+                        <button class="btn" onclick="window.print()"><i class="ri-printer-line"></i> Print / PDF</button>
+                    </div>
+                </section>
+
+                <!-- History Section -->
+                <section id="history" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Invoice History</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="exportAllInvoices()"><i class="ri-file-excel-line"></i> Export All to Excel</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Invoice #</th>
+                                        <th>Date</th>
+                                        <th>Billed To</th>
+                                        <th>Grand Total</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Transactions Section -->
+                <section id="transactions" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Stock Movements</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" onclick="exportStockMovements()">
+                                <i class="ri-file-excel-line"></i> Export Movements Excel
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Invoice #</th>
+                                        <th>Unique ID</th>
+                                        <th>Spec Code</th>
+                                        <th>Product</th>
+                                        <th>Type</th>
+                                        <th>Qty Change</th>
+                                        <th>New Qty</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactions-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Export Invoices Section -->
+                <section id="export-invoices" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Export All Invoices</h2>
+                    </div>
+                    <div class="card" style="padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 20px;">
+                        <div style="background: rgba(37, 99, 235, 0.1); color: var(--primary); width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px;">
+                            <i class="ri-file-excel-2-line"></i>
+                        </div>
+                        <div style="max-width: 500px; display: flex; flex-direction: column; align-items: center;">
+                            <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Consolidated Invoice Export</h3>
+                            <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px;">
+                                Download a complete consolidated Excel spreadsheet of all finalized and draft invoices. 
+                                The report includes invoice numbers, product descriptions, units, quantities, unit rates, item totals, and the overall invoice grand total for each invoice line.
+                            </p>
+                            <div style="font-size: 15px; margin-bottom: 20px; font-weight: 500; color: var(--text-main);">
+                                <span id="export-count" style="font-weight: 700; color: var(--primary); font-size: 18px;">...</span> invoices found ready for export.
+                            </div>
+                            <button class="btn btn-primary" onclick="exportAllInvoices()" style="padding: 12px 24px; font-size: 15px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <i class="ri-download-2-line"></i> Download Invoices Excel
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Cost Analysis Section -->
+                <section id="cost-analysis" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Cost Comparison Dashboard</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" onclick="exportCostComparison()">
+                                <i class="ri-file-excel-line"></i> Export Comparison Excel
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Grid for Cost Analysis -->
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">
+                                <i class="ri-git-compare-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Hoses Compared</h3>
+                                <p id="cost-stat-count">0 / 15</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+                                <i class="ri-percent-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Average Savings</h3>
+                                <p id="cost-stat-avg">0.0%</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+                                <i class="ri-trophy-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Max Savings</h3>
+                                <p id="cost-stat-max">0.0%</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Specification / Size</th>
+                                        <th class="num">Our Price (per Meter)</th>
+                                        <th class="num">Our Cost (per Foot)</th>
+                                        <th class="num">Outside Cost (per Foot)</th>
+                                        <th class="num">Absolute Savings (per Foot)</th>
+                                        <th class="num">Savings (%)</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cost-analysis-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Invoice Comparison Section -->
+                <section id="invoice-comparison" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Invoice Tax & Cost Comparison</h2>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start;">
+                        <!-- Invoices Selection Sidebar -->
+                        <div class="card" style="padding: 20px;">
+                            <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                                Finalized Invoices
+                            </h3>
+                            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                <table class="table" style="font-size: 13px;">
+                                    <thead>
+                                        <tr>
+                                            <th>Invoice #</th>
+                                            <th>Customer</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="compare-invoices-list-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <!-- Main Comparison Details -->
+                        <div id="compare-details-placeholder" class="card" style="padding: 40px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px;">
+                            <div style="background: rgba(37, 99, 235, 0.1); color: var(--primary); width: 70px; height: 70px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px;">
+                                <i class="ri-scales-line"></i>
+                            </div>
+                            <h3 style="font-size: 18px; font-weight: 600;">Select an Invoice to Analyze</h3>
+                            <p style="color: var(--text-muted); font-size: 14px; max-width: 450px;">
+                                Select any finalized invoice from the left panel to compare its subtotals, SSCL, and VAT taxes against outside market rates.
+                            </p>
+                        </div>
+                        
+                        <div id="compare-details-panel" style="display: none; flex-direction: column; gap: 24px;">
+                            <!-- Dynamic Header Card -->
+                            <div class="card" style="padding: 24px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <h3 id="compare-inv-no" style="font-size: 20px; font-weight: 600; color: var(--text-main);">...</h3>
+                                    <p id="compare-inv-meta" style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">...</p>
+                                </div>
+                                <button class="btn btn-primary" id="btnExportSingleCompare" onclick="">
+                                    <i class="ri-file-excel-line"></i> Export Invoice Excel
+                                </button>
+                            </div>
+                            
+                            <!-- Dynamic KPI Cards -->
+                            <div class="stats-grid" style="margin-bottom: 0;">
+                                <div class="stat-card" style="padding: 16px 20px;">
+                                    <div class="stat-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--primary);">
+                                        <i class="ri-money-dollar-circle-line"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h3 style="font-size: 12px;">Our Grand Total</h3>
+                                        <p id="compare-stat-our" style="font-size: 20px; font-weight: 700;">Rs. 0.00</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card" style="padding: 16px 20px;">
+                                    <div class="stat-icon" style="background: rgba(100, 116, 139, 0.1); color: #64748b;">
+                                        <i class="ri-money-dollar-circle-fill"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h3 style="font-size: 12px;">Outside Grand Total</h3>
+                                        <p id="compare-stat-outside" style="font-size: 20px; font-weight: 700;">Rs. 0.00</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card" style="padding: 16px 20px;">
+                                    <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+                                        <i class="ri-wallet-line"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h3 style="font-size: 12px;">Net Savings (VAT Inc.)</h3>
+                                        <p id="compare-stat-savings" style="font-size: 20px; font-weight: 700; color: #10b981;">Rs. 0.00</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Tax Comparison Block -->
+                            <div class="card" style="padding: 24px;">
+                                <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    VAT & Tax Comparison Summary
+                                </h3>
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Cost Component</th>
+                                            <th class="num">Billed Amount (Our System)</th>
+                                            <th class="num">Outside Market Amount</th>
+                                            <th class="num">Your LKR Savings</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Subtotal</strong></td>
+                                            <td class="num" id="compare-tax-sub-our">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-sub-out">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-sub-save" style="font-weight:600; color:green;">Rs. 0.00</td>
+                                        </tr>
+                                        <tr>
+                                            <td>SSCL (2.5%)</td>
+                                            <td class="num" id="compare-tax-sscl-our">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-sscl-out">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-sscl-save" style="font-weight:600; color:green;">Rs. 0.00</td>
+                                        </tr>
+                                        <tr>
+                                            <td>VAT (18.0%)</td>
+                                            <td class="num" id="compare-tax-vat-our">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-vat-out">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-vat-save" style="font-weight:600; color:green;">Rs. 0.00</td>
+                                        </tr>
+                                        <tr class="grand" style="background: var(--secondary); font-weight: 700; border-top: 2px solid var(--border-color);">
+                                            <td><strong>GRAND TOTAL (Total Due)</strong></td>
+                                            <td class="num" id="compare-tax-grand-our" style="color: var(--primary);">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-grand-out">Rs. 0.00</td>
+                                            <td class="num" id="compare-tax-grand-save" style="color: green; font-size: 16px;">Rs. 0.00</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Itemized Side-by-side Table -->
+                            <div class="card">
+                                <div class="widget-header" style="border-bottom: 1px solid var(--border-color); padding: 16px 24px;">
+                                    <h2 style="font-size: 15px; font-weight: 600;">Itemized Cost Comparison Details</h2>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th>Description</th>
+                                                <th class="num">Billed Qty</th>
+                                                <th class="num">Our Price</th>
+                                                <th class="num">Our Total</th>
+                                                <th class="num">Outside Qty</th>
+                                                <th class="num">Outside Price</th>
+                                                <th class="num">Outside Total</th>
+                                                <th class="num">Savings</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="compare-items-tbody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="addProductModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 id="addProductTitle">Add Inventory Product</h2>
+                <button class="close-btn" onclick="closeModal('addProductModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="addProductForm" onsubmit="submitAddProduct(event)">
+                    <input type="hidden" id="prod-id">
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Unique ID</label>
+                            <input type="text" id="prod-unique" class="form-control" required>
+                        </div>
+                        <div class="col">
+                            <label>Product Name</label>
+                            <input type="text" id="prod-name" class="form-control" required>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Specification Code</label>
+                            <input type="text" id="prod-spec" class="form-control" required>
+                        </div>
+                        <div class="col">
+                            <label>Size (Optional)</label>
+                            <input type="text" id="prod-size" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Description (Optional)</label>
+                        <input type="text" id="prod-desc" class="form-control">
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Length</label>
+                            <input type="number" id="prod-length" class="form-control" step="0.01" required value="0">
+                        </div>
+                        <div class="col">
+                            <label>Quantity in Stock</label>
+                            <input type="number" id="prod-qty" class="form-control" step="0.01" required value="0">
+                        </div>
+                        <div class="col">
+                            <label>Unit</label>
+                            <select id="prod-unit" class="form-control">
+                                <option value="Nos">Nos</option>
+                                <option value="m">Meters (m)</option>
+                                <option value="ft">Feet (ft)</option>
+                                <option value="kg">kg</option>
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label>Unit Price (Rs)</label>
+                            <input type="number" id="prod-price" class="form-control" step="0.01" required value="0">
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('addProductModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Product</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Select Inventory Item Modal -->
+    <div id="selectInventoryModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>Select Item to Add to Invoice</h2>
+                <button class="close-btn" onclick="closeModal('selectInventoryModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="modalInventorySearch" placeholder="Search product..." class="form-control mb-3" onkeyup="searchModalInventory()">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Unique ID</th>
+                                <th>Product Name</th>
+                                <th>Spec</th>
+                                <th>Avail. Qty</th>
+                                <th>Price</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modal-inventory-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
