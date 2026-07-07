@@ -118,5 +118,47 @@ $conn.Execute("CREATE TABLE Users (
     [UpdatedAt] DATETIME
 )")
 
+$conn.Execute("CREATE TABLE RateCard (
+    [RateID] AUTOINCREMENT PRIMARY KEY,
+    [Spec] VARCHAR(20),
+    [SizeCode] VARCHAR(20),
+    [SizeInch] DOUBLE,
+    [Label] VARCHAR(100),
+    [Unit] VARCHAR(10),
+    [OurCost] CURRENCY,
+    [OurPrice] CURRENCY,
+    [OutsidePrice] CURRENCY,
+    [UpdatedAt] DATETIME
+)")
+
+$conn.Execute("CREATE TABLE Workers (
+    [WorkerID] AUTOINCREMENT PRIMARY KEY,
+    [Name] VARCHAR(150) NOT NULL,
+    [Role] VARCHAR(100),
+    [Active] INTEGER,
+    [CreatedAt] DATETIME
+)")
+
+$conn.Execute("CREATE TABLE LabourPayments (
+    [LabourPaymentID] AUTOINCREMENT PRIMARY KEY,
+    [WorkerID] INT,
+    [Amount] CURRENCY,
+    [PayPeriod] VARCHAR(7),
+    [PaymentDate] DATETIME,
+    [Method] VARCHAR(50),
+    [Notes] MEMO,
+    [CreatedAt] DATETIME
+)")
+
+$conn.Execute("CREATE TABLE Expenses (
+    [ExpenseID] AUTOINCREMENT PRIMARY KEY,
+    [Category] VARCHAR(50),
+    [Amount] CURRENCY,
+    [ExpenseDate] DATETIME,
+    [Method] VARCHAR(50),
+    [Notes] MEMO,
+    [CreatedAt] DATETIME
+)")
+
 $conn.Close()
 Write-Host "Database created successfully at $dbPath"

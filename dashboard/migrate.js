@@ -13,6 +13,7 @@
  */
 
 const ADODB = require('node-adodb');
+const { RATECARD_SEED } = require('./lib/ratecardSeed');
 
 // Each entry is one DDL statement plus a human label for logging.
 const COLUMN_UPGRADES = [
@@ -43,6 +44,44 @@ const TABLE_UPGRADES = [
         [Role] VARCHAR(50),
         [CreatedAt] DATETIME,
         [UpdatedAt] DATETIME
+    )`],
+    ['RateCard', `CREATE TABLE RateCard (
+        [RateID] AUTOINCREMENT PRIMARY KEY,
+        [Spec] VARCHAR(20),
+        [SizeCode] VARCHAR(20),
+        [SizeInch] DOUBLE,
+        [Label] VARCHAR(100),
+        [Unit] VARCHAR(10),
+        [OurCost] CURRENCY,
+        [OurPrice] CURRENCY,
+        [OutsidePrice] CURRENCY,
+        [UpdatedAt] DATETIME
+    )`],
+    ['Workers', `CREATE TABLE Workers (
+        [WorkerID] AUTOINCREMENT PRIMARY KEY,
+        [Name] VARCHAR(150) NOT NULL,
+        [Role] VARCHAR(100),
+        [Active] INTEGER,
+        [CreatedAt] DATETIME
+    )`],
+    ['LabourPayments', `CREATE TABLE LabourPayments (
+        [LabourPaymentID] AUTOINCREMENT PRIMARY KEY,
+        [WorkerID] INT,
+        [Amount] CURRENCY,
+        [PayPeriod] VARCHAR(7),
+        [PaymentDate] DATETIME,
+        [Method] VARCHAR(50),
+        [Notes] MEMO,
+        [CreatedAt] DATETIME
+    )`],
+    ['Expenses', `CREATE TABLE Expenses (
+        [ExpenseID] AUTOINCREMENT PRIMARY KEY,
+        [Category] VARCHAR(50),
+        [Amount] CURRENCY,
+        [ExpenseDate] DATETIME,
+        [Method] VARCHAR(50),
+        [Notes] MEMO,
+        [CreatedAt] DATETIME
     )`],
 ];
 
@@ -111,6 +150,22 @@ async function ensureSchema(connection) {
     for (const stmt of backfills) {
         try { await connection.execute(stmt); } catch (_) { /* column may still be missing */ }
     }
+
+    // Seed the Rate Card once (only when empty) with researched starting values.
+    // The shop edits these later, so we never overwrite existing rows.
+    try {
+        const cnt = await connection.query('SELECT COUNT(*) AS c FROM RateCard');
+        if (!(cnt[0] && cnt[0].c > 0)) {
+            for (const r of RATECARD_SEED) {
+                const label = String(r.label).replace(/'/g, "''");
+                await connection.execute(
+                    `INSERT INTO RateCard (Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsidePrice, UpdatedAt)
+                     VALUES ('${r.spec}', '${r.sizeCode}', ${r.sizeInch}, '${label}', '${r.unit}', ${r.ourCost}, ${r.ourPrice}, ${r.outsidePrice}, Now())`
+                );
+            }
+            applied.push(`RateCard seed (${RATECARD_SEED.length} rows)`);
+        }
+    } catch (_) { /* RateCard table not present (creation failed) -> skip seeding */ }
 
     return { applied, skipped, failed };
 }

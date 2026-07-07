@@ -370,8 +370,11 @@ function showSection(sectionId) {
         'history': 'Invoice History',
         'transactions': 'Stock Movements',
         'export-invoices': 'Export Invoices',
-        'cost-analysis': 'Cost Analysis',
+        'cost-analysis': 'Rate Card',
         'invoice-comparison': 'Invoice Comparison',
+        'labour': 'Labour',
+        'expenses': 'Expenses',
+        'reports': 'Profit & Loss',
     };
     document.getElementById('page-title').textContent = titles[sectionId];
 
@@ -380,8 +383,11 @@ function showSection(sectionId) {
     else if (sectionId === 'history') loadHistory();
     else if (sectionId === 'transactions') loadTransactions();
     else if (sectionId === 'export-invoices') loadExportStats();
-    else if (sectionId === 'cost-analysis') loadCostAnalysis();
+    else if (sectionId === 'cost-analysis') loadRateCard();
     else if (sectionId === 'invoice-comparison') loadInvoiceComparisonList();
+    else if (sectionId === 'labour') loadLabour();
+    else if (sectionId === 'expenses') loadExpenses();
+    else if (sectionId === 'reports') loadReports();
 }
 
 // Helpers
@@ -1246,52 +1252,358 @@ async function loadExportStats() {
     }
 }
 
-async function loadCostAnalysis() {
+// ----------------------------------------------------
+// Rate Card (editable)
+// ----------------------------------------------------
+let allRates = [];
+async function loadRateCard() {
+    if (dataCache.ratecard) renderRateCard(dataCache.ratecard);
+    else showSkeleton('cost-analysis-tbody', 7);
     try {
-        const res = await authFetch(`${API_URL}/costs/compare`);
+        const res = await authFetch(`${API_URL}/ratecard`);
         const data = await res.json();
+        if (!res.ok) { toast(data.error || 'Could not load rate card', 'error'); return; }
+        dataCache.ratecard = data;
+        renderRateCard(data);
+    } catch (e) { console.error('Error loading rate card', e); }
+}
 
-        const tbody = document.getElementById('cost-analysis-tbody');
-        tbody.innerHTML = '';
+function renderRateCard(data) {
+    allRates = data;
+    const tbody = document.getElementById('cost-analysis-tbody');
+    tbody.innerHTML = '';
+    if (!data.length) { emptyRow('cost-analysis-tbody', 7, '🏷️', 'No rates yet', 'Add a rate or run the migration to seed the researched defaults.'); return; }
+    let sumSav = 0, sumMar = 0;
+    data.forEach((r) => {
+        sumSav += Number(r.savingsPct) || 0;
+        sumMar += Number(r.marginPct) || 0;
+        tbody.innerHTML += `
+            <tr>
+                <td><strong>${r.label}</strong></td>
+                <td class="num">${formatCurrency(r.ourCost)}</td>
+                <td class="num">${formatCurrency(r.ourPrice)}</td>
+                <td class="num">${formatCurrency(r.outsidePrice)}</td>
+                <td class="num" style="color:#10b981;font-weight:600;">${(Number(r.savingsPct) || 0).toFixed(1)}%</td>
+                <td class="num" style="color:var(--primary);font-weight:600;">${(Number(r.marginPct) || 0).toFixed(1)}%</td>
+                <td>
+                    <button class="btn btn-text" onclick="openRateModal(${r.rateId})">Edit</button>
+                    <button class="btn btn-text" style="color:var(--danger)" onclick="deleteRate(${r.rateId})">Del</button>
+                </td>
+            </tr>`;
+    });
+    document.getElementById('rate-stat-count').textContent = data.length;
+    document.getElementById('rate-stat-savings').textContent = `${(data.length ? sumSav / data.length : 0).toFixed(1)}%`;
+    document.getElementById('rate-stat-margin').textContent = `${(data.length ? sumMar / data.length : 0).toFixed(1)}%`;
+}
 
-        let totalMatched = 0;
-        let sumSavingsPct = 0;
-        let maxSavingsPct = 0;
+const SIZECODE_INCH = { '6': 0.25, '8': 0.3125, '10': 0.375, '13': 0.5, '16': 0.625, '19': 0.75, '25': 1.0, '32': 1.25 };
+function rateSyncSizeInch() {
+    const code = document.getElementById('rate-sizecode').value;
+    if (SIZECODE_INCH[code] !== undefined) document.getElementById('rate-sizeinch').value = SIZECODE_INCH[code];
+}
 
-        data.forEach((row) => {
-            const formattedOurMeter = row.matched ? formatCurrency(row.ourPriceMeter) : 'N/A';
-            const formattedOurFoot = row.matched ? formatCurrency(row.ourPriceFoot) : 'N/A';
-            const formattedDiff = row.matched ? formatCurrency(row.diffFoot) : 'N/A';
-            const formattedSavingsPct = row.matched ? row.savingsPct.toFixed(1) + '%' : 'N/A';
-            const badgeClass = row.matched ? 'badge-finalized' : 'badge-low';
-            const badgeText = row.matched ? 'Matched' : 'Not Matched';
-
-            if (row.matched) {
-                totalMatched++;
-                sumSavingsPct += row.savingsPct;
-                if (row.savingsPct > maxSavingsPct) maxSavingsPct = row.savingsPct;
-            }
-
-            tbody.innerHTML += `
-                <tr>
-                    <td><strong>${row.name}</strong></td>
-                    <td class="num">${formattedOurMeter}</td>
-                    <td class="num">${formattedOurFoot}</td>
-                    <td class="num">${formatCurrency(row.outsideCost)}</td>
-                    <td class="num" style="color: ${row.matched && row.diffFoot >= 0 ? 'green' : 'red'}; font-weight: 600;">${formattedDiff}</td>
-                    <td class="num" style="color: ${row.matched && row.savingsPct >= 0 ? 'green' : 'red'}; font-weight: 600;">${formattedSavingsPct}</td>
-                    <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-                </tr>
-            `;
-        });
-
-        const avgSavingsPct = totalMatched > 0 ? sumSavingsPct / totalMatched : 0;
-        document.getElementById('cost-stat-count').textContent = `${totalMatched} / ${data.length}`;
-        document.getElementById('cost-stat-avg').textContent = `${avgSavingsPct.toFixed(1)}%`;
-        document.getElementById('cost-stat-max').textContent = `${maxSavingsPct.toFixed(1)}%`;
-    } catch (e) {
-        console.error('Error loading cost analysis', e);
+function openRateModal(id) {
+    document.getElementById('rateForm').reset();
+    document.getElementById('rate-id').value = '';
+    document.getElementById('rateModalTitle').textContent = 'Add Rate';
+    if (id) {
+        const r = allRates.find((x) => x.rateId === id);
+        if (r) {
+            document.getElementById('rate-id').value = r.rateId;
+            document.getElementById('rate-label').value = r.label || '';
+            document.getElementById('rate-spec').value = r.spec || 'R2';
+            document.getElementById('rate-sizecode').value = r.sizeCode || '13';
+            document.getElementById('rate-sizeinch').value = r.sizeInch || '';
+            document.getElementById('rate-ourcost').value = r.ourCost || 0;
+            document.getElementById('rate-ourprice').value = r.ourPrice || 0;
+            document.getElementById('rate-outside').value = r.outsidePrice || 0;
+            document.getElementById('rateModalTitle').textContent = 'Edit Rate';
+        }
+    } else {
+        rateSyncSizeInch();
     }
+    openModal('rateModal');
+}
+
+async function submitRate(e) {
+    e.preventDefault();
+    const id = document.getElementById('rate-id').value;
+    const payload = {
+        label: document.getElementById('rate-label').value,
+        spec: document.getElementById('rate-spec').value,
+        sizeCode: document.getElementById('rate-sizecode').value,
+        sizeInch: document.getElementById('rate-sizeinch').value,
+        unit: 'ft',
+        ourCost: document.getElementById('rate-ourcost').value,
+        ourPrice: document.getElementById('rate-ourprice').value,
+        outsidePrice: document.getElementById('rate-outside').value,
+    };
+    try {
+        const res = await authFetch(`${API_URL}/ratecard${id ? '/' + id : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Save failed', 'error'); return; }
+        closeModal('rateModal');
+        invalidateCache('ratecard');
+        loadRateCard();
+        toast(id ? 'Rate updated' : 'Rate added', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+async function deleteRate(id) {
+    const ok = await confirmDialog({ title: 'Delete rate?', message: 'Remove this rate from the Rate Card?', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try {
+        const res = await authFetch(`${API_URL}/ratecard/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Delete failed', 'error'); return; }
+        invalidateCache('ratecard');
+        loadRateCard();
+        toast('Rate deleted', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+// ----------------------------------------------------
+// Labour (workers + payments)
+// ----------------------------------------------------
+let allWorkers = [];
+function thisMonth() { return new Date().toISOString().slice(0, 7); }
+
+async function loadLabour() {
+    showSkeleton('labour-tbody', 6, 4);
+    try {
+        const [wRes, lRes] = await Promise.all([authFetch(`${API_URL}/workers`), authFetch(`${API_URL}/labour`)]);
+        const workers = await wRes.json();
+        const labour = await lRes.json();
+        if (!wRes.ok) { toast(workers.error || 'Could not load workers', 'error'); return; }
+        allWorkers = Array.isArray(workers) ? workers : [];
+        renderWorkers(allWorkers);
+        renderLabour(Array.isArray(labour) ? labour : []);
+    } catch (e) { console.error('Error loading labour', e); }
+}
+
+function renderWorkers(workers) {
+    const tb = document.getElementById('workers-tbody');
+    tb.innerHTML = '';
+    if (!workers.length) { emptyRow('workers-tbody', 3, '👷', 'No workers', 'Add your team members.'); }
+    else workers.forEach((w) => {
+        tb.innerHTML += `<tr><td><strong>${w.Name}</strong></td><td>${w.Role || '-'}</td><td><button class="btn btn-text" style="color:var(--danger)" onclick="deleteWorker(${w.WorkerID})">Del</button></td></tr>`;
+    });
+    document.getElementById('labour-stat-workers').textContent = workers.filter((w) => w.Active !== 0).length;
+    // populate labour worker select
+    const sel = document.getElementById('labour-worker');
+    if (sel) sel.innerHTML = '<option value="">— Monthly total (whole team) —</option>' + workers.map((w) => `<option value="${w.WorkerID}">${w.Name}</option>`).join('');
+}
+
+function renderLabour(rows) {
+    const tb = document.getElementById('labour-tbody');
+    tb.innerHTML = '';
+    const month = thisMonth();
+    let monthTotal = 0, allTotal = 0;
+    if (!rows.length) emptyRow('labour-tbody', 6, '💵', 'No labour payments yet', 'Record monthly wages or per-worker payments.');
+    rows.forEach((p) => {
+        const amt = Number(p.Amount) || 0;
+        allTotal += amt;
+        if ((p.PayPeriod || '').startsWith(month)) monthTotal += amt;
+        tb.innerHTML += `
+            <tr>
+                <td>${formatDate(p.PaymentDate)}</td>
+                <td>${p.WorkerName || '<span style="color:var(--text-muted)">Whole team</span>'}</td>
+                <td>${p.PayPeriod || '-'}</td>
+                <td class="num">${formatCurrency(amt)}</td>
+                <td>${p.Method || '-'}</td>
+                <td><button class="btn btn-text" style="color:var(--danger)" onclick="deleteLabour(${p.LabourPaymentID})">Del</button></td>
+            </tr>`;
+    });
+    document.getElementById('labour-stat-month').textContent = formatCurrency(monthTotal);
+    document.getElementById('labour-stat-total').textContent = formatCurrency(allTotal);
+}
+
+function openWorkerModal() { document.getElementById('workerForm').reset(); openModal('workerModal'); }
+async function submitWorker(e) {
+    e.preventDefault();
+    try {
+        const res = await authFetch(`${API_URL}/workers`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: document.getElementById('worker-name').value, role: document.getElementById('worker-role').value }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Save failed', 'error'); return; }
+        closeModal('workerModal'); loadLabour(); toast('Worker added', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+async function deleteWorker(id) {
+    const ok = await confirmDialog({ title: 'Delete worker?', message: 'Their past payments stay in the ledger.', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try { await authFetch(`${API_URL}/workers/${id}`, { method: 'DELETE' }); loadLabour(); toast('Worker deleted', 'success'); }
+    catch (err) { toast(String(err), 'error'); }
+}
+
+function openLabourModal() {
+    document.getElementById('labourForm').reset();
+    document.getElementById('labour-period').value = thisMonth();
+    document.getElementById('labour-date').value = new Date().toISOString().split('T')[0];
+    openModal('labourModal');
+}
+async function submitLabour(e) {
+    e.preventDefault();
+    const payload = {
+        workerId: document.getElementById('labour-worker').value || null,
+        amount: document.getElementById('labour-amount').value,
+        payPeriod: document.getElementById('labour-period').value,
+        paymentDate: document.getElementById('labour-date').value,
+        method: document.getElementById('labour-method').value,
+        notes: document.getElementById('labour-notes').value,
+    };
+    try {
+        const res = await authFetch(`${API_URL}/labour`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Save failed', 'error'); return; }
+        closeModal('labourModal'); loadLabour(); invalidateCache('dashboard'); toast('Labour payment recorded', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+async function deleteLabour(id) {
+    const ok = await confirmDialog({ title: 'Delete payment?', message: 'Remove this labour payment?', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try { await authFetch(`${API_URL}/labour/${id}`, { method: 'DELETE' }); loadLabour(); toast('Payment deleted', 'success'); }
+    catch (err) { toast(String(err), 'error'); }
+}
+
+// ----------------------------------------------------
+// Expenses
+// ----------------------------------------------------
+async function loadExpenses() {
+    showSkeleton('expenses-tbody', 6, 4);
+    try {
+        const res = await authFetch(`${API_URL}/expenses`);
+        const rows = await res.json();
+        if (!res.ok) { toast(rows.error || 'Could not load expenses', 'error'); return; }
+        renderExpenses(Array.isArray(rows) ? rows : []);
+    } catch (e) { console.error('Error loading expenses', e); }
+}
+function renderExpenses(rows) {
+    const tb = document.getElementById('expenses-tbody');
+    tb.innerHTML = '';
+    const month = thisMonth();
+    let monthTotal = 0, allTotal = 0;
+    if (!rows.length) emptyRow('expenses-tbody', 6, '🧾', 'No expenses yet', 'Log rent, electricity, purchases and more.');
+    rows.forEach((x) => {
+        const amt = Number(x.Amount) || 0;
+        allTotal += amt;
+        const d = x.ExpenseDate ? new Date(x.ExpenseDate) : null;
+        if (d && `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === month) monthTotal += amt;
+        tb.innerHTML += `
+            <tr>
+                <td>${formatDate(x.ExpenseDate)}</td>
+                <td><span class="badge badge-ok">${x.Category || 'Other'}</span></td>
+                <td>${x.Notes || '-'}</td>
+                <td>${x.Method || '-'}</td>
+                <td class="num">${formatCurrency(amt)}</td>
+                <td><button class="btn btn-text" style="color:var(--danger)" onclick="deleteExpense(${x.ExpenseID})">Del</button></td>
+            </tr>`;
+    });
+    document.getElementById('exp-stat-month').textContent = formatCurrency(monthTotal);
+    document.getElementById('exp-stat-total').textContent = formatCurrency(allTotal);
+}
+function openExpenseModal() {
+    document.getElementById('expenseForm').reset();
+    document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+    openModal('expenseModal');
+}
+async function submitExpense(e) {
+    e.preventDefault();
+    const payload = {
+        category: document.getElementById('expense-category').value,
+        amount: document.getElementById('expense-amount').value,
+        expenseDate: document.getElementById('expense-date').value,
+        method: document.getElementById('expense-method').value,
+        notes: document.getElementById('expense-notes').value,
+    };
+    try {
+        const res = await authFetch(`${API_URL}/expenses`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Save failed', 'error'); return; }
+        closeModal('expenseModal'); loadExpenses(); toast('Expense saved', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+async function deleteExpense(id) {
+    const ok = await confirmDialog({ title: 'Delete expense?', message: 'Remove this expense from the ledger?', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try { await authFetch(`${API_URL}/expenses/${id}`, { method: 'DELETE' }); loadExpenses(); toast('Expense deleted', 'success'); }
+    catch (err) { toast(String(err), 'error'); }
+}
+
+// ----------------------------------------------------
+// Reports: Monthly P&L + per-invoice profit
+// ----------------------------------------------------
+async function loadReports() {
+    showSkeleton('pl-tbody', 10, 3);
+    showSkeleton('invoice-profit-tbody', 7, 4);
+    try {
+        const [plRes, ipRes] = await Promise.all([authFetch(`${API_URL}/reports/pl`), authFetch(`${API_URL}/reports/invoice-profit`)]);
+        const pl = await plRes.json();
+        const ip = await ipRes.json();
+        if (!plRes.ok) { toast(pl.error || 'Could not load P&L', 'error'); return; }
+        renderPL(pl);
+        renderInvoiceProfit(ip);
+    } catch (e) { console.error('Error loading reports', e); }
+}
+
+function signed(n) {
+    const v = Number(n) || 0;
+    const color = v >= 0 ? '#10b981' : '#ef4444';
+    return `<span style="color:${color};font-weight:600;">${formatCurrency(v)}</span>`;
+}
+
+function renderPL(pl) {
+    const t = pl.totals || {};
+    document.getElementById('pl-stat-revenue').textContent = formatCurrency(t.revenue);
+    document.getElementById('pl-stat-costs').textContent = formatCurrency(t.totalCosts);
+    document.getElementById('pl-stat-net').innerHTML = signed(t.netProfit);
+    document.getElementById('pl-stat-margin').textContent = `${(t.netMarginPct == null ? 0 : t.netMarginPct)}% margin`;
+    document.getElementById('pl-stat-cash').innerHTML = signed(t.cashNet);
+
+    const tb = document.getElementById('pl-tbody');
+    tb.innerHTML = '';
+    const months = pl.months || [];
+    if (!months.length) { emptyRow('pl-tbody', 10, '📈', 'No data yet', 'Finalize invoices and log labour/expenses to see your P&L.'); return; }
+    months.forEach((m) => {
+        tb.innerHTML += `
+            <tr>
+                <td><strong>${m.month}</strong></td>
+                <td class="num">${formatCurrency(m.revenue)}</td>
+                <td class="num">${formatCurrency(m.cogs)}</td>
+                <td class="num">${formatCurrency(m.grossProfit)}</td>
+                <td class="num">${formatCurrency(m.labour)}</td>
+                <td class="num">${formatCurrency(m.expenses)}</td>
+                <td class="num">${signed(m.netProfit)}</td>
+                <td class="num">${m.netMarginPct == null ? '-' : m.netMarginPct + '%'}</td>
+                <td class="num">${formatCurrency(m.paymentsIn)}</td>
+                <td class="num">${formatCurrency(m.cashOut)}</td>
+            </tr>`;
+    });
+}
+
+function renderInvoiceProfit(ip) {
+    const tb = document.getElementById('invoice-profit-tbody');
+    tb.innerHTML = '';
+    const rows = (ip && ip.invoices) || [];
+    if (!rows.length) { emptyRow('invoice-profit-tbody', 7, '🧾', 'No finalized invoices', ''); return; }
+    rows.forEach((r) => {
+        tb.innerHTML += `
+            <tr>
+                <td><strong>${r.invoiceNo}</strong></td>
+                <td>${formatDate(r.invoiceDate)}</td>
+                <td>${r.billedToName || 'Walk-in'}</td>
+                <td class="num">${formatCurrency(r.revenueExTax)}</td>
+                <td class="num">${formatCurrency(r.materialCost)}</td>
+                <td class="num">${signed(r.grossProfit)}</td>
+                <td class="num">${r.grossMarginPct == null ? '-' : r.grossMarginPct + '%'}</td>
+            </tr>`;
+    });
 }
 
 async function loadInvoiceComparisonList() {
@@ -1345,6 +1657,10 @@ async function compareInvoice(id) {
         document.getElementById('compare-stat-outside').textContent = formatCurrency(data.taxes.outsideGrandTotal);
         document.getElementById('compare-stat-savings').textContent = formatCurrency(data.taxes.netSavings);
 
+        const profit = data.profit || {};
+        document.getElementById('compare-stat-profit').textContent = formatCurrency(profit.grossProfit);
+        document.getElementById('compare-stat-profit-pct').textContent = `${profit.grossMarginPct == null ? 0 : profit.grossMarginPct}% margin · cost ${formatCurrency(profit.ourCost)}`;
+
         document.getElementById('compare-tax-sub-our').textContent = formatCurrency(data.taxes.ourSubtotal);
         document.getElementById('compare-tax-sub-out').textContent = formatCurrency(data.taxes.outsideSubtotal);
         document.getElementById('compare-tax-sub-save').textContent = formatCurrency(data.taxes.outsideSubtotal - data.taxes.ourSubtotal);
@@ -1365,16 +1681,16 @@ async function compareInvoice(id) {
         itemsTbody.innerHTML = '';
         data.items.forEach((it) => {
             const savings = it.outsideAmount - it.ourAmount;
+            const profit = (Number(it.ourAmount) || 0) - (Number(it.ourCost) || 0);
             itemsTbody.innerHTML += `
                 <tr>
                     <td><strong>${it.description}</strong></td>
                     <td class="num">${it.qty} ${it.unit}</td>
-                    <td class="num">${formatCurrency(it.ourRate)}</td>
                     <td class="num">${formatCurrency(it.ourAmount)}</td>
-                    <td class="num">${it.outsideQty} ${it.outsideUnit}</td>
-                    <td class="num">${formatCurrency(it.outsideRate)}</td>
-                    <td class="num">${formatCurrency(it.outsideAmount)}</td>
-                    <td class="num" style="color: ${savings >= 0 ? 'green' : 'red'}; font-weight: 600;">${formatCurrency(savings)}</td>
+                    <td class="num">${formatCurrency(it.ourCost)}</td>
+                    <td class="num" style="color: ${profit >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">${formatCurrency(profit)}</td>
+                    <td class="num">${it.matched ? formatCurrency(it.outsideAmount) : '<span style="color:var(--text-muted)">—</span>'}</td>
+                    <td class="num" style="color: ${savings >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">${it.matched ? formatCurrency(savings) : '—'}</td>
                 </tr>
             `;
         });

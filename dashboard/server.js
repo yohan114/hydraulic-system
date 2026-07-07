@@ -10,6 +10,7 @@ const crypto = require('crypto');
 // --- Billing engine & helpers (pure, unit-tested in ./test) ---
 const money = require('./lib/money');
 const billing = require('./lib/billing');
+const finance = require('./lib/finance');
 const invoiceNoLib = require('./lib/invoiceNo');
 const authLib = require('./lib/auth');
 const sql = require('./lib/sql');
@@ -830,6 +831,298 @@ app.post('/api/invoices/:id/payments', async (req, res) => {
 });
 
 // ============================================================
+// Rate Card (editable our-cost / our-price / outside-price per spec+size)
+// ============================================================
+async function loadRateCard() {
+    const rows = await connection.query('SELECT * FROM RateCard ORDER BY Spec, SizeInch');
+    return rows.map((r) => ({
+        rateId: r.RateID,
+        spec: r.Spec,
+        sizeCode: r.SizeCode,
+        sizeInch: money.num(r.SizeInch),
+        label: r.Label,
+        unit: r.Unit || 'ft',
+        ourCost: money.round2(r.OurCost),
+        ourPrice: money.round2(r.OurPrice),
+        outsidePrice: money.round2(r.OutsidePrice),
+    }));
+}
+
+app.get('/api/ratecard', async (req, res) => {
+    try {
+        const rows = await loadRateCard();
+        // Per-unit savings vs outside (%), for the Rate Card / cost-analysis view.
+        const withSavings = rows.map((r) => ({
+            ...r,
+            savingsPerUnit: money.round2(r.outsidePrice - r.ourPrice),
+            savingsPct: r.outsidePrice > 0 ? money.round2(((r.outsidePrice - r.ourPrice) / r.outsidePrice) * 100) : 0,
+            marginPct: r.ourPrice > 0 ? money.round2(((r.ourPrice - r.ourCost) / r.ourPrice) * 100) : 0,
+        }));
+        res.json(withSavings);
+    } catch (err) {
+        res.status(500).json({ error: 'Could not load rate card. Run "npm run migrate" first. ' + err.message });
+    }
+});
+
+app.post('/api/ratecard', async (req, res) => {
+    try {
+        const b = req.body || {};
+        if (!String(b.label || '').trim()) return res.status(400).json({ error: 'Label is required' });
+        await connection.execute(
+            `INSERT INTO RateCard (Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsidePrice, UpdatedAt)
+             VALUES (${sql.q(b.spec)}, ${sql.q(b.sizeCode)}, ${sql.n(b.sizeInch, 0)}, ${sql.q(b.label)}, ${sql.q(b.unit || 'ft')}, ${sql.n(b.ourCost, 0)}, ${sql.n(b.ourPrice, 0)}, ${sql.n(b.outsidePrice, 0)}, Now())`
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/ratecard/:id', async (req, res) => {
+    try {
+        const id = sql.n(req.params.id);
+        const b = req.body || {};
+        await connection.execute(
+            `UPDATE RateCard SET Spec = ${sql.q(b.spec)}, SizeCode = ${sql.q(b.sizeCode)}, SizeInch = ${sql.n(b.sizeInch, 0)}, Label = ${sql.q(b.label)}, Unit = ${sql.q(b.unit || 'ft')}, OurCost = ${sql.n(b.ourCost, 0)}, OurPrice = ${sql.n(b.ourPrice, 0)}, OutsidePrice = ${sql.n(b.outsidePrice, 0)}, UpdatedAt = Now() WHERE RateID = ${id}`
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/ratecard/:id', async (req, res) => {
+    try {
+        await connection.execute(`DELETE FROM RateCard WHERE RateID = ${sql.n(req.params.id)}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// Workers + Labour payments
+// ============================================================
+app.get('/api/workers', async (req, res) => {
+    try {
+        const rows = await connection.query('SELECT * FROM Workers ORDER BY Name');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Could not load workers. Run "npm run migrate" first. ' + err.message });
+    }
+});
+
+app.post('/api/workers', async (req, res) => {
+    try {
+        const b = req.body || {};
+        if (!String(b.name || '').trim()) return res.status(400).json({ error: 'Worker name is required' });
+        await connection.execute(
+            `INSERT INTO Workers (Name, Role, Active, CreatedAt) VALUES (${sql.q(b.name)}, ${sql.q(b.role)}, ${b.active === false ? 0 : 1}, Now())`
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/workers/:id', async (req, res) => {
+    try {
+        const b = req.body || {};
+        await connection.execute(
+            `UPDATE Workers SET Name = ${sql.q(b.name)}, Role = ${sql.q(b.role)}, Active = ${b.active === false ? 0 : 1} WHERE WorkerID = ${sql.n(req.params.id)}`
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/workers/:id', async (req, res) => {
+    try {
+        await connection.execute(`DELETE FROM Workers WHERE WorkerID = ${sql.n(req.params.id)}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/labour', async (req, res) => {
+    try {
+        const rows = await connection.query(
+            `SELECT LabourPayments.*, Workers.Name AS WorkerName
+             FROM LabourPayments LEFT JOIN Workers ON LabourPayments.WorkerID = Workers.WorkerID
+             ORDER BY LabourPayments.PaymentDate DESC, LabourPayments.LabourPaymentID DESC`
+        );
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Could not load labour payments. Run "npm run migrate" first. ' + err.message });
+    }
+});
+
+app.post('/api/labour', async (req, res) => {
+    try {
+        const b = req.body || {};
+        const amount = money.round2(b.amount);
+        if (!(amount > 0)) return res.status(400).json({ error: 'Amount must be greater than zero' });
+        const period = String(b.payPeriod || '').match(/^\d{4}-\d{2}$/) ? b.payPeriod : monthOf(b.paymentDate);
+        const workerId = b.workerId ? sql.n(b.workerId) : 'NULL';
+        await connection.execute(
+            `INSERT INTO LabourPayments (WorkerID, Amount, PayPeriod, PaymentDate, Method, Notes, CreatedAt)
+             VALUES (${workerId}, ${amount}, ${sql.q(period)}, ${sql.dbDate(b.paymentDate) === 'NULL' ? 'Now()' : sql.dbDate(b.paymentDate)}, ${sql.q(b.method || 'Cash')}, ${sql.q(b.notes)}, Now())`
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/labour/:id', async (req, res) => {
+    try {
+        await connection.execute(`DELETE FROM LabourPayments WHERE LabourPaymentID = ${sql.n(req.params.id)}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// Expenses ledger
+// ============================================================
+app.get('/api/expenses', async (req, res) => {
+    try {
+        const rows = await connection.query('SELECT * FROM Expenses ORDER BY ExpenseDate DESC, ExpenseID DESC');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Could not load expenses. Run "npm run migrate" first. ' + err.message });
+    }
+});
+
+app.post('/api/expenses', async (req, res) => {
+    try {
+        const b = req.body || {};
+        const amount = money.round2(b.amount);
+        if (!(amount > 0)) return res.status(400).json({ error: 'Amount must be greater than zero' });
+        await connection.execute(
+            `INSERT INTO Expenses (Category, Amount, ExpenseDate, Method, Notes, CreatedAt)
+             VALUES (${sql.q(b.category || 'Other')}, ${amount}, ${sql.dbDate(b.expenseDate) === 'NULL' ? 'Now()' : sql.dbDate(b.expenseDate)}, ${sql.q(b.method || 'Cash')}, ${sql.q(b.notes)}, Now())`
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/expenses/:id', async (req, res) => {
+    try {
+        await connection.execute(`DELETE FROM Expenses WHERE ExpenseID = ${sql.n(req.params.id)}`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// Reports: per-invoice profit, monthly P&L + cash flow
+// ============================================================
+function monthOf(dateVal) {
+    const d = dateVal ? new Date(dateVal) : new Date();
+    const use = isNaN(d.getTime()) ? new Date() : d;
+    return `${use.getFullYear()}-${String(use.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Finalized invoices with net-of-tax revenue and material cost (COGS).
+async function finalizedProfitRows() {
+    const rows = await connection.query(`
+        SELECT Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName,
+               Invoices.SubTotal, Invoices.Discount, Invoices.GrandTotal,
+               SUM(InvoiceItems.Qty * Inventory.Cost) AS MaterialCost
+        FROM ((Invoices INNER JOIN InvoiceItems ON Invoices.InvoiceID = InvoiceItems.InvoiceID)
+              LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID)
+        WHERE Invoices.Status = 'Finalized'
+        GROUP BY Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName,
+                 Invoices.SubTotal, Invoices.Discount, Invoices.GrandTotal
+        ORDER BY Invoices.InvoiceDate DESC
+    `);
+    return rows.map((r) => {
+        const revenueExTax = money.round2(money.num(r.SubTotal) - money.num(r.Discount));
+        const materialCost = money.round2(r.MaterialCost);
+        const p = finance.jobProfit({ revenueExTax, materialCost });
+        return {
+            invoiceId: r.InvoiceID,
+            invoiceNo: r.InvoiceNo,
+            invoiceDate: r.InvoiceDate,
+            billedToName: r.BilledToName,
+            revenueExTax,
+            materialCost,
+            grossProfit: p.grossProfit,
+            grossMarginPct: p.grossMarginPct,
+            month: monthOf(r.InvoiceDate),
+        };
+    });
+}
+
+app.get('/api/reports/invoice-profit', async (req, res) => {
+    try {
+        const rows = await finalizedProfitRows();
+        const totals = rows.reduce(
+            (a, r) => ({
+                revenueExTax: a.revenueExTax + r.revenueExTax,
+                materialCost: a.materialCost + r.materialCost,
+                grossProfit: a.grossProfit + r.grossProfit,
+            }),
+            { revenueExTax: 0, materialCost: 0, grossProfit: 0 }
+        );
+        res.json({
+            invoices: rows,
+            totals: {
+                revenueExTax: money.round2(totals.revenueExTax),
+                materialCost: money.round2(totals.materialCost),
+                grossProfit: money.round2(totals.grossProfit),
+            },
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Could not compute invoice profit. Ensure the database is migrated. ' + err.message });
+    }
+});
+
+app.get('/api/reports/pl', async (req, res) => {
+    try {
+        const [profitRows, labour, expenses, payments] = await Promise.all([
+            finalizedProfitRows(),
+            connection.query('SELECT Amount, PayPeriod, PaymentDate FROM LabourPayments').catch(() => []),
+            connection.query('SELECT Amount, ExpenseDate FROM Expenses').catch(() => []),
+            connection.query("SELECT Payments.Amount, Payments.PaymentDate FROM Payments").catch(() => []),
+        ]);
+
+        const bucket = {}; // month -> { revenue, cogs, labour, expenses, paymentsIn }
+        const M = (m) => (bucket[m] = bucket[m] || { revenue: 0, cogs: 0, labour: 0, expenses: 0, paymentsIn: 0 });
+
+        profitRows.forEach((r) => { const b = M(r.month); b.revenue += r.revenueExTax; b.cogs += r.materialCost; });
+        labour.forEach((l) => { const m = String(l.PayPeriod || '').match(/^\d{4}-\d{2}$/) ? l.PayPeriod : monthOf(l.PaymentDate); M(m).labour += money.num(l.Amount); });
+        expenses.forEach((e) => { M(monthOf(e.ExpenseDate)).expenses += money.num(e.Amount); });
+        payments.forEach((p) => { M(monthOf(p.PaymentDate)).paymentsIn += money.num(p.Amount); });
+
+        const months = Object.keys(bucket).sort().reverse().map((m) => {
+            const b = bucket[m];
+            const pl = finance.monthlyPL(b);
+            const cf = finance.cashFlow({ paymentsIn: b.paymentsIn, labourOut: b.labour, expensesOut: b.expenses });
+            return { month: m, ...pl, paymentsIn: cf.inflow, cashOut: cf.outflow, cashNet: cf.net };
+        });
+
+        const grand = months.reduce(
+            (a, m) => ({ revenue: a.revenue + m.revenue, cogs: a.cogs + m.cogs, labour: a.labour + m.labour, expenses: a.expenses + m.expenses, paymentsIn: a.paymentsIn + m.paymentsIn }),
+            { revenue: 0, cogs: 0, labour: 0, expenses: 0, paymentsIn: 0 }
+        );
+        const totals = finance.monthlyPL(grand);
+        const totalCash = finance.cashFlow({ paymentsIn: grand.paymentsIn, labourOut: grand.labour, expensesOut: grand.expenses });
+
+        res.json({ months, totals: { ...totals, paymentsIn: totalCash.inflow, cashOut: totalCash.outflow, cashNet: totalCash.net } });
+    } catch (err) {
+        res.status(500).json({ error: 'Could not compute P&L. Ensure the database is migrated. ' + err.message });
+    }
+});
+
+// ============================================================
 // Stock Movements
 // ============================================================
 app.get('/api/movements', async (req, res) => {
@@ -958,76 +1251,27 @@ app.post('/api/inventory/import', upload.single('file'), async (req, res) => {
 });
 
 // ============================================================
-// Cost Comparison Analysis
+// Cost Comparison Analysis (driven by the editable Rate Card)
 // ============================================================
-const costComparisonList = [
-    { name: '1/4" R1', spec: 'R1', size: 0.25, outsideCost: 950 },
-    { name: '5/16" R1', spec: 'R1', size: 0.3125, outsideCost: 1050 },
-    { name: '3/8" R1', spec: 'R1', size: 0.375, outsideCost: 1150 },
-    { name: '1/4" R2', spec: 'R2', size: 0.25, outsideCost: 1200 },
-    { name: '5/16" R2', spec: 'R2', size: 0.3125, outsideCost: 1300 },
-    { name: '3/8" R2', spec: 'R2', size: 0.375, outsideCost: 1400 },
-    { name: '1/2" R2', spec: 'R2', size: 0.5, outsideCost: 1600 },
-    { name: '5/8" R2', spec: 'R2', size: 0.625, outsideCost: 1950 },
-    { name: '3/4" R2', spec: 'R2', size: 0.75, outsideCost: 2300 },
-    { name: '1" R2', spec: 'R2', size: 1.0, outsideCost: 3000 },
-    { name: '1-1/4" R2', spec: 'R2', size: 1.25, outsideCost: 3950 },
-    { name: '5/8" 4SP', spec: '4SP', size: 0.625, outsideCost: 2900 },
-    { name: '3/4" 4SH', spec: '4SH', size: 0.75, outsideCost: 3800 },
-    { name: '1" 4SH', spec: '4SH', size: 1.0, outsideCost: 4700 },
-    { name: '1-1/4" 4SH', spec: '4SH', size: 1.25, outsideCost: 5900 },
-];
 
-async function getCostComparison(connection) {
-    const inventory = await connection.query("SELECT * FROM Inventory WHERE ProductName LIKE '%Rubber pipe%'");
-
-    return costComparisonList.map((item) => {
-        const match = inventory.find((inv) => {
-            const nameUpper = (inv.ProductName || '').toUpperCase();
-            const invSize = parseFloat(inv.Size) || 0;
-            return nameUpper.includes(item.spec) && Math.abs(invSize - item.size) < 0.001;
-        });
-
-        const ourPriceMeter = match ? parseFloat(match.Price || 0) : 0;
-        const ourPriceFoot = parseFloat((ourPriceMeter / 3.28084).toFixed(2));
-        const diffFoot = parseFloat((item.outsideCost - ourPriceFoot).toFixed(2));
-        const savingsPct = item.outsideCost > 0 ? parseFloat(((diffFoot / item.outsideCost) * 100).toFixed(1)) : 0;
-
+// Per-foot comparison table straight from the Rate Card, with savings/margin.
+async function getCostComparison() {
+    const rates = await loadRateCard();
+    return rates.map((r) => {
+        const diffFoot = money.round2(r.outsidePrice - r.ourPrice);
+        const savingsPct = r.outsidePrice > 0 ? money.round2((diffFoot / r.outsidePrice) * 100) : 0;
         return {
-            name: item.name,
-            spec: item.spec,
-            size: item.size,
-            ourPriceMeter: ourPriceMeter,
-            ourPriceFoot: ourPriceFoot,
-            outsideCost: item.outsideCost,
-            diffFoot: diffFoot,
-            savingsPct: savingsPct,
-            matched: !!match,
+            name: r.label,
+            spec: r.spec,
+            size: r.sizeInch,
+            ourCostFoot: r.ourCost,
+            ourPriceFoot: r.ourPrice,
+            outsideCost: r.outsidePrice,
+            diffFoot,
+            savingsPct,
+            matched: true,
         };
     });
-}
-
-function matchInvoiceItemToOutsideCost(productName, specCode) {
-    if (!productName || !specCode) return null;
-
-    const nameUpper = productName.toUpperCase();
-    let spec = null;
-    if (nameUpper.includes('R1')) spec = 'R1';
-    else if (nameUpper.includes('R2')) spec = 'R2';
-    else if (nameUpper.includes('4SP')) spec = '4SP';
-    else if (nameUpper.includes('4SH')) spec = '4SH';
-
-    if (!spec) return null;
-
-    const sizeMap = {
-        '6': 0.25, '8': 0.3125, '10': 0.375, '13': 0.5,
-        '16': 0.625, '19': 0.75, '25': 1.0, '32': 1.25,
-    };
-
-    const size = sizeMap[specCode.toString().trim()];
-    if (size === undefined) return null;
-
-    return costComparisonList.find((c) => c.spec === spec && Math.abs(c.size - size) < 0.001);
 }
 
 app.get('/api/invoices/:id/compare', async (req, res) => {
@@ -1037,33 +1281,29 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
         if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found' });
 
         const items = await connection.query(`
-            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode
+            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
             FROM InvoiceItems
             LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
+        const rates = await loadRateCard();
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
+        let ourCostSubtotal = 0;
 
         const comparedItems = items.map((item) => {
-            const ourAmt = parseFloat(item.Amount || 0);
+            const ourAmt = money.num(item.Amount);
             ourSubtotal += ourAmt;
 
-            const match = matchInvoiceItemToOutsideCost(item.ProductName, item.SpecificationCode);
-            let outsideAmt = 0;
-            let outsideRate = 0;
-            let matched = false;
+            const rate = finance.matchRate(rates, { productName: item.ProductName, specCode: item.SpecificationCode });
+            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt }, rate);
+            // Our cost: from the rate card when the hose is matched, otherwise
+            // fall back to the stocked item's unit cost × qty.
+            const ourCostAmt = cmp.matched ? cmp.ourCost : money.round2(money.num(item.Qty) * money.num(item.Cost));
 
-            if (match) {
-                const qtyMeters = parseFloat(item.Qty || 0);
-                const lengthFeet = qtyMeters * 3.28084;
-                outsideAmt = parseFloat((lengthFeet * match.outsideCost).toFixed(2));
-                outsideRate = match.outsideCost;
-                matched = true;
-            }
-
-            outsideSubtotal += outsideAmt;
+            outsideSubtotal += cmp.outsidePrice;
+            ourCostSubtotal += ourCostAmt;
 
             return {
                 description: item.ItemDescription,
@@ -1071,27 +1311,30 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
                 qty: item.Qty,
                 ourRate: item.Rate,
                 ourAmount: ourAmt,
-                outsideRate: outsideRate,
-                outsideAmount: outsideAmt,
-                matched: matched,
-                outsideUnit: matched ? 'ft' : item.Unit,
-                outsideQty: matched ? parseFloat((item.Qty * 3.28084).toFixed(2)) : item.Qty,
+                ourCost: ourCostAmt,
+                outsideRate: rate ? rate.outsidePrice : 0,
+                outsideAmount: cmp.outsidePrice,
+                matched: cmp.matched,
+                outsideUnit: cmp.matched ? 'ft' : item.Unit,
+                outsideQty: cmp.matched ? cmp.feet : item.Qty,
             };
         });
 
-        const ssclRate = parseFloat(invoice[0].SSCLRate || 0);
-        const vatRate = parseFloat(invoice[0].VATRate || 0);
+        ourSubtotal = money.round2(ourSubtotal);
+        outsideSubtotal = money.round2(outsideSubtotal);
+        ourCostSubtotal = money.round2(ourCostSubtotal);
 
-        const ourSscl = parseFloat((ourSubtotal * (ssclRate / 100)).toFixed(2));
-        const ourPreVat = ourSubtotal + ourSscl;
-        const ourVat = parseFloat((ourPreVat * (vatRate / 100)).toFixed(2));
-        const ourGrandTotal = ourPreVat + ourVat;
-
-        const outsideSscl = 0;
-        const outsideVat = 0;
+        const ssclRate = money.num(invoice[0].SSCLRate);
+        const vatRate = money.num(invoice[0].VATRate);
+        const ourSscl = money.round2(ourSubtotal * (ssclRate / 100));
+        const ourPreVat = money.round2(ourSubtotal + ourSscl);
+        const ourVat = money.round2(ourPreVat * (vatRate / 100));
+        const ourGrandTotal = money.round2(ourPreVat + ourVat);
         const outsideGrandTotal = outsideSubtotal;
+        const netSavings = money.round2(outsideGrandTotal - ourGrandTotal);
 
-        const netSavings = parseFloat((outsideGrandTotal - ourGrandTotal).toFixed(2));
+        // Our profit on this job = net-of-tax revenue − our cost of materials.
+        const profit = finance.jobProfit({ revenueExTax: ourSubtotal, materialCost: ourCostSubtotal });
 
         res.json({
             invoiceNo: invoice[0].InvoiceNo,
@@ -1100,15 +1343,21 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
             taxes: {
                 ssclRate,
                 vatRate,
-                ourSubtotal: parseFloat(ourSubtotal.toFixed(2)),
+                ourSubtotal,
                 ourSscl,
                 ourVat,
-                ourGrandTotal: parseFloat(ourGrandTotal.toFixed(2)),
-                outsideSubtotal: parseFloat(outsideSubtotal.toFixed(2)),
-                outsideSscl,
-                outsideVat,
-                outsideGrandTotal: parseFloat(outsideGrandTotal.toFixed(2)),
+                ourGrandTotal,
+                outsideSubtotal,
+                outsideSscl: 0,
+                outsideVat: 0,
+                outsideGrandTotal,
                 netSavings,
+            },
+            profit: {
+                ourCost: ourCostSubtotal,
+                revenue: ourSubtotal,
+                grossProfit: profit.grossProfit,
+                grossMarginPct: profit.grossMarginPct,
             },
             items: comparedItems,
         });
@@ -1125,33 +1374,26 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
         if (invoice.length === 0) return res.status(404).send('Invoice not found');
 
         const items = await connection.query(`
-            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode
+            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
             FROM InvoiceItems
             LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
+        const rates = await loadRateCard();
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
+        let ourCostSubtotal = 0;
 
         const excelRows = items.map((item, idx) => {
-            const ourAmt = parseFloat(item.Amount || 0);
+            const ourAmt = money.num(item.Amount);
             ourSubtotal += ourAmt;
 
-            const match = matchInvoiceItemToOutsideCost(item.ProductName, item.SpecificationCode);
-            let outsideAmt = 0;
-            let outsideRate = 0;
-            let matched = false;
-
-            if (match) {
-                const qtyMeters = parseFloat(item.Qty || 0);
-                const lengthFeet = qtyMeters * 3.28084;
-                outsideAmt = parseFloat((lengthFeet * match.outsideCost).toFixed(2));
-                outsideRate = match.outsideCost;
-                matched = true;
-            }
-
-            outsideSubtotal += outsideAmt;
+            const rate = finance.matchRate(rates, { productName: item.ProductName, specCode: item.SpecificationCode });
+            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt }, rate);
+            const ourCostAmt = cmp.matched ? cmp.ourCost : money.round2(money.num(item.Qty) * money.num(item.Cost));
+            outsideSubtotal += cmp.outsidePrice;
+            ourCostSubtotal += ourCostAmt;
 
             return {
                 '#': String(idx + 1).padStart(2, '0'),
@@ -1160,29 +1402,36 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
                 'Our Unit': item.Unit,
                 'Our Rate (Rs.)': item.Rate,
                 'Our Amount (Rs.)': ourAmt,
-                'Outside Qty': matched ? parseFloat((item.Qty * 3.28084).toFixed(2)) : item.Qty,
-                'Outside Unit': matched ? 'ft' : item.Unit,
-                'Outside Rate (Rs.)': outsideRate,
-                'Outside Amount (Rs.)': outsideAmt,
-                'Savings (Rs.)': parseFloat((outsideAmt - ourAmt).toFixed(2)),
+                'Our Cost (Rs.)': ourCostAmt,
+                'Job Profit (Rs.)': money.round2(ourAmt - ourCostAmt),
+                'Outside Qty': cmp.matched ? cmp.feet : item.Qty,
+                'Outside Unit': cmp.matched ? 'ft' : item.Unit,
+                'Outside Rate (Rs.)': rate ? rate.outsidePrice : 0,
+                'Outside Amount (Rs.)': cmp.outsidePrice,
+                'Savings (Rs.)': money.round2(cmp.outsidePrice - ourAmt),
             };
         });
 
-        const ssclRate = parseFloat(invoice[0].SSCLRate || 0);
-        const vatRate = parseFloat(invoice[0].VATRate || 0);
+        ourSubtotal = money.round2(ourSubtotal);
+        outsideSubtotal = money.round2(outsideSubtotal);
+        ourCostSubtotal = money.round2(ourCostSubtotal);
 
-        const ourSscl = parseFloat((ourSubtotal * (ssclRate / 100)).toFixed(2));
-        const ourVat = parseFloat(((ourSubtotal + ourSscl) * (vatRate / 100)).toFixed(2));
-        const ourGrand = ourSubtotal + ourSscl + ourVat;
+        const ssclRate = money.num(invoice[0].SSCLRate);
+        const vatRate = money.num(invoice[0].VATRate);
+
+        const ourSscl = money.round2(ourSubtotal * (ssclRate / 100));
+        const ourVat = money.round2((ourSubtotal + ourSscl) * (vatRate / 100));
+        const ourGrand = money.round2(ourSubtotal + ourSscl + ourVat);
 
         const outsideSscl = 0;
         const outsideVat = 0;
         const outsideGrand = outsideSubtotal;
 
-        const netSavings = outsideGrand - ourGrand;
+        const netSavings = money.round2(outsideGrand - ourGrand);
 
         excelRows.push({});
-        excelRows.push({ 'Description': 'SUBTOTAL', 'Our Amount (Rs.)': ourSubtotal, 'Outside Amount (Rs.)': outsideSubtotal, 'Savings (Rs.)': outsideSubtotal - ourSubtotal });
+        excelRows.push({ 'Description': 'OUR COST', 'Our Cost (Rs.)': ourCostSubtotal, 'Job Profit (Rs.)': money.round2(ourSubtotal - ourCostSubtotal) });
+        excelRows.push({ 'Description': 'SUBTOTAL', 'Our Amount (Rs.)': ourSubtotal, 'Outside Amount (Rs.)': outsideSubtotal, 'Savings (Rs.)': money.round2(outsideSubtotal - ourSubtotal) });
         excelRows.push({ 'Description': `SSCL (${ssclRate}%)`, 'Our Amount (Rs.)': ourSscl, 'Outside Amount (Rs.)': outsideSscl, 'Savings (Rs.)': outsideSscl - ourSscl });
         excelRows.push({ 'Description': `VAT (${vatRate}%)`, 'Our Amount (Rs.)': ourVat, 'Outside Amount (Rs.)': outsideVat, 'Savings (Rs.)': outsideVat - ourVat });
         excelRows.push({ 'Description': 'GRAND TOTAL', 'Our Amount (Rs.)': ourGrand, 'Outside Amount (Rs.)': outsideGrand, 'Savings (Rs.)': netSavings });
@@ -1214,7 +1463,7 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
 
 app.get('/api/costs/compare', async (req, res) => {
     try {
-        const data = await getCostComparison(connection);
+        const data = await getCostComparison();
         res.json(data);
     } catch (err) {
         console.error(err);
@@ -1224,14 +1473,14 @@ app.get('/api/costs/compare', async (req, res) => {
 
 app.get('/api/costs/export', async (req, res) => {
     try {
-        const data = await getCostComparison(connection);
+        const data = await getCostComparison();
 
         const excelData = data.map((row) => ({
             'Hose Specification': row.name,
-            'Our Cost (per Meter)': row.ourPriceMeter,
-            'Our Cost (per Foot)': row.ourPriceFoot,
-            'Outside Cost (per Foot)': row.outsideCost,
-            'Savings (per Foot)': row.diffFoot,
+            'Our Cost (per Foot)': row.ourCostFoot,
+            'Our Price (per Foot)': row.ourPriceFoot,
+            'Outside Price (per Foot)': row.outsideCost,
+            'Customer Savings (per Foot)': row.diffFoot,
             'Savings (%)': row.savingsPct + '%',
         }));
 

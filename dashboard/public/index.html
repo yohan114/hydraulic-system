@@ -83,10 +83,19 @@
                     <i class="ri-file-excel-line"></i> Export Invoices
                 </a>
                 <a href="#" class="nav-item" data-target="cost-analysis">
-                    <i class="ri-pie-chart-line"></i> Cost Analysis
+                    <i class="ri-price-tag-3-line"></i> Rate Card
                 </a>
                 <a href="#" class="nav-item" data-target="invoice-comparison">
                     <i class="ri-scales-line"></i> Invoice Comparison
+                </a>
+                <a href="#" class="nav-item" data-target="labour">
+                    <i class="ri-team-line"></i> Labour
+                </a>
+                <a href="#" class="nav-item" data-target="expenses">
+                    <i class="ri-wallet-3-line"></i> Expenses
+                </a>
+                <a href="#" class="nav-item" data-target="reports">
+                    <i class="ri-line-chart-line"></i> Profit &amp; Loss
                 </a>
             </nav>
             <div class="sidebar-footer" id="sidebarFooter" style="display:none;">
@@ -443,63 +452,108 @@
                     </div>
                 </section>
 
-                <!-- Cost Analysis Section -->
+                <!-- Rate Card Section (editable) -->
                 <section id="cost-analysis" class="page-section no-print">
                     <div class="section-header">
-                        <h2>Cost Comparison Dashboard</h2>
+                        <h2>Rate Card</h2>
                         <div class="header-actions">
-                            <button class="btn btn-primary" onclick="exportCostComparison()">
-                                <i class="ri-file-excel-line"></i> Export Comparison Excel
-                            </button>
+                            <button class="btn btn-secondary" onclick="exportCostComparison()"><i class="ri-file-excel-line"></i> Export</button>
+                            <button class="btn btn-primary" onclick="openRateModal()"><i class="ri-add-line"></i> Add Rate</button>
                         </div>
                     </div>
-                    
-                    <!-- Stats Grid for Cost Analysis -->
+                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px; max-width: 780px;">
+                        All prices are <strong>per foot, in LKR</strong>. Edit these from your real supplier quotes so the comparison and profit figures are exact. Seed values are researched market benchmarks — <em>not fixed</em>.
+                    </p>
                     <div class="stats-grid" style="margin-bottom: 24px;">
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">
-                                <i class="ri-git-compare-line"></i>
-                            </div>
-                            <div class="stat-details">
-                                <h3>Hoses Compared</h3>
-                                <p id="cost-stat-count">0 / 15</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
-                                <i class="ri-percent-line"></i>
-                            </div>
-                            <div class="stat-details">
-                                <h3>Average Savings</h3>
-                                <p id="cost-stat-avg">0.0%</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
-                                <i class="ri-trophy-line"></i>
-                            </div>
-                            <div class="stat-details">
-                                <h3>Max Savings</h3>
-                                <p id="cost-stat-max">0.0%</p>
-                            </div>
-                        </div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(59,130,246,0.1); color:#3b82f6;"><i class="ri-list-check-2"></i></div><div class="stat-details"><h3>Rates on File</h3><p id="rate-stat-count">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-percent-line"></i></div><div class="stat-details"><h3>Avg Customer Savings</h3><p id="rate-stat-savings">0.0%</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-funds-line"></i></div><div class="stat-details"><h3>Avg Our Margin</h3><p id="rate-stat-margin">0.0%</p></div></div>
                     </div>
-
                     <div class="card">
                         <div class="table-responsive">
                             <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Specification / Size</th>
-                                        <th class="num">Our Price (per Meter)</th>
-                                        <th class="num">Our Cost (per Foot)</th>
-                                        <th class="num">Outside Cost (per Foot)</th>
-                                        <th class="num">Absolute Savings (per Foot)</th>
-                                        <th class="num">Savings (%)</th>
-                                        <th>Status</th>
+                                        <th>Spec / Size</th>
+                                        <th class="num">Our Cost /ft</th>
+                                        <th class="num">Our Price /ft</th>
+                                        <th class="num">Outside /ft</th>
+                                        <th class="num">Cust. Savings</th>
+                                        <th class="num">Our Margin</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="cost-analysis-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Labour Section -->
+                <section id="labour" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Labour</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="openWorkerModal()"><i class="ri-user-add-line"></i> Add Worker</button>
+                            <button class="btn btn-primary" onclick="openLabourModal()"><i class="ri-add-line"></i> Record Payment</button>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(59,130,246,0.1); color:#3b82f6;"><i class="ri-team-line"></i></div><div class="stat-details"><h3>Active Workers</h3><p id="labour-stat-workers">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(220,38,38,0.1); color:#dc2626;"><i class="ri-money-dollar-circle-line"></i></div><div class="stat-details"><h3>Paid This Month</h3><p id="labour-stat-month" style="font-size:22px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-history-line"></i></div><div class="stat-details"><h3>Total Paid</h3><p id="labour-stat-total" style="font-size:22px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 320px 1fr; gap:24px; align-items:start;">
+                        <div class="card" style="padding:0;">
+                            <div class="widget-header" style="padding:16px 20px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Workers</h2></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>Name</th><th>Role</th><th></th></tr></thead><tbody id="workers-tbody"></tbody></table></div>
+                        </div>
+                        <div class="card" style="padding:0;">
+                            <div class="widget-header" style="padding:16px 20px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Labour Payments</h2></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Worker</th><th>Period</th><th class="num">Amount</th><th>Method</th><th></th></tr></thead><tbody id="labour-tbody"></tbody></table></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Expenses Section -->
+                <section id="expenses" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Expenses</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" onclick="openExpenseModal()"><i class="ri-add-line"></i> Add Expense</button>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(220,38,38,0.1); color:#dc2626;"><i class="ri-receipt-line"></i></div><div class="stat-details"><h3>Spent This Month</h3><p id="exp-stat-month" style="font-size:22px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-archive-line"></i></div><div class="stat-details"><h3>Total Expenses</h3><p id="exp-stat-total" style="font-size:22px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div class="card"><div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Category</th><th>Notes</th><th>Method</th><th class="num">Amount</th><th></th></tr></thead><tbody id="expenses-tbody"></tbody></table></div></div>
+                </section>
+
+                <!-- Reports / P&L Section -->
+                <section id="reports" class="page-section no-print">
+                    <div class="section-header"><h2>Profit &amp; Loss</h2></div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-arrow-up-circle-line"></i></div><div class="stat-details"><h3>Revenue (ex-tax)</h3><p id="pl-stat-revenue" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-shopping-bag-line"></i></div><div class="stat-details"><h3>Costs (COGS+Labour+Exp)</h3><p id="pl-stat-costs" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(37,99,235,0.1); color:var(--primary);"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Net Profit</h3><p id="pl-stat-net" style="font-size:20px;">Rs. 0.00</p><span id="pl-stat-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-wallet-3-line"></i></div><div class="stat-details"><h3>Net Cash Flow</h3><p id="pl-stat-cash" style="font-size:20px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Monthly Profit &amp; Loss</h2></div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">Gross</th><th class="num">Labour</th><th class="num">Expenses</th><th class="num">Net Profit</th><th class="num">Margin</th><th class="num">Cash In</th><th class="num">Cash Out</th></tr></thead>
+                                <tbody id="pl-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Per-Invoice Profit</h2></div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Revenue (ex-tax)</th><th class="num">Material Cost</th><th class="num">Gross Profit</th><th class="num">Margin</th></tr></thead>
+                                <tbody id="invoice-profit-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -579,12 +633,22 @@
                                         <i class="ri-wallet-line"></i>
                                     </div>
                                     <div class="stat-details">
-                                        <h3 style="font-size: 12px;">Net Savings (VAT Inc.)</h3>
+                                        <h3 style="font-size: 12px;">Customer Savings vs Outside</h3>
                                         <p id="compare-stat-savings" style="font-size: 20px; font-weight: 700; color: #10b981;">Rs. 0.00</p>
                                     </div>
                                 </div>
+                                <div class="stat-card" style="padding: 16px 20px;">
+                                    <div class="stat-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--primary);">
+                                        <i class="ri-funds-line"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h3 style="font-size: 12px;">Our Profit (Revenue − Cost)</h3>
+                                        <p id="compare-stat-profit" style="font-size: 20px; font-weight: 700; color: var(--primary);">Rs. 0.00</p>
+                                        <span id="compare-stat-profit-pct" style="font-size:12px;color:var(--text-muted);">0% margin</span>
+                                    </div>
+                                </div>
                             </div>
-                            
+
                             <!-- Tax Comparison Block -->
                             <div class="card" style="padding: 24px;">
                                 <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
@@ -639,10 +703,9 @@
                                             <tr>
                                                 <th>Description</th>
                                                 <th class="num">Billed Qty</th>
-                                                <th class="num">Our Price</th>
                                                 <th class="num">Our Total</th>
-                                                <th class="num">Outside Qty</th>
-                                                <th class="num">Outside Price</th>
+                                                <th class="num">Our Cost</th>
+                                                <th class="num">Profit</th>
                                                 <th class="num">Outside Total</th>
                                                 <th class="num">Savings</th>
                                             </tr>
@@ -828,6 +891,121 @@
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('changePasswordModal')">Cancel</button>
                         <button type="submit" class="btn btn-primary">Update Password</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Card Modal -->
+    <div id="rateModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="rateModalTitle">Add Rate</h2>
+                <button class="close-btn" onclick="closeModal('rateModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="rateForm" onsubmit="submitRate(event)">
+                    <input type="hidden" id="rate-id">
+                    <div class="form-group row">
+                        <div class="col"><label>Label</label><input type="text" id="rate-label" class="form-control" placeholder='e.g. 1/2" R2' required></div>
+                        <div class="col"><label>Spec</label>
+                            <select id="rate-spec" class="form-control"><option>R1</option><option>R2</option><option>4SP</option><option>4SH</option></select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Size Code (mm bore)</label>
+                            <select id="rate-sizecode" class="form-control" onchange="rateSyncSizeInch()">
+                                <option value="6">6 (1/4")</option><option value="8">8 (5/16")</option><option value="10">10 (3/8")</option>
+                                <option value="13">13 (1/2")</option><option value="16">16 (5/8")</option><option value="19">19 (3/4")</option>
+                                <option value="25">25 (1")</option><option value="32">32 (1-1/4")</option>
+                            </select>
+                        </div>
+                        <div class="col"><label>Size (inch)</label><input type="number" id="rate-sizeinch" class="form-control" step="0.0001"></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Our Cost /ft (Rs.)</label><input type="number" id="rate-ourcost" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Our Price /ft (Rs.)</label><input type="number" id="rate-ourprice" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Outside /ft (Rs.)</label><input type="number" id="rate-outside" class="form-control" step="0.01" value="0"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('rateModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Rate</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Worker Modal -->
+    <div id="workerModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header"><h2 id="workerModalTitle">Add Worker</h2><button class="close-btn" onclick="closeModal('workerModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="workerForm" onsubmit="submitWorker(event)">
+                    <input type="hidden" id="worker-id">
+                    <div class="form-group"><label>Name</label><input type="text" id="worker-name" class="form-control" required></div>
+                    <div class="form-group"><label>Role (optional)</label><input type="text" id="worker-role" class="form-control" placeholder="e.g. Technician"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('workerModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Worker</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Labour Payment Modal -->
+    <div id="labourModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header"><h2>Record Labour Payment</h2><button class="close-btn" onclick="closeModal('labourModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="labourForm" onsubmit="submitLabour(event)">
+                    <div class="form-group"><label>Worker</label>
+                        <select id="labour-worker" class="form-control"><option value="">— Monthly total (whole team) —</option></select>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Amount (Rs.)</label><input type="number" id="labour-amount" class="form-control" step="0.01" min="0.01" required></div>
+                        <div class="col"><label>Pay Period</label><input type="month" id="labour-period" class="form-control"></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Date</label><input type="date" id="labour-date" class="form-control"></div>
+                        <div class="col"><label>Method</label>
+                            <select id="labour-method" class="form-control"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Notes (optional)</label><input type="text" id="labour-notes" class="form-control"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('labourModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expense Modal -->
+    <div id="expenseModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header"><h2>Add Expense</h2><button class="close-btn" onclick="closeModal('expenseModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="expenseForm" onsubmit="submitExpense(event)">
+                    <div class="form-group row">
+                        <div class="col"><label>Category</label>
+                            <select id="expense-category" class="form-control"><option>Purchases</option><option>Rent</option><option>Electricity</option><option>Water</option><option>Tools</option><option>Transport</option><option>Other</option></select>
+                        </div>
+                        <div class="col"><label>Amount (Rs.)</label><input type="number" id="expense-amount" class="form-control" step="0.01" min="0.01" required></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Date</label><input type="date" id="expense-date" class="form-control"></div>
+                        <div class="col"><label>Method</label>
+                            <select id="expense-method" class="form-control"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Credit</option></select>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Notes (optional)</label><input type="text" id="expense-notes" class="form-control"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('expenseModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Expense</button>
                     </div>
                 </form>
             </div>
