@@ -10,17 +10,23 @@
  */
 
 const crypto = require('crypto');
+const { promisify } = require('util');
 
 const SCRYPT_KEYLEN = 64;
+
+// Async scrypt so password derivation runs on the libuv thread pool instead of
+// blocking the single Node event loop (a burst of login attempts must not be
+// able to stall the whole server).
+const scryptAsync = promisify(crypto.scrypt);
 
 /**
  * Hash a password with a random per-password salt using scrypt.
  * @param {string} password
- * @returns {string} encoded as "scrypt$<saltHex>$<hashHex>"
+ * @returns {Promise<string>} encoded as "scrypt$<saltHex>$<hashHex>"
  */
-function hashPassword(password) {
+async function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(String(password), salt, SCRYPT_KEYLEN).toString('hex');
+  const hash = (await scryptAsync(String(password), salt, SCRYPT_KEYLEN)).toString('hex');
   return `scrypt$${salt}$${hash}`;
 }
 
@@ -28,16 +34,16 @@ function hashPassword(password) {
  * Verify a password against a stored hash in constant time.
  * @param {string} password
  * @param {string} stored value produced by {@link hashPassword}
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function verifyPassword(password, stored) {
+async function verifyPassword(password, stored) {
   if (typeof stored !== 'string') return false;
   const parts = stored.split('$');
   if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
   const [, salt, hashHex] = parts;
   let derived;
   try {
-    derived = crypto.scryptSync(String(password), salt, SCRYPT_KEYLEN);
+    derived = await scryptAsync(String(password), salt, SCRYPT_KEYLEN);
   } catch {
     return false;
   }

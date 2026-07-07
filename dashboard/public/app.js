@@ -49,11 +49,28 @@ async function authFetch(url, opts = {}) {
     return res;
 }
 
-// Build a GET URL for downloads (which cannot send an Authorization header).
-function exportUrl(path) {
-    let url = `${API_URL}${path}`;
-    if (authToken) url += (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(authToken);
-    return url;
+// Download an export through authFetch (so an expired token shows the login
+// screen instead of navigating the whole app to a raw 401 JSON page) and save
+// the resulting blob. Keeps the token in the Authorization header, never a URL.
+async function downloadExport(path, fallbackName) {
+    try {
+        const res = await authFetch(`${API_URL}${path}`);
+        if (!res.ok) { alert('Export failed. Please try again.'); return; }
+        const blob = await res.blob();
+        const cd = res.headers.get('Content-Disposition') || '';
+        const m = /filename="?([^"]+)"?/.exec(cd);
+        const filename = (m && m[1]) || fallbackName || 'export.xlsx';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        // authFetch already surfaced the login overlay on a 401.
+    }
 }
 
 // Initialize
@@ -1026,11 +1043,11 @@ async function loadTransactions() {
 // ----------------------------------------------------
 // Import & Export
 // ----------------------------------------------------
-function exportInventory() { window.location.href = exportUrl('/inventory/export'); }
-function exportAllInvoices() { window.location.href = exportUrl('/invoices/export'); }
-function exportCostComparison() { window.location.href = exportUrl('/costs/export'); }
-function exportStockMovements() { window.location.href = exportUrl('/movements/export'); }
-function exportInvoiceComparison(invoiceId) { window.location.href = exportUrl(`/invoices/${invoiceId}/compare-export`); }
+function exportInventory() { downloadExport('/inventory/export', 'Inventory_Export.xlsx'); }
+function exportAllInvoices() { downloadExport('/invoices/export', 'Invoices_Export.xlsx'); }
+function exportCostComparison() { downloadExport('/costs/export', 'Cost_Comparison.xlsx'); }
+function exportStockMovements() { downloadExport('/movements/export', 'Stock_Movements_Export.xlsx'); }
+function exportInvoiceComparison(invoiceId) { downloadExport(`/invoices/${invoiceId}/compare-export`, 'Invoice_Comparison.xlsx'); }
 
 async function loadExportStats() {
     try {

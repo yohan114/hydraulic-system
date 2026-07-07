@@ -4,23 +4,23 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { hashPassword, verifyPassword, createToken, verifyToken } = require('../lib/auth');
 
-test('password hashing round-trips and rejects wrong passwords', () => {
-  const stored = hashPassword('s3cret-pw');
+test('password hashing round-trips and rejects wrong passwords', async () => {
+  const stored = await hashPassword('s3cret-pw');
   assert.match(stored, /^scrypt\$[0-9a-f]+\$[0-9a-f]+$/);
-  assert.equal(verifyPassword('s3cret-pw', stored), true);
-  assert.equal(verifyPassword('wrong', stored), false);
-  assert.equal(verifyPassword('', stored), false);
+  assert.equal(await verifyPassword('s3cret-pw', stored), true);
+  assert.equal(await verifyPassword('wrong', stored), false);
+  assert.equal(await verifyPassword('', stored), false);
 });
 
-test('each hash uses a fresh salt', () => {
-  assert.notEqual(hashPassword('same'), hashPassword('same'));
+test('each hash uses a fresh salt', async () => {
+  assert.notEqual(await hashPassword('same'), await hashPassword('same'));
 });
 
-test('verifyPassword tolerates malformed stored values', () => {
-  assert.equal(verifyPassword('x', 'garbage'), false);
-  assert.equal(verifyPassword('x', ''), false);
-  assert.equal(verifyPassword('x', null), false);
-  assert.equal(verifyPassword('x', 'scrypt$only-two'), false);
+test('verifyPassword tolerates malformed stored values', async () => {
+  assert.equal(await verifyPassword('x', 'garbage'), false);
+  assert.equal(await verifyPassword('x', ''), false);
+  assert.equal(await verifyPassword('x', null), false);
+  assert.equal(await verifyPassword('x', 'scrypt$only-two'), false);
 });
 
 test('token round-trips with claims', () => {

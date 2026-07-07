@@ -99,7 +99,7 @@ async function checkCredentials(username, password) {
                 `SELECT PasswordHash FROM Users WHERE Username = ${sql.q(uname)}`
             );
             if (rows.length > 0 && rows[0].PasswordHash) {
-                return { ok: authLib.verifyPassword(password, rows[0].PasswordHash), username: uname };
+                return { ok: await authLib.verifyPassword(password, rows[0].PasswordHash), username: uname };
             }
         } catch (_) {
             // Fall through and deny — never re-enable the default on an error.
@@ -115,8 +115,24 @@ async function checkCredentials(username, password) {
 function extractToken(req) {
     const header = req.headers['authorization'] || '';
     if (header.startsWith('Bearer ')) return header.slice(7).trim();
-    if (req.query && req.query.token) return String(req.query.token);
     return null;
+}
+
+// Simple in-memory login throttle: cap attempts per client IP in a fixed
+// window so credentials can't be brute-forced (and a burst can't pile up scrypt
+// work). This is best-effort protection for a single-process local deployment.
+const LOGIN_WINDOW_MS = 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 15;
+const loginAttempts = new Map(); // ip -> { count, resetAt }
+function loginThrottleExceeded(ip) {
+    const now = Date.now();
+    const rec = loginAttempts.get(ip);
+    if (!rec || now > rec.resetAt) {
+        loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+        return false;
+    }
+    rec.count += 1;
+    return rec.count > LOGIN_MAX_ATTEMPTS;
 }
 
 // Gate mounted on /api (after the public auth routes below).
@@ -134,6 +150,10 @@ function requireAuth(req, res, next) {
 // --- Public auth endpoints ---
 app.post('/api/auth/login', async (req, res) => {
     try {
+        const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+        if (loginThrottleExceeded(ip)) {
+            return res.status(429).json({ error: 'Too many login attempts. Please wait a minute and try again.' });
+        }
         const { username, password } = req.body || {};
         if (!password) return res.status(400).json({ error: 'Password is required' });
         const result = await checkCredentials(username, password);
@@ -170,7 +190,7 @@ app.post('/api/auth/change-password', async (req, res) => {
         const check = await checkCredentials(username, currentPassword);
         if (!check.ok) return res.status(401).json({ error: 'Current password is incorrect' });
 
-        const hash = authLib.hashPassword(newPassword);
+        const hash = await authLib.hashPassword(newPassword);
         const existing = await connection.query(`SELECT UserID FROM Users WHERE Username = ${sql.q(username)}`);
         if (existing.length > 0) {
             await connection.execute(
