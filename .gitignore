@@ -4,3 +4,7 @@ dashboard/node_modules/
 .env.local
 *.laccdb
 *.tmp
+# Auth signing secret (generated at runtime, must never be committed)
+dashboard/.auth-secret
+# Uploaded import files (multer scratch dir)
+dashboard/uploads/

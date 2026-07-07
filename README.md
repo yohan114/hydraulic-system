@@ -1,6 +1,38 @@
-# Hydraulic Hose Repair — Inventory & Invoice Management System
+# Hydraulic Hose Repair — Inventory & Smart Billing System
 
-A complete Microsoft Access database for managing hydraulic hose repair workshop inventory, generating invoices with Sri Lankan tax calculations, and tracking material transactions.
+A workshop management system for hydraulic hose repair: inventory, invoicing with
+Sri Lankan tax calculations (SSCL + VAT), material transaction tracking, and a
+**smart, locked, accurate billing** layer. Data is stored in a Microsoft Access
+database (`HydraulicHoseRepair.accdb`); the day-to-day UI is a Node.js/Express web
+dashboard in [`dashboard/`](dashboard/).
+
+## Smart Billing (Lock · Accurate · Smart)
+
+The billing layer was rebuilt so money is trustworthy and invoices are tamper-proof:
+
+- **🔒 Locked invoices** — once an invoice is **finalized it is immutable**: its
+  number, amounts and items can no longer be edited. Corrections go through a proper
+  **Cancel/Void** flow that automatically restores the stock the invoice deducted.
+- **🔒 Login protection** — the dashboard is behind a password (default `admin` /
+  `admin123`, change it in-app). Every data API is token-protected.
+- **🔒 Race-free numbering** — invoice numbers (`INV/YYYY/MM/nnn`) are allocated
+  under a mutex, so two invoices created at the same instant can never collide.
+- **🎯 Server-authoritative math** — the server **recomputes** subtotal, SSCL, VAT,
+  discount, round-off and grand total from the line items and tax rates. The browser
+  can never push a wrong or tampered total into the database.
+- **🎯 Accurate rounding** — all money is rounded half-up to 2 decimals using a
+  decimal-safe algorithm (e.g. `1.005 → 1.01`), with an optional *round-to-nearest-
+  rupee* line. The pure money engine is covered by unit tests (`npm test`).
+- **🎯 Validation guards** — rejects empty invoices, zero/negative quantities,
+  missing customer, stock shortfalls and duplicate numbers before saving.
+- **💡 Payment tracking** — record part or full payments per invoice; each invoice
+  shows **Paid / Partially Paid / Unpaid** and a live balance, and the dashboard
+  shows total outstanding receivables.
+- **💡 Auto price & margin** — line rates auto-fill from inventory, and while billing
+  each line shows its **profit margin** and a **below-cost warning** (from the new
+  per-item *Unit Cost*).
+
+See [`dashboard/README`](#smart-billing-web-dashboard) below for setup.
 
 ## Features
 
@@ -114,15 +146,50 @@ d:\hydraulic 1\
 
 ## Tax Calculation
 
+Computed **server-side** (the browser preview mirrors it exactly), rounded half-up
+to 2 decimals at every step:
+
 ```
-Sub Total           =  Sum of all line items
-SSCL (2.5%)         =  Sub Total × 2.5%
-Subtotal + SSCL     =  Sub Total + SSCL
-VAT (18%)           =  (Subtotal + SSCL) × 18%
-Discount            =  Manual entry
+Sub Total           =  Σ round2(qty × rate)
+SSCL (2.5%)         =  round2(Sub Total × 2.5%)
+Pre-VAT             =  Sub Total + SSCL
+VAT (18%)           =  round2(Pre-VAT × 18%)
+After Tax           =  Pre-VAT + VAT
+Discount            =  Manual entry, clamped to [0, After Tax]
+Round Off           =  Optional — snap grand total to the nearest whole rupee
 ─────────────────────────────────────
-Grand Total         =  Subtotal + SSCL + VAT − Discount
+Grand Total         =  After Tax − Discount (± Round Off)
 ```
+
+## Smart Billing Web Dashboard
+
+The dashboard in [`dashboard/`](dashboard/) is the primary UI (Node.js + Express,
+talking to the same `.accdb` via `node-adodb`; Windows-only driver).
+
+```powershell
+cd dashboard
+npm install
+npm run migrate     # one-time: add smart-billing columns/tables to an existing DB
+npm start           # serves http://localhost:9999
+```
+
+- The server also runs the idempotent schema upgrade automatically on boot, so a
+  DB created before this release gains the new columns without manual steps.
+- First login: **admin / admin123** — use the **Password** button in the sidebar to
+  change it. Set `BILLING_PASSWORD` to change the default, or `BILLING_AUTH=off` to
+  disable the login entirely for a trusted single-user machine.
+- Run the billing engine's unit tests with `npm test` (pure JS, no database needed).
+
+### New database objects
+
+| Object | Purpose |
+|---|---|
+| `Inventory.Cost` | Unit purchase cost, drives the margin / below-cost warning |
+| `Invoices.Discount`, `RoundOff` | Discount and round-off amounts |
+| `Invoices.AmountPaid`, `PaymentStatus` | Payment tracking |
+| `Invoices.CancelledAt`, `CancelReason` | Void audit trail |
+| `Payments` | One row per recorded payment |
+| `Users` | Login credentials (scrypt-hashed passwords) |
 
 ## Troubleshooting
 

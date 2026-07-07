@@ -12,6 +12,25 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Login gate -->
+    <div id="loginOverlay" class="login-overlay">
+        <form class="login-card" onsubmit="doLogin(event)">
+            <h2>Smart Billing</h2>
+            <p class="sub">Hydraulic Hose Repair — sign in to continue</p>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="loginUsername" class="form-control" value="admin" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="loginPassword" class="form-control" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%; margin-top:8px;">Sign In</button>
+            <div class="login-error" id="loginError"></div>
+            <div class="login-hint">Default login is <strong>admin / admin123</strong> — change it after signing in.</div>
+        </form>
+    </div>
+
     <div class="app-container">
         <!-- Sidebar -->
         <aside class="sidebar no-print">
@@ -47,6 +66,13 @@
                     <i class="ri-scales-line"></i> Invoice Comparison
                 </a>
             </nav>
+            <div class="sidebar-footer" id="sidebarFooter" style="display:none;">
+                <div class="account-line"><i class="ri-user-line"></i> <span id="accountName">admin</span></div>
+                <div class="account-actions">
+                    <button class="btn btn-secondary" onclick="openModal('changePasswordModal')"><i class="ri-key-line"></i> Password</button>
+                    <button class="btn btn-secondary" onclick="logout()"><i class="ri-logout-box-line"></i> Sign out</button>
+                </div>
+            </div>
         </aside>
 
         <!-- Main Content -->
@@ -61,6 +87,9 @@
             <div class="content-area">
                 <!-- Dashboard Section -->
                 <section id="dashboard" class="page-section active no-print">
+                    <div class="default-pw-warning" id="defaultPwWarning">
+                        <i class="ri-alert-line"></i> You are still using the default password. Click <strong>Password</strong> in the sidebar to set your own.
+                    </div>
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">
@@ -89,8 +118,18 @@
                                 <p id="stat-low-stock">0</p>
                             </div>
                         </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(220, 38, 38, 0.1); color: #dc2626;">
+                                <i class="ri-wallet-3-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Outstanding Receivables</h3>
+                                <p id="stat-outstanding" style="font-size: 22px;">Rs. 0.00</p>
+                                <span id="stat-outstanding-count" style="font-size:12px;color:var(--text-muted);">0 invoices unpaid</span>
+                            </div>
+                        </div>
                     </div>
-                    
+
                     <div class="dashboard-widgets">
                         <div class="widget">
                             <div class="widget-header">
@@ -185,7 +224,7 @@
                           </div>
                           <div class="doc-badge">
                             <div class="label" id="docLabel">Invoice</div>
-                            <div class="ref">REF · <strong contenteditable="true" id="refInvoice">INV/2026/05/001</strong></div>
+                            <div class="ref">REF · <strong id="refInvoice" title="Auto-assigned — cannot be edited">INV/2026/05/001</strong></div>
                           </div>
                         </div>
                         
@@ -244,8 +283,13 @@
                                     <tr><td>Sub Total</td><td id="invSubTotal">Rs. 0.00</td></tr>
                                     <tr><td>SSCL <input type="number" class="tax-rate no-print" id="invSsclRate" value="2.5" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invSsclRateText" style="display:none">2.5</span>%</td><td id="invSscl">Rs. 0.00</td></tr>
                                     <tr><td>VAT <input type="number" class="tax-rate no-print" id="invVatRate" value="18" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invVatRateText" style="display:none">18</span>%</td><td id="invVat">Rs. 0.00</td></tr>
+                                    <tr><td>Discount (Rs.) <input type="number" class="disc-input no-print" id="invDiscount" value="0" min="0" step="0.01" oninput="calcInvoiceTotals()"></td><td id="invDiscountVal">Rs. 0.00</td></tr>
+                                    <tr id="invRoundOffRow" style="display:none;"><td>Round Off</td><td id="invRoundOff">Rs. 0.00</td></tr>
                                     <tr class="grand"><td>Total Due</td><td id="invGrandTotal">Rs. 0.00</td></tr>
                                   </table>
+                                  <label class="roundoff-toggle no-print" style="margin-top:8px;">
+                                    <input type="checkbox" id="invRoundToRupee" onchange="calcInvoiceTotals()"> Round total to nearest rupee
+                                  </label>
                                 </div>
                               </div>
 
@@ -307,6 +351,8 @@
                                         <th>Billed To</th>
                                         <th>Grand Total</th>
                                         <th>Status</th>
+                                        <th>Payment</th>
+                                        <th>Balance</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -644,6 +690,10 @@
                             <label>Unit Price (Rs)</label>
                             <input type="number" id="prod-price" class="form-control" step="0.01" required value="0">
                         </div>
+                        <div class="col">
+                            <label>Unit Cost (Rs)</label>
+                            <input type="number" id="prod-cost" class="form-control" step="0.01" value="0" title="Your purchase cost — used to show profit margin while billing">
+                        </div>
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('addProductModal')">Cancel</button>
@@ -678,6 +728,84 @@
                         <tbody id="modal-inventory-tbody"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Record Payment Modal -->
+    <div id="paymentModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>Record Payment</h2>
+                <button class="close-btn" onclick="closeModal('paymentModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="paymentForm" onsubmit="submitPayment(event)">
+                    <input type="hidden" id="pay-invoice-id">
+                    <div style="background: var(--secondary); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Invoice</span><strong id="pay-invoice-no">—</strong></div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Grand Total</span><span id="pay-grand-total">Rs. 0.00</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">Outstanding Balance</span><strong id="pay-balance" style="color:var(--danger)">Rs. 0.00</strong></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Amount (Rs.)</label>
+                            <input type="number" id="pay-amount" class="form-control" step="0.01" min="0.01" required>
+                        </div>
+                        <div class="col">
+                            <label>Method</label>
+                            <select id="pay-method" class="form-control">
+                                <option value="Cash">Cash</option>
+                                <option value="Bank Transfer">Bank Transfer</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="Card">Card</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Date</label>
+                            <input type="date" id="pay-date" class="form-control">
+                        </div>
+                        <div class="col">
+                            <label>Notes (optional)</label>
+                            <input type="text" id="pay-notes" class="form-control">
+                        </div>
+                    </div>
+                    <div id="pay-history" style="margin-top:8px;"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="setFullPayment()">Pay Full Balance</button>
+                        <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2>Change Password</h2>
+                <button class="close-btn" onclick="closeModal('changePasswordModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+                    <div class="form-group">
+                        <label>Current Password</label>
+                        <input type="password" id="cp-current" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>New Password (min 4 characters)</label>
+                        <input type="password" id="cp-new" class="form-control" required minlength="4">
+                    </div>
+                    <div class="login-error" id="cp-error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('changePasswordModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Update Password</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>

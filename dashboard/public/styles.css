@@ -247,6 +247,39 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
 .badge-finalized { background: #dcfce7; color: #15803d; }
 .badge-low { background: #fee2e2; color: #b91c1c; }
 .badge-ok { background: #f1f5f9; color: #475569; }
+.badge-paid { background: #dcfce7; color: #15803d; }
+.badge-partial { background: #fef3c7; color: #b45309; }
+.badge-unpaid { background: #fee2e2; color: #b91c1c; }
+.badge-cancelled { background: #e2e8f0; color: #475569; text-decoration: line-through; }
+
+/* Margin hint shown under a rate cell while billing */
+.margin-hint { font-size: 10px; margin-top: 2px; font-family: 'DM Mono', monospace; }
+.margin-hint.ok { color: #15803d; }
+.margin-hint.warn { color: #b91c1c; font-weight: 600; }
+.margin-hint.muted { color: #94a3b8; }
+
+/* Account controls in the sidebar */
+.sidebar-footer { padding: 16px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; }
+.sidebar-footer .account-line { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.sidebar-footer .account-actions { display: flex; gap: 8px; }
+.sidebar-footer .account-actions button { flex: 1; font-size: 12px; padding: 8px 10px; }
+.default-pw-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 20px; display: none; }
+.default-pw-warning.show { display: block; }
+
+/* Login overlay */
+.login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #1e3a8a, #0f172a); display: none; align-items: center; justify-content: center; z-index: 2000; }
+.login-overlay.active { display: flex; }
+.login-card { background: var(--card-bg); width: 100%; max-width: 380px; border-radius: 16px; box-shadow: var(--shadow-lg); padding: 36px 32px; }
+.login-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; color: var(--text-main); }
+.login-card p.sub { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+.login-card .form-group { margin-bottom: 16px; }
+.login-error { color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 18px; }
+.login-hint { color: var(--text-muted); font-size: 11px; margin-top: 16px; text-align: center; }
+
+/* Discount input inside the totals table */
+input.disc-input { width: 90px; padding: 2px 6px; text-align: right; border: 1px solid var(--line); border-radius: 3px; font: inherit; background: #fff; }
+input.disc-input:focus { outline: 1px solid var(--orange); border-color: var(--orange); }
+.roundoff-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
 
 /* Print rules */
 @media print {
@@ -265,7 +298,7 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
     .page { box-shadow: none; margin: 0; width: 210mm; page-break-after: avoid; page-break-inside: avoid; }
 
     [contenteditable="true"] { background: none !important; box-shadow: none !important; }
-    input.cell, textarea.cell, input.tax-rate { background: none !important; outline: none !important; border: none !important; resize: none; }
+    input.cell, textarea.cell, input.tax-rate, input.disc-input { background: none !important; outline: none !important; border: none !important; resize: none; }
 
     .page-header, .page-footer, .meta-strip, table.items th, table.totals tr.grand td, .section-num, .page-footer::before, .page-footer .contacts .ic, .page::before {
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
