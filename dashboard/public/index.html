@@ -12,6 +12,29 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Top progress bar (shown while any fetch is in flight) -->
+    <div id="topProgress" class="top-progress"></div>
+    <!-- Toast notifications -->
+    <div id="toastContainer" class="toast-container no-print"></div>
+
+    <!-- Confirm / prompt dialog -->
+    <div id="confirmDialog" class="modal no-print">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="confirm-title">Please confirm</h2>
+                <button class="close-btn" onclick="resolveConfirm(false)"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="confirm-message" id="confirm-message"></div>
+                <input type="text" id="confirm-input" class="form-control" style="display:none;">
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="resolveConfirm(false)">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirm-ok" onclick="resolveConfirm(true)">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Login gate -->
     <div id="loginOverlay" class="login-overlay">
         <form class="login-card" onsubmit="doLogin(event)">
@@ -67,6 +90,7 @@
                 </a>
             </nav>
             <div class="sidebar-footer" id="sidebarFooter" style="display:none;">
+                <button class="btn btn-secondary theme-toggle" onclick="toggleTheme()"><span id="themeToggleLabel">🌙 Dark mode</span></button>
                 <div class="account-line"><i class="ri-user-line"></i> <span id="accountName">admin</span></div>
                 <div class="account-actions">
                     <button class="btn btn-secondary" onclick="openModal('changePasswordModal')"><i class="ri-key-line"></i> Password</button>

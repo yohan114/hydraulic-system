@@ -23,6 +23,116 @@ function escAttr(s) {
 }
 
 // ----------------------------------------------------
+// Theme (light / dark)
+// ----------------------------------------------------
+function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    const label = document.getElementById('themeToggleLabel');
+    if (label) label.textContent = theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode';
+}
+function initTheme() {
+    const saved = localStorage.getItem('theme');
+    const theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme(theme);
+}
+function toggleTheme() {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('theme', next);
+    applyTheme(next);
+}
+
+// ----------------------------------------------------
+// Toasts + top progress bar
+// ----------------------------------------------------
+function toast(message, type = 'info', ms = 3800) {
+    const c = document.getElementById('toastContainer');
+    if (!c) { console.log(`[${type}]`, message); return; }
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    const ic = type === 'success' ? '✓' : type === 'error' ? '!' : 'i';
+    el.innerHTML = '<span class="toast-ic"></span><span class="toast-msg"></span>';
+    el.querySelector('.toast-ic').textContent = ic;
+    el.querySelector('.toast-msg').textContent = message;
+    c.appendChild(el);
+    setTimeout(() => { el.classList.add('hide'); setTimeout(() => el.remove(), 220); }, ms);
+}
+
+let loadingCount = 0;
+function beginLoading() {
+    loadingCount++;
+    const bar = document.getElementById('topProgress');
+    if (bar) bar.classList.add('active');
+}
+function endLoading() {
+    loadingCount = Math.max(0, loadingCount - 1);
+    if (loadingCount === 0) {
+        const bar = document.getElementById('topProgress');
+        if (bar) bar.classList.remove('active');
+    }
+}
+
+// ----------------------------------------------------
+// Promise-based confirm / prompt dialog (replaces native confirm/prompt)
+// ----------------------------------------------------
+let _confirmResolver = null;
+function confirmDialog(opts = {}) {
+    const { title = 'Please confirm', message = '', confirmText = 'Confirm', danger = false, input = false, placeholder = '', defaultValue = '' } = opts;
+    return new Promise((resolve) => {
+        _confirmResolver = resolve;
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-message').textContent = message;
+        const inp = document.getElementById('confirm-input');
+        inp.style.display = input ? 'block' : 'none';
+        inp.value = defaultValue || '';
+        inp.placeholder = placeholder || '';
+        const ok = document.getElementById('confirm-ok');
+        ok.textContent = confirmText;
+        ok.style.background = danger ? 'linear-gradient(135deg,#ef4444,#dc2626)' : '';
+        openModal('confirmDialog');
+        if (input) setTimeout(() => inp.focus(), 60);
+    });
+}
+function resolveConfirm(ok) {
+    const inp = document.getElementById('confirm-input');
+    const usingInput = inp.style.display !== 'none';
+    closeModal('confirmDialog');
+    if (_confirmResolver) {
+        const r = _confirmResolver;
+        _confirmResolver = null;
+        r(ok ? (usingInput ? inp.value : true) : (usingInput ? null : false));
+    }
+}
+function promptDialog(opts) { return confirmDialog({ ...opts, input: true }); }
+
+// ----------------------------------------------------
+// Loading skeletons + empty states
+// ----------------------------------------------------
+function showSkeleton(tbodyId, cols, rows = 5) {
+    const tb = document.getElementById(tbodyId);
+    if (!tb) return;
+    let html = '';
+    for (let r = 0; r < rows; r++) {
+        html += '<tr class="skeleton-row">';
+        for (let c = 0; c < cols; c++) {
+            const w = 45 + ((r * 17 + c * 31) % 45);
+            html += `<td><span class="skeleton" style="width:${w}%"></span></td>`;
+        }
+        html += '</tr>';
+    }
+    tb.innerHTML = html;
+}
+function emptyRow(tbodyId, cols, emoji, title, sub) {
+    const tb = document.getElementById(tbodyId);
+    if (tb) tb.innerHTML = `<tr><td colspan="${cols}"><div class="empty-state"><div class="empty-emoji">${emoji}</div><h3>${title}</h3><p>${sub || ''}</p></div></td></tr>`;
+}
+
+// In-memory cache for stale-while-revalidate rendering + prefetch.
+const dataCache = {};
+function invalidateCache(...keys) {
+    keys.forEach((k) => { delete dataCache[k]; });
+}
+
+// ----------------------------------------------------
 // Money helpers (mirror server lib/money.js for accurate previews)
 // ----------------------------------------------------
 function round2(value) {
@@ -41,12 +151,17 @@ function round2(value) {
 async function authFetch(url, opts = {}) {
     const headers = Object.assign({}, opts.headers || {});
     if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-    const res = await fetch(url, Object.assign({}, opts, { headers }));
-    if (res.status === 401) {
-        showLogin();
-        throw new Error('Session expired. Please sign in again.');
+    beginLoading();
+    try {
+        const res = await fetch(url, Object.assign({}, opts, { headers }));
+        if (res.status === 401) {
+            showLogin();
+            throw new Error('Session expired. Please sign in again.');
+        }
+        return res;
+    } finally {
+        endLoading();
     }
-    return res;
 }
 
 // Download an export through authFetch (so an expired token shows the login
@@ -55,7 +170,7 @@ async function authFetch(url, opts = {}) {
 async function downloadExport(path, fallbackName) {
     try {
         const res = await authFetch(`${API_URL}${path}`);
-        if (!res.ok) { alert('Export failed. Please try again.'); return; }
+        if (!res.ok) { toast('Export failed. Please try again.', 'error'); return; }
         const blob = await res.blob();
         const cd = res.headers.get('Content-Disposition') || '';
         const m = /filename="?([^"]+)"?/.exec(cd);
@@ -75,10 +190,18 @@ async function downloadExport(path, fallbackName) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
     initNavigation();
 
+    // Enter key confirms the input dialog.
+    const confirmInput = document.getElementById('confirm-input');
+    if (confirmInput) confirmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); resolveConfirm(true); } });
+
     const authed = await initAuth();
-    if (authed) loadDashboard();
+    if (authed) {
+        loadDashboard();
+        prefetchData(); // warm caches so tab switches are instant
+    }
 
     // Set default dates
     const today = new Date().toISOString().split('T')[0];
@@ -157,9 +280,18 @@ async function doLogin(e) {
         hideLogin();
         await initAuth();
         loadDashboard();
+        prefetchData();
+        toast(`Welcome back, ${data.username || 'admin'}`, 'success');
     } catch (err) {
         errEl.textContent = 'Could not reach the server.';
     }
+}
+
+// Warm the caches for the sections the user is most likely to open next, so
+// switching tabs renders instantly (then revalidates in the background).
+function prefetchData() {
+    loadInventory({ background: true });
+    loadHistory({ background: true });
 }
 
 function logout() {
@@ -182,7 +314,7 @@ async function submitChangePassword(e) {
         });
         const data = await res.json();
         if (!res.ok) { err.textContent = data.error || 'Update failed'; return; }
-        alert('Password updated successfully.');
+        toast('Password updated', 'success');
         closeModal('changePasswordModal');
         document.getElementById('changePasswordForm').reset();
         const warn = document.getElementById('defaultPwWarning');
@@ -289,49 +421,60 @@ function setInvoiceEditable(editable) {
 // ----------------------------------------------------
 // Dashboard
 // ----------------------------------------------------
+function renderDashboard(data) {
+    document.getElementById('stat-products').textContent = data.stats.totalInventory;
+    document.getElementById('stat-qty').textContent = data.stats.totalQty;
+    document.getElementById('stat-low-stock').textContent = data.stats.lowStock;
+
+    const outEl = document.getElementById('stat-outstanding');
+    if (outEl) outEl.textContent = formatCurrency(data.stats.outstandingTotal || 0);
+    const outCountEl = document.getElementById('stat-outstanding-count');
+    if (outCountEl) outCountEl.textContent = `${data.stats.outstandingCount || 0} invoice(s) with balance`;
+
+    const invTbody = document.getElementById('recent-invoices-tbody');
+    invTbody.innerHTML = '';
+    if (!data.recentInvoices.length) emptyRow('recent-invoices-tbody', 4, '🧾', 'No finalized invoices yet', 'Create and finalize an invoice to see it here.');
+    data.recentInvoices.forEach((inv) => {
+        invTbody.innerHTML += `
+            <tr>
+                <td>${inv.InvoiceNo}</td>
+                <td>${formatDate(inv.FinalizedAt)}</td>
+                <td>${inv.BilledToName || ''}</td>
+                <td>${formatCurrency(inv.GrandTotal)}</td>
+            </tr>`;
+    });
+
+    const movTbody = document.getElementById('recent-movements-tbody');
+    movTbody.innerHTML = '';
+    if (!data.movements.length) emptyRow('recent-movements-tbody', 5, '📦', 'No stock movements yet', '');
+    data.movements.forEach((m) => {
+        const isOut = m.MovementType === 'OUT';
+        movTbody.innerHTML += `
+            <tr>
+                <td>${formatDate(m.MovementDate)}</td>
+                <td>${m.ProductName || ''}</td>
+                <td><span class="badge ${isOut ? 'badge-low' : 'badge-finalized'}">${m.MovementType}</span></td>
+                <td>${m.QtyChange}</td>
+                <td>${m.NewQty}</td>
+            </tr>`;
+    });
+}
+
 async function loadDashboard() {
+    if (dataCache.dashboard) renderDashboard(dataCache.dashboard);
+    else {
+        showSkeleton('recent-invoices-tbody', 4, 4);
+        showSkeleton('recent-movements-tbody', 5, 4);
+    }
     try {
         const res = await authFetch(`${API_URL}/dashboard`);
         const data = await res.json();
-
-        document.getElementById('stat-products').textContent = data.stats.totalInventory;
-        document.getElementById('stat-qty').textContent = data.stats.totalQty;
-        document.getElementById('stat-low-stock').textContent = data.stats.lowStock;
-
-        const outEl = document.getElementById('stat-outstanding');
-        if (outEl) outEl.textContent = formatCurrency(data.stats.outstandingTotal || 0);
-        const outCountEl = document.getElementById('stat-outstanding-count');
-        if (outCountEl) outCountEl.textContent = `${data.stats.outstandingCount || 0} invoice(s) with balance`;
-
-        const invTbody = document.getElementById('recent-invoices-tbody');
-        invTbody.innerHTML = '';
-        data.recentInvoices.forEach((inv) => {
-            invTbody.innerHTML += `
-                <tr>
-                    <td>${inv.InvoiceNo}</td>
-                    <td>${formatDate(inv.FinalizedAt)}</td>
-                    <td>${inv.BilledToName || ''}</td>
-                    <td>${formatCurrency(inv.GrandTotal)}</td>
-                </tr>
-            `;
-        });
-
-        const movTbody = document.getElementById('recent-movements-tbody');
-        movTbody.innerHTML = '';
-        data.movements.forEach((m) => {
-            const isOut = m.MovementType === 'OUT';
-            movTbody.innerHTML += `
-                <tr>
-                    <td>${formatDate(m.MovementDate)}</td>
-                    <td>${m.ProductName || ''}</td>
-                    <td><span class="badge ${isOut ? 'badge-low' : 'badge-finalized'}">${m.MovementType}</span></td>
-                    <td>${m.QtyChange}</td>
-                    <td>${m.NewQty}</td>
-                </tr>
-            `;
-        });
+        dataCache.dashboard = data;
+        renderDashboard(data);
+        return;
     } catch (e) {
         console.error('Error loading dashboard', e);
+        return;
     }
 }
 
@@ -340,11 +483,19 @@ async function loadDashboard() {
 // ----------------------------------------------------
 let allInventory = [];
 
-async function loadInventory() {
+async function loadInventory(opts = {}) {
+    if (dataCache.inventory) {
+        allInventory = dataCache.inventory;
+        if (!opts.background) renderInventory(allInventory);
+    } else if (!opts.background) {
+        showSkeleton('inventory-tbody', 9);
+    }
     try {
         const res = await authFetch(`${API_URL}/inventory`);
-        allInventory = await res.json();
-        renderInventory(allInventory);
+        const data = await res.json();
+        dataCache.inventory = data;
+        allInventory = data;
+        if (!opts.background) renderInventory(data);
     } catch (e) {
         console.error('Error loading inventory', e);
     }
@@ -353,6 +504,7 @@ async function loadInventory() {
 function renderInventory(items) {
     const tbody = document.getElementById('inventory-tbody');
     tbody.innerHTML = '';
+    if (!items.length) { emptyRow('inventory-tbody', 9, '📦', 'No products found', 'Add a product or adjust your search.'); return; }
     items.forEach((item) => {
         tbody.innerHTML += `
             <tr>
@@ -431,25 +583,28 @@ async function submitAddProduct(e) {
             body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (data.error) alert(data.error);
+        if (data.error) toast(data.error, 'error');
         else {
             closeModal('addProductModal');
+            invalidateCache('inventory', 'dashboard');
             loadInventory();
             e.target.reset();
             document.getElementById('prod-id').value = '';
             document.getElementById('prod-unique').disabled = false;
+            toast(id ? 'Product updated' : 'Product added', 'success');
         }
-    } catch (err) { alert(err); }
+    } catch (err) { toast(String(err), 'error'); }
 }
 
 async function deleteProduct(id) {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+    const ok = await confirmDialog({ title: 'Delete product?', message: 'This permanently removes the product from inventory.', confirmText: 'Delete', danger: true });
+    if (!ok) return;
     try {
         const res = await authFetch(`${API_URL}/inventory/${id}`, { method: 'DELETE' });
         const data = await res.json();
-        if (data.error) alert(data.error);
-        else loadInventory();
-    } catch (err) { alert(err); }
+        if (data.error) toast(data.error, 'error');
+        else { invalidateCache('inventory', 'dashboard'); loadInventory(); toast('Product deleted', 'success'); }
+    } catch (err) { toast(String(err), 'error'); }
 }
 
 // ----------------------------------------------------
@@ -720,7 +875,7 @@ function calcInvoiceTotals() {
 }
 
 async function saveInvoice(status) {
-    if (invoiceItems.length === 0) return alert('Add at least one item');
+    if (invoiceItems.length === 0) return toast('Add at least one item', 'error');
     if (savingInvoice) return; // guard against double-click creating duplicates
 
     const totals = calcInvoiceTotals();
@@ -751,7 +906,12 @@ async function saveInvoice(status) {
     const endpoint = status === 'Draft' ? 'draft' : 'finalize';
 
     if (status === 'Finalized') {
-        if (!confirm('Finalizing will lock this invoice and deduct inventory stock permanently. Proceed?')) return;
+        const ok = await confirmDialog({
+            title: 'Finalize invoice?',
+            message: 'Finalizing locks this invoice and permanently deducts inventory stock. This cannot be undone (only cancelled).',
+            confirmText: 'Finalize & lock',
+        });
+        if (!ok) return;
     }
 
     savingInvoice = true;
@@ -766,15 +926,16 @@ async function saveInvoice(status) {
             body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok || data.error) { alert(data.error || 'Save failed'); return; }
+        if (!res.ok || data.error) { toast(data.error || 'Save failed', 'error'); return; }
 
         currentInvoiceId = data.invoiceId;
         if (data.invoiceNo) document.getElementById('refInvoice').textContent = data.invoiceNo;
-        alert(`Invoice saved as ${status} (${data.invoiceNo})`);
+        invalidateCache('dashboard', 'invoices', 'inventory');
+        toast(`Invoice ${data.invoiceNo} saved as ${status}`, 'success');
         loadDashboard();
         showSection('history');
     } catch (err) {
-        alert(err.message || err);
+        toast(err.message || String(err), 'error');
     } finally {
         savingInvoice = false;
         if (btnDraft) btnDraft.disabled = false;
@@ -798,42 +959,52 @@ function statusBadgeClass(status) {
     return 'badge-ok';
 }
 
-async function loadHistory() {
+function renderHistory(data) {
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = '';
+    if (!data.length) { emptyRow('history-tbody', 8, '🧾', 'No invoices yet', 'Create your first invoice from “New Invoice”.'); return; }
+    data.forEach((inv) => {
+        const isFinalized = inv.Status === 'Finalized';
+        const isCancelled = inv.Status === 'Cancelled';
+        const balance = Number(inv.Balance) || 0;
+        const payBadge = isFinalized
+            ? `<span class="badge ${paymentBadgeClass(inv.PaymentStatus)}">${inv.PaymentStatus}</span>`
+            : '<span style="color:var(--text-muted)">—</span>';
+        const safeNo = escAttr(inv.InvoiceNo).replace(/'/g, "\\'");
+
+        let actions = `<button class="btn btn-secondary btn-text" onclick="viewInvoice(${inv.InvoiceID})">View</button>`;
+        if (isFinalized && balance > 0) {
+            actions += ` <button class="btn btn-text" style="color:var(--success)" onclick="openPaymentModal(${inv.InvoiceID}, '${safeNo}')">Payment</button>`;
+        }
+        if (!isCancelled) {
+            actions += ` <button class="btn btn-text" style="color:var(--danger)" onclick="cancelInvoice(${inv.InvoiceID}, '${safeNo}')">Cancel</button>`;
+        }
+
+        tbody.innerHTML += `
+            <tr>
+                <td>${inv.InvoiceNo}</td>
+                <td>${formatDate(inv.InvoiceDate)}</td>
+                <td>${inv.BilledToName || ''}</td>
+                <td>${formatCurrency(inv.GrandTotal)}</td>
+                <td><span class="badge ${statusBadgeClass(inv.Status)}">${inv.Status}</span></td>
+                <td>${payBadge}</td>
+                <td>${isFinalized ? formatCurrency(balance) : '—'}</td>
+                <td>${actions}</td>
+            </tr>`;
+    });
+}
+
+async function loadHistory(opts = {}) {
+    if (dataCache.invoices) {
+        if (!opts.background) renderHistory(dataCache.invoices);
+    } else if (!opts.background) {
+        showSkeleton('history-tbody', 8);
+    }
     try {
         const res = await authFetch(`${API_URL}/invoices`);
         const data = await res.json();
-        const tbody = document.getElementById('history-tbody');
-        tbody.innerHTML = '';
-        data.forEach((inv) => {
-            const isFinalized = inv.Status === 'Finalized';
-            const isCancelled = inv.Status === 'Cancelled';
-            const balance = Number(inv.Balance) || 0;
-            const payBadge = isFinalized
-                ? `<span class="badge ${paymentBadgeClass(inv.PaymentStatus)}">${inv.PaymentStatus}</span>`
-                : '<span style="color:var(--text-muted)">—</span>';
-            const safeNo = String(inv.InvoiceNo).replace(/'/g, "\\'");
-
-            let actions = `<button class="btn btn-secondary btn-text" onclick="viewInvoice(${inv.InvoiceID})">View</button>`;
-            if (isFinalized && balance > 0) {
-                actions += ` <button class="btn btn-text" style="color:var(--success)" onclick="openPaymentModal(${inv.InvoiceID}, '${safeNo}')">Payment</button>`;
-            }
-            if (!isCancelled) {
-                actions += ` <button class="btn btn-text" style="color:var(--danger)" onclick="cancelInvoice(${inv.InvoiceID}, '${safeNo}')">Cancel</button>`;
-            }
-
-            tbody.innerHTML += `
-                <tr>
-                    <td>${inv.InvoiceNo}</td>
-                    <td>${formatDate(inv.InvoiceDate)}</td>
-                    <td>${inv.BilledToName || ''}</td>
-                    <td>${formatCurrency(inv.GrandTotal)}</td>
-                    <td><span class="badge ${statusBadgeClass(inv.Status)}">${inv.Status}</span></td>
-                    <td>${payBadge}</td>
-                    <td>${isFinalized ? formatCurrency(balance) : '—'}</td>
-                    <td>${actions}</td>
-                </tr>
-            `;
-        });
+        dataCache.invoices = data;
+        if (!opts.background) renderHistory(data);
     } catch (e) { console.error('Error loading history', e); }
 }
 
@@ -841,7 +1012,7 @@ async function viewInvoice(id) {
     try {
         const res = await authFetch(`${API_URL}/invoices/${id}`);
         const inv = await res.json();
-        if (inv.error) return alert(inv.error);
+        if (inv.error) return toast(inv.error, 'error');
 
         currentInvoiceId = inv.InvoiceID;
         document.getElementById('refInvoice').textContent = inv.InvoiceNo;
@@ -893,7 +1064,7 @@ async function viewInvoice(id) {
 
         showSection('new-invoice');
         document.getElementById('invoice-view-title').textContent = `Viewing Invoice: ${inv.InvoiceNo} (${inv.Status})`;
-    } catch (e) { alert('Error loading invoice'); }
+    } catch (e) { toast('Error loading invoice', 'error'); }
 }
 
 // ----------------------------------------------------
@@ -903,7 +1074,7 @@ async function openPaymentModal(invoiceId, invoiceNo) {
     try {
         const res = await authFetch(`${API_URL}/invoices/${invoiceId}/payments`);
         const data = await res.json();
-        if (!res.ok) return alert(data.error || 'Could not load payment details');
+        if (!res.ok) return toast(data.error || 'Could not load payment details', 'error');
 
         document.getElementById('pay-invoice-id').value = invoiceId;
         document.getElementById('pay-invoice-no').textContent = invoiceNo || ('#' + invoiceId);
@@ -927,7 +1098,7 @@ async function openPaymentModal(invoiceId, invoiceNo) {
             hist.innerHTML = '';
         }
         openModal('paymentModal');
-    } catch (e) { alert(e.message || e); }
+    } catch (e) { toast(e.message || String(e), 'error'); }
 }
 
 function setFullPayment() {
@@ -956,13 +1127,14 @@ async function submitPayment(e) {
             body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok || data.error) { alert(data.error || 'Payment failed'); return; }
-        alert(`Payment recorded. New balance: ${formatCurrency(data.balance)} (${data.status})`);
+        if (!res.ok || data.error) { toast(data.error || 'Payment failed', 'error'); return; }
+        invalidateCache('invoices', 'dashboard');
+        toast(`Payment recorded — balance ${formatCurrency(data.balance)} (${data.status})`, 'success');
         closeModal('paymentModal');
         loadHistory();
         loadDashboard();
     } catch (err) {
-        alert(err.message || err);
+        toast(err.message || String(err), 'error');
     } finally {
         submittingPayment = false;
         if (submitBtn) submitBtn.disabled = false;
@@ -970,7 +1142,13 @@ async function submitPayment(e) {
 }
 
 async function cancelInvoice(id, invoiceNo) {
-    const reason = prompt(`Cancel invoice ${invoiceNo}?\nAny stock deducted by this invoice will be restored.\n\nEnter a reason:`);
+    const reason = await promptDialog({
+        title: `Cancel invoice ${invoiceNo}?`,
+        message: 'Any stock deducted by this invoice will be restored. Enter a reason:',
+        confirmText: 'Cancel invoice',
+        danger: true,
+        placeholder: 'e.g. customer changed the order',
+    });
     if (reason === null) return;
     try {
         const res = await authFetch(`${API_URL}/invoices/${id}/cancel`, {
@@ -979,11 +1157,12 @@ async function cancelInvoice(id, invoiceNo) {
             body: JSON.stringify({ reason }),
         });
         const data = await res.json();
-        if (!res.ok || data.error) { alert(data.error || 'Cancel failed'); return; }
-        alert(`Invoice ${invoiceNo} cancelled.`);
+        if (!res.ok || data.error) { toast(data.error || 'Cancel failed', 'error'); return; }
+        invalidateCache('invoices', 'dashboard', 'inventory');
+        toast(`Invoice ${invoiceNo} cancelled`, 'success');
         loadHistory();
         loadDashboard();
-    } catch (err) { alert(err.message || err); }
+    } catch (err) { toast(err.message || String(err), 'error'); }
 }
 
 // ----------------------------------------------------
@@ -1016,13 +1195,22 @@ window.onafterprint = function () {
 // Transactions
 // ----------------------------------------------------
 async function loadTransactions() {
+    if (dataCache.movements) renderTransactions(dataCache.movements);
+    else showSkeleton('transactions-tbody', 9);
     try {
         const res = await authFetch(`${API_URL}/movements`);
         const data = await res.json();
-        const tbody = document.getElementById('transactions-tbody');
-        tbody.innerHTML = '';
-        data.forEach((m) => {
-            const isOut = m.MovementType === 'OUT';
+        dataCache.movements = data;
+        renderTransactions(data);
+    } catch (e) { console.error('Error loading movements', e); }
+}
+
+function renderTransactions(data) {
+    const tbody = document.getElementById('transactions-tbody');
+    tbody.innerHTML = '';
+    if (!data.length) { emptyRow('transactions-tbody', 9, '🔄', 'No stock movements yet', 'Finalizing or cancelling invoices records movements here.'); return; }
+    data.forEach((m) => {
+        const isOut = m.MovementType === 'OUT';
             tbody.innerHTML += `
                 <tr>
                     <td>${formatDate(m.MovementDate)}</td>
@@ -1036,8 +1224,7 @@ async function loadTransactions() {
                     <td>${m.Notes || ''}</td>
                 </tr>
             `;
-        });
-    } catch (e) {}
+    });
 }
 
 // ----------------------------------------------------
@@ -1143,7 +1330,7 @@ async function compareInvoice(id) {
     try {
         const res = await authFetch(`${API_URL}/invoices/${id}/compare`);
         const data = await res.json();
-        if (data.error) return alert(data.error);
+        if (data.error) return toast(data.error, 'error');
 
         document.getElementById('compare-details-placeholder').style.display = 'none';
         document.getElementById('compare-details-panel').style.display = 'flex';
@@ -1193,7 +1380,7 @@ async function compareInvoice(id) {
         });
     } catch (e) {
         console.error('Error fetching invoice comparison', e);
-        alert('Error fetching invoice comparison details');
+        toast('Error fetching invoice comparison details', 'error');
     }
 }
 
@@ -1215,15 +1402,16 @@ async function handleImportFile(event) {
 
         if (res.ok) {
             const data = await res.json();
-            alert(`Import successful! Added/Updated ${data.processed} items.`);
+            invalidateCache('inventory', 'dashboard');
+            toast(`Import successful — ${data.processed} item(s) added/updated`, 'success');
             loadInventory();
             loadDashboard();
         } else {
             const err = await res.text();
-            alert(`Import failed: ${err}`);
+            toast(`Import failed: ${err}`, 'error');
         }
     } catch (e) {
-        alert('Error during import.');
+        toast('Error during import.', 'error');
         console.error(e);
     } finally {
         if (btn) {

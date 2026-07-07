@@ -241,50 +241,35 @@ async function resolveInvoiceIdByNo(invoiceNo) {
 // ============================================================
 app.get('/api/dashboard', async (req, res) => {
     try {
-        const invItems = await connection.query('SELECT COUNT(*) AS total FROM Inventory');
-        const invQty = await connection.query('SELECT SUM(Qty) AS totalQty FROM Inventory');
-        const lowStock = await connection.query('SELECT COUNT(*) AS lowStock FROM Inventory WHERE Qty <= 5');
+        // Each node-adodb call spawns its own out-of-process worker, so running
+        // the independent reads concurrently (instead of awaiting one at a time)
+        // cuts the dashboard load time roughly to that of the single slowest
+        // query. Unused/expensive aggregates (top items, qty-by-product) were
+        // dropped — the UI never consumed them. Sales-by-month and receivables
+        // are both derived from ONE finalized-invoice scan.
+        const finalizedSql = `SELECT FinalizedAt, GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized'`;
+        const [invItems, invQty, lowStock, recentInvoices, movements, finalized] = await Promise.all([
+            connection.query('SELECT COUNT(*) AS total FROM Inventory'),
+            connection.query('SELECT SUM(Qty) AS totalQty FROM Inventory'),
+            connection.query('SELECT COUNT(*) AS lowStock FROM Inventory WHERE Qty <= 5'),
+            connection.query('SELECT TOP 5 * FROM Invoices WHERE Status = "Finalized" ORDER BY FinalizedAt DESC'),
+            connection.query('SELECT TOP 5 StockMovements.*, Inventory.ProductName FROM StockMovements LEFT JOIN Inventory ON StockMovements.InventoryID = Inventory.InventoryID ORDER BY MovementDate DESC'),
+            connection.query(finalizedSql).catch(() => connection.query(`SELECT FinalizedAt, GrandTotal FROM Invoices WHERE Status = 'Finalized'`)),
+        ]);
 
-        const recentInvoices = await connection.query('SELECT TOP 5 * FROM Invoices WHERE Status = "Finalized" ORDER BY FinalizedAt DESC');
-        const movements = await connection.query('SELECT TOP 5 StockMovements.*, Inventory.ProductName FROM StockMovements LEFT JOIN Inventory ON StockMovements.InventoryID = Inventory.InventoryID ORDER BY MovementDate DESC');
-
-        const qtyByProduct = await connection.query('SELECT TOP 10 ProductName, Qty FROM Inventory ORDER BY Qty DESC');
-
-        const topItems = await connection.query(`
-            SELECT TOP 10 Inventory.ProductName, SUM(InvoiceItems.Qty) as UsedQty
-            FROM (InvoiceItems
-            INNER JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID)
-            INNER JOIN Invoices ON InvoiceItems.InvoiceID = Invoices.InvoiceID
-            WHERE Invoices.Status = 'Finalized'
-            GROUP BY Inventory.ProductName
-            ORDER BY SUM(InvoiceItems.Qty) DESC
-        `);
-
-        const allFinalized = await connection.query(`SELECT FinalizedAt, GrandTotal FROM Invoices WHERE Status = 'Finalized'`);
         const salesByMonth = {};
-        allFinalized.forEach((inv) => {
+        let outstandingTotal = 0;
+        let outstandingCount = 0;
+        finalized.forEach((inv) => {
             const date = new Date(inv.FinalizedAt);
             if (!isNaN(date)) {
                 const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                 salesByMonth[month] = (salesByMonth[month] || 0) + money.num(inv.GrandTotal);
             }
+            const bal = money.round2(money.num(inv.GrandTotal) - money.num(inv.AmountPaid));
+            if (bal > 0) { outstandingTotal += bal; outstandingCount++; }
         });
-
-        // Accounts receivable (outstanding balances on finalized, non-cancelled invoices).
-        let outstandingTotal = 0;
-        let outstandingCount = 0;
-        try {
-            const ar = await connection.query(
-                `SELECT GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized'`
-            );
-            ar.forEach((inv) => {
-                const bal = money.round2(money.num(inv.GrandTotal) - money.num(inv.AmountPaid));
-                if (bal > 0) { outstandingTotal += bal; outstandingCount++; }
-            });
-            outstandingTotal = money.round2(outstandingTotal);
-        } catch (_) {
-            // AmountPaid column not present yet (run migrate) -> report zero AR.
-        }
+        outstandingTotal = money.round2(outstandingTotal);
 
         res.json({
             stats: {
@@ -296,8 +281,6 @@ app.get('/api/dashboard', async (req, res) => {
             },
             recentInvoices,
             movements,
-            qtyByProduct,
-            topItems,
             salesByMonth,
         });
     } catch (err) {
