@@ -518,6 +518,24 @@
                             <div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Worker</th><th>Period</th><th class="num">Amount</th><th>Method</th><th></th></tr></thead><tbody id="labour-tbody"></tbody></table></div>
                         </div>
                     </div>
+
+                    <!-- Technician charges from invoices -->
+                    <div class="card" style="margin-top:24px; padding:0;">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                            <h2 style="font-size:15px;">Technician Charges (from invoices)</h2>
+                            <div style="display:flex; gap:20px; font-size:13px; flex-wrap:wrap;">
+                                <span style="color:var(--text-muted);">Total: <strong id="tech-stat-total" style="color:var(--text-main);">Rs. 0.00</strong></span>
+                                <span style="color:var(--text-muted);">Paid: <strong id="tech-stat-paid" style="color:#10b981;">Rs. 0.00</strong></span>
+                                <span style="color:var(--text-muted);">Outstanding: <strong id="tech-stat-out" style="color:var(--danger);">Rs. 0.00</strong></span>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Technical Charge</th><th>Status</th><th>Technician</th><th>Action</th></tr></thead>
+                                <tbody id="technical-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Expenses Section -->
@@ -983,6 +1001,36 @@
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('labourModal')">Cancel</button>
                         <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Technician Charge Pay Modal -->
+    <div id="techPayModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 460px;">
+            <div class="modal-header"><h2>Pay Technician Charge</h2><button class="close-btn" onclick="closeModal('techPayModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="techPayForm" onsubmit="submitTechPay(event)">
+                    <input type="hidden" id="techpay-invoice-id">
+                    <div style="background: var(--secondary); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px;">
+                        <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">Invoice</span><strong id="techpay-invoice-no">—</strong></div>
+                        <div style="display:flex; justify-content:space-between; margin-top:6px;"><span style="color:var(--text-muted)">Technical charge</span><strong id="techpay-amount">Rs. 0.00</strong></div>
+                    </div>
+                    <div class="form-group"><label>Technician</label>
+                        <select id="techpay-worker" class="form-control"><option value="">— Unassigned —</option></select>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Paid Date</label><input type="date" id="techpay-date" class="form-control"></div>
+                        <div class="col"><label>Method</label>
+                            <select id="techpay-method" class="form-control"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+                        </div>
+                    </div>
+                    <p style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">Marking paid records it as a labour payment, so it appears in your Profit &amp; Loss.</p>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('techPayModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Mark Paid</button>
                     </div>
                 </form>
             </div>

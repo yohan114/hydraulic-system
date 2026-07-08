@@ -1399,7 +1399,93 @@ async function loadLabour() {
         allWorkers = Array.isArray(workers) ? workers : [];
         renderWorkers(allWorkers);
         renderLabour(Array.isArray(labour) ? labour : []);
+        loadTechnical();
     } catch (e) { console.error('Error loading labour', e); }
+}
+
+// Technician charges owed (from each invoice's "Technical charges" line)
+async function loadTechnical() {
+    showSkeleton('technical-tbody', 7, 4);
+    try {
+        const res = await authFetch(`${API_URL}/labour/technical`);
+        const data = await res.json();
+        if (!res.ok) { toast(data.error || 'Could not load technician charges', 'error'); return; }
+        renderTechnical(data);
+    } catch (e) { console.error('Error loading technical charges', e); }
+}
+
+function renderTechnical(data) {
+    const tb = document.getElementById('technical-tbody');
+    tb.innerHTML = '';
+    const rows = (data && data.charges) || [];
+    if (!rows.length) { emptyRow('technical-tbody', 7, '🔧', 'No technical charges yet', 'Finalized invoices with a “Technical charges” line show up here.'); }
+    rows.forEach((r) => {
+        const safeNo = escAttr(r.invoiceNo).replace(/'/g, "\\'");
+        const status = r.paid
+            ? `<span class="badge badge-paid">Paid</span>`
+            : `<span class="badge badge-unpaid">Unpaid</span>`;
+        const action = r.paid
+            ? `<button class="btn btn-text" style="color:var(--danger)" onclick="unpayTechnical(${r.invoiceId}, '${safeNo}')">Mark Unpaid</button>`
+            : `<button class="btn btn-text" style="color:var(--success)" onclick="openTechPay(${r.invoiceId}, '${safeNo}', ${r.amount})">Mark Paid</button>`;
+        tb.innerHTML += `
+            <tr>
+                <td><strong>${r.invoiceNo}</strong></td>
+                <td>${formatDate(r.invoiceDate)}</td>
+                <td>${r.billedToName || 'Walk-in'}</td>
+                <td class="num">${formatCurrency(r.amount)}</td>
+                <td>${status}</td>
+                <td>${r.paid ? (r.workerName || '<span style="color:var(--text-muted)">Unassigned</span>') : '—'}</td>
+                <td>${action}</td>
+            </tr>`;
+    });
+    const t = (data && data.totals) || {};
+    document.getElementById('tech-stat-total').textContent = formatCurrency(t.totalCharge);
+    document.getElementById('tech-stat-paid').textContent = formatCurrency(t.totalPaid);
+    document.getElementById('tech-stat-out').textContent = formatCurrency(t.outstanding);
+}
+
+function openTechPay(invoiceId, invoiceNo, amount) {
+    document.getElementById('techpay-invoice-id').value = invoiceId;
+    document.getElementById('techpay-invoice-no').textContent = invoiceNo;
+    document.getElementById('techpay-amount').textContent = formatCurrency(amount);
+    document.getElementById('techpay-date').value = new Date().toISOString().split('T')[0];
+    const sel = document.getElementById('techpay-worker');
+    sel.innerHTML = '<option value="">— Unassigned —</option>' + allWorkers.map((w) => `<option value="${w.WorkerID}">${w.Name}</option>`).join('');
+    openModal('techPayModal');
+}
+
+async function submitTechPay(e) {
+    e.preventDefault();
+    const invoiceId = document.getElementById('techpay-invoice-id').value;
+    const payload = {
+        workerId: document.getElementById('techpay-worker').value || null,
+        paidDate: document.getElementById('techpay-date').value,
+        method: document.getElementById('techpay-method').value,
+    };
+    try {
+        const res = await authFetch(`${API_URL}/labour/technical/${invoiceId}/pay`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Could not mark paid', 'error'); return; }
+        closeModal('techPayModal');
+        invalidateCache('dashboard');
+        loadLabour();
+        toast('Technician charge marked paid', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+async function unpayTechnical(invoiceId, invoiceNo) {
+    const ok = await confirmDialog({ title: `Mark unpaid?`, message: `Undo the technician payment for ${invoiceNo}? This removes the linked labour payment.`, confirmText: 'Mark unpaid', danger: true });
+    if (!ok) return;
+    try {
+        const res = await authFetch(`${API_URL}/labour/technical/${invoiceId}/unpay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Failed', 'error'); return; }
+        invalidateCache('dashboard');
+        loadLabour();
+        toast('Marked unpaid', 'success');
+    } catch (err) { toast(String(err), 'error'); }
 }
 
 function renderWorkers(workers) {
@@ -1425,10 +1511,14 @@ function renderLabour(rows) {
         const amt = Number(p.Amount) || 0;
         allTotal += amt;
         if ((p.PayPeriod || '').startsWith(month)) monthTotal += amt;
+        const techMatch = String(p.Notes || '').match(/^TECHPAYOUT#\d+ · (.+)$/);
+        const worker = techMatch
+            ? `${p.WorkerName || 'Technician'} <span style="font-size:11px;color:var(--text-muted)">· job ${techMatch[1]}</span>`
+            : (p.WorkerName || '<span style="color:var(--text-muted)">Whole team</span>');
         tb.innerHTML += `
             <tr>
                 <td>${formatDate(p.PaymentDate)}</td>
-                <td>${p.WorkerName || '<span style="color:var(--text-muted)">Whole team</span>'}</td>
+                <td>${worker}</td>
                 <td>${p.PayPeriod || '-'}</td>
                 <td class="num">${formatCurrency(amt)}</td>
                 <td>${p.Method || '-'}</td>
