@@ -834,8 +834,10 @@ app.post('/api/invoices/:id/payments', async (req, res) => {
 // Rate Card (editable our-cost / our-price / outside-price per spec+size)
 // ============================================================
 async function loadRateCard() {
-    const rows = await connection.query('SELECT * FROM RateCard ORDER BY Category, Spec, SizeInch');
-    return rows.map((r) => {
+    // No ORDER BY on Category — an un-migrated DB may not have that column yet,
+    // and Access would throw ("cscript" error). Sort in JS instead.
+    const rows = await connection.query('SELECT * FROM RateCard');
+    const mapped = rows.map((r) => {
         // Fall back to the legacy single OutsidePrice for pre-tier rows.
         const mid = r.OutsideMid != null ? money.round2(r.OutsideMid) : money.round2(r.OutsidePrice);
         return {
@@ -853,6 +855,23 @@ async function loadRateCard() {
             outsideHigh: r.OutsideHigh != null ? money.round2(r.OutsideHigh) : mid,
         };
     });
+    const catRank = { hose: 0, fitting: 1, crimping: 2 };
+    mapped.sort((a, b) =>
+        (catRank[a.category] ?? 9) - (catRank[b.category] ?? 9) ||
+        String(a.spec || '').localeCompare(String(b.spec || '')) ||
+        a.sizeInch - b.sizeInch
+    );
+    return mapped;
+}
+
+// Load the rate card but never let a rate-card problem break a comparison.
+async function loadRateCardSafe() {
+    try {
+        return await loadRateCard();
+    } catch (e) {
+        console.warn('Rate card unavailable (comparison will show your figures only):', e.message);
+        return [];
+    }
 }
 
 app.get('/api/ratecard', async (req, res) => {
@@ -1422,7 +1441,7 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
-        const rates = await loadRateCard();
+        const rates = await loadRateCardSafe();
         const tier = readTier(req);
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
@@ -1517,7 +1536,7 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
-        const rates = await loadRateCard();
+        const rates = await loadRateCardSafe();
         const tier = readTier(req);
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
