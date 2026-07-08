@@ -378,6 +378,84 @@ select.form-control option { color: initial; }
 #confirmDialog .confirm-message { font-size: 14px; color: var(--text-muted); line-height: 1.55; margin-bottom: 8px; }
 #confirmDialog input.form-control { margin-top: 12px; }
 
+/* ==================================================================== */
+/* RESPONSIVE LAYOUT                                                     */
+/* ==================================================================== */
+
+/* Reusable two-column split (collapses on narrow screens) */
+.split-2 { display: grid; gap: 24px; align-items: start; }
+.split-2.wide-left { grid-template-columns: 380px 1fr; }
+.split-2.wide-right { grid-template-columns: 320px 1fr; }
+
+/* Header title + hamburger (hamburger hidden on desktop) */
+.header-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.header-title h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-toggle { display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-main); width: 40px; height: 40px; border-radius: 10px; font-size: 22px; cursor: pointer; align-items: center; justify-content: center; flex-shrink: 0; }
+.menu-toggle:hover { background: var(--secondary); }
+
+/* Mobile off-canvas sidebar backdrop */
+.sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 1400; }
+.sidebar-backdrop.show { display: block; }
+
+/* Large laptops / small desktops */
+@media (max-width: 1200px) {
+    .content-area { padding: 0 28px 32px; }
+    .top-header { padding: 20px 28px; }
+}
+
+/* Tablets: stack the dashboard widgets */
+@media (max-width: 1024px) {
+    .dashboard-widgets { grid-template-columns: 1fr; }
+}
+
+/* Narrow: collapse the two-column splits */
+@media (max-width: 900px) {
+    .split-2, .split-2.wide-left, .split-2.wide-right { grid-template-columns: 1fr; }
+}
+
+/* Phones & small tablets: off-canvas sidebar + compact chrome */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed; top: 0; left: 0; bottom: 0; width: 264px; max-width: 84vw;
+        transform: translateX(-100%); transition: transform 0.25s ease; z-index: 1500;
+        box-shadow: none;
+    }
+    .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+    .main-content { width: 100%; }
+    .menu-toggle { display: inline-flex; }
+
+    .top-header { padding: 12px 14px; position: sticky; }
+    .top-header h1 { font-size: 19px; }
+    .content-area { padding: 0 14px 24px; }
+
+    .stats-grid { grid-template-columns: 1fr; gap: 14px; margin-bottom: 20px; }
+    .section-header { flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+    .header-actions { flex-wrap: wrap; gap: 10px; }
+    .header-actions .btn, .section-header .btn { flex: 1 1 auto; }
+    .invoice-toolbar { flex-wrap: wrap; gap: 12px; }
+
+    /* Forms & modals stack and fit the viewport */
+    .row { flex-direction: column; gap: 0; }
+    .modal { padding: 14px; align-items: flex-start; }
+    .modal-content { max-width: 96vw !important; margin-top: 24px; max-height: 90vh; overflow-y: auto; }
+
+    /* Denser tables so more fits before horizontal scroll */
+    .table th, .table td { padding: 10px 12px; font-size: 13px; }
+    .stat-card { padding: 18px; }
+    .stat-details p { font-size: 24px; }
+
+    /* Invoice-save actions stack full width */
+    .invoice-save-actions { flex-wrap: wrap; }
+    .invoice-save-actions .btn { flex: 1 1 auto; }
+}
+
+/* Very small phones */
+@media (max-width: 420px) {
+    .content-area { padding: 0 10px 20px; }
+    .stat-card { gap: 14px; }
+    .btn { padding: 9px 14px; font-size: 13px; }
+}
+
 /* Print rules */
 @media print {
     .no-print { display: none !important; }

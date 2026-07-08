@@ -42,6 +42,22 @@ function toggleTheme() {
 }
 
 // ----------------------------------------------------
+// Responsive sidebar (mobile off-canvas drawer)
+// ----------------------------------------------------
+function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    const bd = document.getElementById('sidebarBackdrop');
+    const open = sb && sb.classList.toggle('open');
+    if (bd) bd.classList.toggle('show', !!open);
+}
+function closeSidebar() {
+    const sb = document.getElementById('sidebar');
+    const bd = document.getElementById('sidebarBackdrop');
+    if (sb) sb.classList.remove('open');
+    if (bd) bd.classList.remove('show');
+}
+
+// ----------------------------------------------------
 // Toasts + top progress bar
 // ----------------------------------------------------
 function toast(message, type = 'info', ms = 3800) {
@@ -355,6 +371,7 @@ function initNavigation() {
 
             navItems.forEach((nav) => nav.classList.remove('active'));
             e.currentTarget.classList.add('active');
+            closeSidebar(); // dismiss the mobile drawer after choosing a page
         });
     });
 }

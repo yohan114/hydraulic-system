@@ -55,8 +55,10 @@
     </div>
 
     <div class="app-container">
+        <!-- Mobile sidebar backdrop -->
+        <div class="sidebar-backdrop no-print" id="sidebarBackdrop" onclick="closeSidebar()"></div>
         <!-- Sidebar -->
-        <aside class="sidebar no-print">
+        <aside class="sidebar no-print" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
                     <img src="logo.png" alt="Edward and Christie" style="max-height: 35px;" onerror="this.style.display='none'">
@@ -111,7 +113,10 @@
         <!-- Main Content -->
         <main class="main-content">
             <header class="top-header no-print">
-                <h1 id="page-title">Dashboard</h1>
+                <div class="header-title">
+                    <button class="menu-toggle" id="menuToggle" onclick="toggleSidebar()" aria-label="Menu"><i class="ri-menu-line"></i></button>
+                    <h1 id="page-title">Dashboard</h1>
+                </div>
                 <div class="header-actions">
                     <button class="btn btn-primary" onclick="showSection('new-invoice'); startNewInvoice();"><i class="ri-add-line"></i> Create Invoice</button>
                 </div>
@@ -503,7 +508,7 @@
                         <div class="stat-card"><div class="stat-icon" style="background: rgba(220,38,38,0.1); color:#dc2626;"><i class="ri-money-dollar-circle-line"></i></div><div class="stat-details"><h3>Paid This Month</h3><p id="labour-stat-month" style="font-size:22px;">Rs. 0.00</p></div></div>
                         <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-history-line"></i></div><div class="stat-details"><h3>Total Paid</h3><p id="labour-stat-total" style="font-size:22px;">Rs. 0.00</p></div></div>
                     </div>
-                    <div style="display:grid; grid-template-columns: 320px 1fr; gap:24px; align-items:start;">
+                    <div class="split-2 wide-right">
                         <div class="card" style="padding:0;">
                             <div class="widget-header" style="padding:16px 20px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Workers</h2></div>
                             <div class="table-responsive"><table class="table"><thead><tr><th>Name</th><th>Role</th><th></th></tr></thead><tbody id="workers-tbody"></tbody></table></div>
@@ -565,7 +570,7 @@
                         <h2>Invoice Tax & Cost Comparison</h2>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start;">
+                    <div class="split-2 wide-left">
                         <!-- Invoices Selection Sidebar -->
                         <div class="card" style="padding: 20px;">
                             <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
