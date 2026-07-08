@@ -19,6 +19,10 @@ const { RATECARD_SEED } = require('./lib/ratecardSeed');
 const COLUMN_UPGRADES = [
     ['Inventory.Price', 'ALTER TABLE Inventory ADD COLUMN Price DOUBLE'],
     ['Inventory.Cost', 'ALTER TABLE Inventory ADD COLUMN Cost DOUBLE'],
+    ['RateCard.Category', 'ALTER TABLE RateCard ADD COLUMN Category VARCHAR(20)'],
+    ['RateCard.OutsideLow', 'ALTER TABLE RateCard ADD COLUMN OutsideLow CURRENCY'],
+    ['RateCard.OutsideMid', 'ALTER TABLE RateCard ADD COLUMN OutsideMid CURRENCY'],
+    ['RateCard.OutsideHigh', 'ALTER TABLE RateCard ADD COLUMN OutsideHigh CURRENCY'],
     ['Invoices.Discount', 'ALTER TABLE Invoices ADD COLUMN Discount CURRENCY'],
     ['Invoices.RoundOff', 'ALTER TABLE Invoices ADD COLUMN RoundOff CURRENCY'],
     ['Invoices.AmountPaid', 'ALTER TABLE Invoices ADD COLUMN AmountPaid CURRENCY'],
@@ -151,19 +155,29 @@ async function ensureSchema(connection) {
         try { await connection.execute(stmt); } catch (_) { /* column may still be missing */ }
     }
 
-    // Seed the Rate Card once (only when empty) with researched starting values.
-    // The shop edits these later, so we never overwrite existing rows.
+    // Seed the Rate Card with the tiered, categorised research data. Seed when
+    // the table is empty, OR when it only holds the old per-foot seed (rows with
+    // no Category) — in which case we replace that placeholder data with the new
+    // tiered values. User-edited tiered rows (which have a Category) are kept.
     try {
         const cnt = await connection.query('SELECT COUNT(*) AS c FROM RateCard');
-        if (!(cnt[0] && cnt[0].c > 0)) {
+        let doSeed = !(cnt[0] && cnt[0].c > 0);
+        if (!doSeed) {
+            const cat = await connection.query('SELECT COUNT(*) AS c FROM RateCard WHERE Category IS NOT NULL');
+            if (!(cat[0] && cat[0].c > 0)) {
+                await connection.execute('DELETE FROM RateCard');
+                doSeed = true;
+            }
+        }
+        if (doSeed) {
             for (const r of RATECARD_SEED) {
                 const label = String(r.label).replace(/'/g, "''");
                 await connection.execute(
-                    `INSERT INTO RateCard (Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsidePrice, UpdatedAt)
-                     VALUES ('${r.spec}', '${r.sizeCode}', ${r.sizeInch}, '${label}', '${r.unit}', ${r.ourCost}, ${r.ourPrice}, ${r.outsidePrice}, Now())`
+                    `INSERT INTO RateCard (Category, Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsideLow, OutsideMid, OutsideHigh, OutsidePrice, UpdatedAt)
+                     VALUES ('${r.category}', '${r.spec}', '${r.sizeCode}', ${r.sizeInch}, '${label}', '${r.unit}', ${r.ourCost}, ${r.ourPrice}, ${r.outsideLow}, ${r.outsideMid}, ${r.outsideHigh}, ${r.outsideMid}, Now())`
                 );
             }
-            applied.push(`RateCard seed (${RATECARD_SEED.length} rows)`);
+            applied.push(`RateCard tiered seed (${RATECARD_SEED.length} rows)`);
         }
     } catch (_) { /* RateCard table not present (creation failed) -> skip seeding */ }
 

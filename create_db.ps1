@@ -120,6 +120,7 @@ $conn.Execute("CREATE TABLE Users (
 
 $conn.Execute("CREATE TABLE RateCard (
     [RateID] AUTOINCREMENT PRIMARY KEY,
+    [Category] VARCHAR(20),
     [Spec] VARCHAR(20),
     [SizeCode] VARCHAR(20),
     [SizeInch] DOUBLE,
@@ -127,6 +128,9 @@ $conn.Execute("CREATE TABLE RateCard (
     [Unit] VARCHAR(10),
     [OurCost] CURRENCY,
     [OurPrice] CURRENCY,
+    [OutsideLow] CURRENCY,
+    [OutsideMid] CURRENCY,
+    [OutsideHigh] CURRENCY,
     [OutsidePrice] CURRENCY,
     [UpdatedAt] DATETIME
 )")

@@ -1257,7 +1257,7 @@ function exportInventory() { downloadExport('/inventory/export', 'Inventory_Expo
 function exportAllInvoices() { downloadExport('/invoices/export', 'Invoices_Export.xlsx'); }
 function exportCostComparison() { downloadExport('/costs/export', 'Cost_Comparison.xlsx'); }
 function exportStockMovements() { downloadExport('/movements/export', 'Stock_Movements_Export.xlsx'); }
-function exportInvoiceComparison(invoiceId) { downloadExport(`/invoices/${invoiceId}/compare-export`, 'Invoice_Comparison.xlsx'); }
+function exportInvoiceComparison(invoiceId) { downloadExport(`/invoices/${invoiceId}/compare-export?tier=${compareTier()}`, 'Invoice_Comparison.xlsx'); }
 
 async function loadExportStats() {
     try {
@@ -1285,21 +1285,30 @@ async function loadRateCard() {
     } catch (e) { console.error('Error loading rate card', e); }
 }
 
+const CATEGORY_LABEL = { hose: 'Hose (per metre)', fitting: 'Fittings (per end)', crimping: 'Crimping (per end)' };
+
 function renderRateCard(data) {
     allRates = data;
     const tbody = document.getElementById('cost-analysis-tbody');
     tbody.innerHTML = '';
-    if (!data.length) { emptyRow('cost-analysis-tbody', 7, '🏷️', 'No rates yet', 'Add a rate or run the migration to seed the researched defaults.'); return; }
+    if (!data.length) { emptyRow('cost-analysis-tbody', 9, '🏷️', 'No rates yet', 'Add a rate or run the migration to seed the researched defaults.'); return; }
     let sumSav = 0, sumMar = 0;
+    let lastCat = null;
     data.forEach((r) => {
         sumSav += Number(r.savingsPct) || 0;
         sumMar += Number(r.marginPct) || 0;
+        if (r.category !== lastCat) {
+            lastCat = r.category;
+            tbody.innerHTML += `<tr><td colspan="9" style="background:var(--secondary); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted);">${CATEGORY_LABEL[r.category] || r.category}</td></tr>`;
+        }
         tbody.innerHTML += `
             <tr>
                 <td><strong>${r.label}</strong></td>
                 <td class="num">${formatCurrency(r.ourCost)}</td>
-                <td class="num">${formatCurrency(r.ourPrice)}</td>
-                <td class="num">${formatCurrency(r.outsidePrice)}</td>
+                <td class="num" style="font-weight:600;">${formatCurrency(r.ourPrice)}</td>
+                <td class="num" style="color:var(--text-muted);">${formatCurrency(r.outsideLow)}</td>
+                <td class="num">${formatCurrency(r.outsideMid)}</td>
+                <td class="num" style="color:var(--text-muted);">${formatCurrency(r.outsideHigh)}</td>
                 <td class="num" style="color:#10b981;font-weight:600;">${(Number(r.savingsPct) || 0).toFixed(1)}%</td>
                 <td class="num" style="color:var(--primary);font-weight:600;">${(Number(r.marginPct) || 0).toFixed(1)}%</td>
                 <td>
@@ -1313,10 +1322,14 @@ function renderRateCard(data) {
     document.getElementById('rate-stat-margin').textContent = `${(data.length ? sumMar / data.length : 0).toFixed(1)}%`;
 }
 
-const SIZECODE_INCH = { '6': 0.25, '8': 0.3125, '10': 0.375, '13': 0.5, '16': 0.625, '19': 0.75, '25': 1.0, '32': 1.25 };
+const SIZECODE_INCH = { '6': 0.25, '8': 0.3125, '10': 0.375, '13': 0.5, '16': 0.625, '19': 0.75, '25': 1.0, '32': 1.25, '38': 1.5, '51': 2.0 };
 function rateSyncSizeInch() {
     const code = document.getElementById('rate-sizecode').value;
     if (SIZECODE_INCH[code] !== undefined) document.getElementById('rate-sizeinch').value = SIZECODE_INCH[code];
+}
+function rateSyncUnit() {
+    const cat = document.getElementById('rate-category').value;
+    document.getElementById('rate-unit-label').textContent = cat === 'hose' ? 'metre' : 'end';
 }
 
 function openRateModal(id) {
@@ -1327,18 +1340,20 @@ function openRateModal(id) {
         const r = allRates.find((x) => x.rateId === id);
         if (r) {
             document.getElementById('rate-id').value = r.rateId;
+            document.getElementById('rate-category').value = r.category || 'hose';
             document.getElementById('rate-label').value = r.label || '';
-            document.getElementById('rate-spec').value = r.spec || 'R2';
-            document.getElementById('rate-sizecode').value = r.sizeCode || '13';
+            document.getElementById('rate-spec').value = r.spec || '';
+            document.getElementById('rate-sizecode').value = r.sizeCode || '';
             document.getElementById('rate-sizeinch').value = r.sizeInch || '';
             document.getElementById('rate-ourcost').value = r.ourCost || 0;
             document.getElementById('rate-ourprice').value = r.ourPrice || 0;
-            document.getElementById('rate-outside').value = r.outsidePrice || 0;
+            document.getElementById('rate-outlow').value = r.outsideLow || 0;
+            document.getElementById('rate-outmid').value = r.outsideMid || 0;
+            document.getElementById('rate-outhigh').value = r.outsideHigh || 0;
             document.getElementById('rateModalTitle').textContent = 'Edit Rate';
         }
-    } else {
-        rateSyncSizeInch();
     }
+    rateSyncUnit();
     openModal('rateModal');
 }
 
@@ -1346,14 +1361,17 @@ async function submitRate(e) {
     e.preventDefault();
     const id = document.getElementById('rate-id').value;
     const payload = {
+        category: document.getElementById('rate-category').value,
         label: document.getElementById('rate-label').value,
         spec: document.getElementById('rate-spec').value,
         sizeCode: document.getElementById('rate-sizecode').value,
         sizeInch: document.getElementById('rate-sizeinch').value,
-        unit: 'ft',
+        unit: document.getElementById('rate-category').value === 'hose' ? 'm' : 'end',
         ourCost: document.getElementById('rate-ourcost').value,
         ourPrice: document.getElementById('rate-ourprice').value,
-        outsidePrice: document.getElementById('rate-outside').value,
+        outsideLow: document.getElementById('rate-outlow').value,
+        outsideMid: document.getElementById('rate-outmid').value,
+        outsideHigh: document.getElementById('rate-outhigh').value,
     };
     try {
         const res = await authFetch(`${API_URL}/ratecard${id ? '/' + id : ''}`, {
@@ -1745,9 +1763,20 @@ async function loadInvoiceComparisonList() {
     }
 }
 
+let currentCompareId = null;
+function compareTier() {
+    const sel = document.getElementById('compare-tier');
+    return sel ? sel.value : 'mid';
+}
+function reloadComparison() {
+    if (currentCompareId) compareInvoice(currentCompareId);
+}
+
 async function compareInvoice(id) {
     try {
-        const res = await authFetch(`${API_URL}/invoices/${id}/compare`);
+        currentCompareId = id;
+        const tier = compareTier();
+        const res = await authFetch(`${API_URL}/invoices/${id}/compare?tier=${tier}`);
         const data = await res.json();
         if (data.error) return toast(data.error, 'error');
 

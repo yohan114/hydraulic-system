@@ -9,7 +9,9 @@ const {
   materialCostOf,
   normaliseSpec,
   sizeInchFromCode,
+  tierValueOf,
   matchRate,
+  matchFitting,
   compareLine,
 } = require('../lib/finance');
 const { RATECARD_SEED } = require('../lib/ratecardSeed');
@@ -66,23 +68,45 @@ test('sizeInchFromCode maps mm bore to inches', () => {
   assert.equal(sizeInchFromCode('99'), undefined);
 });
 
-test('matchRate finds the seeded row', () => {
+test('matchRate finds the seeded hose row (not fittings)', () => {
   const m = matchRate(RATECARD_SEED, { productName: 'Rubber pipe R2', specCode: '13' });
   assert.ok(m);
-  assert.equal(m.label, '1/2" R2');
-  assert.equal(m.outsidePrice, 1600);
-  assert.equal(matchRate(RATECARD_SEED, { productName: 'Fitting', specCode: '13' }), null);
+  assert.equal(m.category, 'hose');
+  assert.equal(m.label, '1/2" R2 (2-wire)');
+  assert.equal(m.outsideMid, 1950);
+  assert.equal(matchRate(RATECARD_SEED, { productName: 'Fitting BSP', specCode: '13' }), null);
   assert.equal(matchRate(RATECARD_SEED, { productName: 'Rubber pipe R2', specCode: '99' }), null);
 });
 
-test('compareLine converts metres->feet and applies per-foot rates', () => {
-  const rate = { spec: 'R2', sizeInch: 0.5, ourCost: 744, ourPrice: 1200, outsidePrice: 1600 };
-  const r = compareLine({ qty: 2 }, rate); // 2 m -> feet rounded to 6.56 for a consistent table
-  assert.equal(r.matched, true);
-  assert.equal(r.feet, 6.56);
-  assert.equal(r.ourCost, 4880.64); // 6.56 * 744
-  assert.equal(r.ourPrice, 7872); // 6.56 * 1200
-  assert.equal(r.outsidePrice, 10496); // 6.56 * 1600
+test('matchFitting matches hose-end lines by size', () => {
+  const m = matchFitting(RATECARD_SEED, { productName: 'Hydraulic fitting BSP', specCode: '13' });
+  assert.ok(m);
+  assert.equal(m.category, 'fitting');
+  assert.equal(m.sizeInch, 0.5);
+  // A hose line must NOT be treated as a fitting.
+  assert.equal(matchFitting(RATECARD_SEED, { productName: 'Rubber pipe R2', specCode: '13' }), null);
+});
+
+test('tierValueOf selects the right band (falls back to legacy)', () => {
+  const rate = { outsideLow: 100, outsideMid: 200, outsideHigh: 300 };
+  assert.equal(tierValueOf(rate, 'low'), 100);
+  assert.equal(tierValueOf(rate, 'mid'), 200);
+  assert.equal(tierValueOf(rate, 'high'), 300);
+  assert.equal(tierValueOf(rate), 200); // default mid
+  assert.equal(tierValueOf({ outsidePrice: 1600 }, 'high'), 1600); // legacy single price
+});
+
+test('compareLine is per-unit (no ft conversion) and tier-aware', () => {
+  const rate = { unit: 'm', ourCost: 1170, ourPrice: 1560, outsideLow: 1075, outsideMid: 1950, outsideHigh: 3900 };
+  const mid = compareLine({ qty: 2 }, rate); // 2 metres
+  assert.equal(mid.matched, true);
+  assert.equal(mid.qty, 2);
+  assert.equal(mid.unit, 'm');
+  assert.equal(mid.ourCost, 2340); // 2 * 1170
+  assert.equal(mid.ourPrice, 3120); // 2 * 1560
+  assert.equal(mid.outsidePrice, 3900); // 2 * 1950 (mid)
+  assert.equal(compareLine({ qty: 2 }, rate, 'low').outsidePrice, 2150); // 2 * 1075
+  assert.equal(compareLine({ qty: 2 }, rate, 'high').outsidePrice, 7800); // 2 * 3900
 });
 
 test('compareLine unmatched falls back to billed amount', () => {
@@ -92,11 +116,16 @@ test('compareLine unmatched falls back to billed amount', () => {
   assert.equal(r.ourPrice, 1234.5);
 });
 
-test('rate card seed is internally consistent', () => {
-  assert.equal(RATECARD_SEED.length, 15);
+test('tiered rate card seed is internally consistent', () => {
+  assert.equal(RATECARD_SEED.length, 21);
+  const cats = new Set();
   for (const r of RATECARD_SEED) {
-    assert.ok(r.ourCost < r.ourPrice, `${r.label}: cost should be below price`);
-    assert.ok(r.ourPrice < r.outsidePrice, `${r.label}: our price should undercut outside`);
-    assert.ok(['R1', 'R2', '4SP', '4SH'].includes(r.spec));
+    cats.add(r.category);
+    assert.ok(['hose', 'fitting', 'crimping'].includes(r.category), `${r.label}: bad category`);
+    assert.ok(r.outsideLow <= r.outsideMid && r.outsideMid <= r.outsideHigh, `${r.label}: tiers must ascend`);
+    assert.ok(r.ourCost < r.ourPrice, `${r.label}: cost below price`);
+    assert.ok(r.ourPrice <= r.outsideMid, `${r.label}: our price should not exceed mid outside`);
+    assert.ok(['m', 'end'].includes(r.unit), `${r.label}: unit`);
   }
+  assert.deepEqual([...cats].sort(), ['crimping', 'fitting', 'hose']);
 });

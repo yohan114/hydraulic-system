@@ -466,12 +466,12 @@
                             <button class="btn btn-primary" onclick="openRateModal()"><i class="ri-add-line"></i> Add Rate</button>
                         </div>
                     </div>
-                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px; max-width: 780px;">
-                        All prices are <strong>per foot, in LKR</strong>. Edit these from your real supplier quotes so the comparison and profit figures are exact. Seed values are researched market benchmarks — <em>not fixed</em>.
+                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px; max-width: 820px;">
+                        LKR, VAT-excl. — hose is <strong>per metre</strong>, fittings &amp; crimping are <strong>per end</strong>. Outside is a <strong>Low / Mid / High</strong> market band (Low = unbranded import · Mid = reputable brand · High = genuine OEM). Edit from your real supplier quotes — these seeds are a researched benchmark, <em>not a price list</em>.
                     </p>
                     <div class="stats-grid" style="margin-bottom: 24px;">
                         <div class="stat-card"><div class="stat-icon" style="background: rgba(59,130,246,0.1); color:#3b82f6;"><i class="ri-list-check-2"></i></div><div class="stat-details"><h3>Rates on File</h3><p id="rate-stat-count">0</p></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-percent-line"></i></div><div class="stat-details"><h3>Avg Customer Savings</h3><p id="rate-stat-savings">0.0%</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-percent-line"></i></div><div class="stat-details"><h3>Avg Savings vs Mid</h3><p id="rate-stat-savings">0.0%</p></div></div>
                         <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-funds-line"></i></div><div class="stat-details"><h3>Avg Our Margin</h3><p id="rate-stat-margin">0.0%</p></div></div>
                     </div>
                     <div class="card">
@@ -479,12 +479,14 @@
                             <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Spec / Size</th>
-                                        <th class="num">Our Cost /ft</th>
-                                        <th class="num">Our Price /ft</th>
-                                        <th class="num">Outside /ft</th>
-                                        <th class="num">Cust. Savings</th>
-                                        <th class="num">Our Margin</th>
+                                        <th>Item</th>
+                                        <th class="num">Our Cost</th>
+                                        <th class="num">Our Price</th>
+                                        <th class="num">Low</th>
+                                        <th class="num">Mid</th>
+                                        <th class="num">High</th>
+                                        <th class="num">Save vs Mid</th>
+                                        <th class="num">Margin</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -621,14 +623,23 @@
                         
                         <div id="compare-details-panel" style="display: none; flex-direction: column; gap: 24px;">
                             <!-- Dynamic Header Card -->
-                            <div class="card" style="padding: 24px; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="card" style="padding: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                                 <div>
                                     <h3 id="compare-inv-no" style="font-size: 20px; font-weight: 600; color: var(--text-main);">...</h3>
                                     <p id="compare-inv-meta" style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">...</p>
                                 </div>
-                                <button class="btn btn-primary" id="btnExportSingleCompare" onclick="">
-                                    <i class="ri-file-excel-line"></i> Export Invoice Excel
-                                </button>
+                                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                                    <label style="font-size:13px; color:var(--text-muted);">Compare vs
+                                        <select id="compare-tier" class="form-control" style="display:inline-block; width:auto; padding:6px 10px; margin-left:6px;" onchange="reloadComparison()">
+                                            <option value="low">Low (import)</option>
+                                            <option value="mid" selected>Mid (brand)</option>
+                                            <option value="high">High (OEM)</option>
+                                        </select>
+                                    </label>
+                                    <button class="btn btn-primary" id="btnExportSingleCompare" onclick="">
+                                        <i class="ri-file-excel-line"></i> Export
+                                    </button>
+                                </div>
                             </div>
                             
                             <!-- Dynamic KPI Cards -->
@@ -931,25 +942,33 @@
                 <form id="rateForm" onsubmit="submitRate(event)">
                     <input type="hidden" id="rate-id">
                     <div class="form-group row">
-                        <div class="col"><label>Label</label><input type="text" id="rate-label" class="form-control" placeholder='e.g. 1/2" R2' required></div>
-                        <div class="col"><label>Spec</label>
-                            <select id="rate-spec" class="form-control"><option>R1</option><option>R2</option><option>4SP</option><option>4SH</option></select>
+                        <div class="col"><label>Category</label>
+                            <select id="rate-category" class="form-control" onchange="rateSyncUnit()"><option value="hose">Hose (per metre)</option><option value="fitting">Fitting (per end)</option><option value="crimping">Crimping (per end)</option></select>
                         </div>
+                        <div class="col"><label>Label</label><input type="text" id="rate-label" class="form-control" placeholder='e.g. 1/2" R2 (2-wire)' required></div>
                     </div>
                     <div class="form-group row">
+                        <div class="col"><label>Spec</label>
+                            <select id="rate-spec" class="form-control"><option value="">—</option><option>R1</option><option>R2</option><option>4SP</option><option>4SH</option><option>BSP</option><option>JIC</option></select>
+                        </div>
                         <div class="col"><label>Size Code (mm bore)</label>
                             <select id="rate-sizecode" class="form-control" onchange="rateSyncSizeInch()">
-                                <option value="6">6 (1/4")</option><option value="8">8 (5/16")</option><option value="10">10 (3/8")</option>
+                                <option value="">—</option><option value="6">6 (1/4")</option><option value="8">8 (5/16")</option><option value="10">10 (3/8")</option>
                                 <option value="13">13 (1/2")</option><option value="16">16 (5/8")</option><option value="19">19 (3/4")</option>
-                                <option value="25">25 (1")</option><option value="32">32 (1-1/4")</option>
+                                <option value="25">25 (1")</option><option value="32">32 (1-1/4")</option><option value="38">38 (1-1/2")</option><option value="51">51 (2")</option>
                             </select>
                         </div>
                         <div class="col"><label>Size (inch)</label><input type="number" id="rate-sizeinch" class="form-control" step="0.0001"></div>
                     </div>
                     <div class="form-group row">
-                        <div class="col"><label>Our Cost /ft (Rs.)</label><input type="number" id="rate-ourcost" class="form-control" step="0.01" value="0"></div>
-                        <div class="col"><label>Our Price /ft (Rs.)</label><input type="number" id="rate-ourprice" class="form-control" step="0.01" value="0"></div>
-                        <div class="col"><label>Outside /ft (Rs.)</label><input type="number" id="rate-outside" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Our Cost (Rs.)</label><input type="number" id="rate-ourcost" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Our Price (Rs.)</label><input type="number" id="rate-ourprice" class="form-control" step="0.01" value="0"></div>
+                    </div>
+                    <label style="font-weight:500; color:var(--text-muted); font-size:14px;">Outside market band (per <span id="rate-unit-label">metre</span>)</label>
+                    <div class="form-group row" style="margin-top:8px;">
+                        <div class="col"><label>Low</label><input type="number" id="rate-outlow" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Mid</label><input type="number" id="rate-outmid" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>High</label><input type="number" id="rate-outhigh" class="form-control" step="0.01" value="0"></div>
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('rateModal')">Cancel</button>

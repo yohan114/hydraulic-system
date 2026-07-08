@@ -1,44 +1,69 @@
 'use strict';
 
 /**
- * Seed values for the editable Rate Card.
+ * Tiered Rate Card seed — Sri Lankan hydraulic market benchmark.
  *
- * These are RESEARCHED STARTING POINTS, not gospel — the whole point of the
- * Rate Card is that the shop edits them from real supplier quotes so the
- * comparison becomes exact. Prices are per FOOT, in LKR.
+ * These are RESEARCHED STARTING POINTS, not a price list. There is no published
+ * price list for hose/fittings/crimping in Sri Lanka (every supplier quotes on
+ * request), so these are modelled from Chinese FOB + the SL duty stack, cross-
+ * checked against Indian counter and US retail actuals, and collapsed from the
+ * Low/Mid/High ranges to their midpoints. All values are LKR, VAT-EXCLUSIVE.
  *
- * Basis (July 2026):
- *  - Outside/market price: Sri Lankan retail benchmarks (duty + VAT + margin),
- *    ~1.5–2× the US-converted price. US SAE-100 R2 retail runs ~$2.28/ft (1/4")
- *    to ~$3.36/ft (1/2") at ~Rs.335/USD; R1 is cheaper, 4SP/4SH spiral 2–3×.
- *  - Our price ≈ 75% of outside (the workshop undercuts the market).
- *  - Our cost ≈ 62% of our price (typical purchase cost / gross margin).
- * Sources: discounthydraulichose.com, hydraulicsdirect.com, CBSL USD-LKR.
+ * Units:
+ *   - hose      → per METRE   (invoices are quantified in metres)
+ *   - fitting   → per END     (fitting + ferrule, straight BSP/JIC)
+ *   - crimping  → per END     (labour only)
+ *
+ * Tiers: Low = unbranded Chinese import · Mid = reputable Chinese/Indian brand ·
+ * High = genuine European/US/Japanese. The comparison defaults to Mid.
+ *
+ * Our defaults: ourCost ≈ 60% of Mid (wholesale), ourPrice ≈ 80% of Mid
+ * (undercut the market but stay profitable). Crimping uses true internal cost.
+ * Edit all of these from your real supplier quotes — that is what makes the
+ * comparison exact. Basis: USD≈LKR335, INR≈LKR3.8, July 2026.
  */
 
-// [spec, sizeInch, sizeCode(mm bore), label, outsidePricePerFoot]
-const OUTSIDE = [
-  ['R1', 0.25, '6', '1/4" R1', 950],
-  ['R1', 0.3125, '8', '5/16" R1', 1050],
-  ['R1', 0.375, '10', '3/8" R1', 1150],
-  ['R2', 0.25, '6', '1/4" R2', 1200],
-  ['R2', 0.3125, '8', '5/16" R2', 1300],
-  ['R2', 0.375, '10', '3/8" R2', 1400],
-  ['R2', 0.5, '13', '1/2" R2', 1600],
-  ['R2', 0.625, '16', '5/8" R2', 1950],
-  ['R2', 0.75, '19', '3/4" R2', 2300],
-  ['R2', 1.0, '25', '1" R2', 3000],
-  ['R2', 1.25, '32', '1-1/4" R2', 3950],
-  ['4SP', 0.625, '16', '5/8" 4SP', 2900],
-  ['4SH', 0.75, '19', '3/4" 4SH', 3800],
-  ['4SH', 1.0, '25', '1" 4SH', 4700],
-  ['4SH', 1.25, '32', '1-1/4" 4SH', 5900],
-];
+function row(category, spec, sizeInch, sizeCode, label, unit, low, mid, high, opts = {}) {
+  const ourCost = opts.ourCost != null ? opts.ourCost : Math.round(mid * 0.6);
+  const ourPrice = opts.ourPrice != null ? opts.ourPrice : Math.round(mid * 0.8);
+  return {
+    category, spec, sizeInch, sizeCode, label, unit,
+    ourCost, ourPrice,
+    outsideLow: low, outsideMid: mid, outsideHigh: high,
+  };
+}
 
-const RATECARD_SEED = OUTSIDE.map(([spec, sizeInch, sizeCode, label, outside]) => {
-  const ourPrice = Math.round(outside * 0.75);
-  const ourCost = Math.round(ourPrice * 0.62);
-  return { spec, sizeInch, sizeCode, label, unit: 'ft', ourCost, ourPrice, outsidePrice: outside };
-});
+const RATECARD_SEED = [
+  // ---- Hose: 2-wire braid (SAE 100 R2AT / EN 853 2SN), per metre ----
+  row('hose', 'R2', 0.25, '6', '1/4" R2 (2-wire)', 'm', 575, 1125, 2300),
+  row('hose', 'R2', 0.375, '10', '3/8" R2 (2-wire)', 'm', 800, 1525, 2950),
+  row('hose', 'R2', 0.5, '13', '1/2" R2 (2-wire)', 'm', 1075, 1950, 3900),
+  row('hose', 'R2', 0.625, '16', '5/8" R2 (2-wire)', 'm', 1400, 2450, 4900),
+  row('hose', 'R2', 0.75, '19', '3/4" R2 (2-wire)', 'm', 1750, 3100, 6150),
+  row('hose', 'R2', 1.0, '25', '1" R2 (2-wire)', 'm', 2500, 4400, 8900),
+
+  // ---- Hose: 1-wire braid (R1 ≈ 0.70 × R2) ----
+  row('hose', 'R1', 0.25, '6', '1/4" R1 (1-wire)', 'm', 403, 788, 1610),
+  row('hose', 'R1', 0.375, '10', '3/8" R1 (1-wire)', 'm', 560, 1068, 2065),
+  row('hose', 'R1', 0.5, '13', '1/2" R1 (1-wire)', 'm', 753, 1365, 2730),
+
+  // ---- Hose: 4-wire spiral (4SP / 4SH), per metre ----
+  row('hose', '4SH', 1.0, '25', '1" 4SH (spiral)', 'm', 4350, 7400, 14000),
+  row('hose', '4SH', 1.25, '32', '1-1/4" 4SH (spiral)', 'm', 5650, 9500, 18000),
+  row('hose', '4SH', 1.5, '38', '1-1/2" 4SH (spiral)', 'm', 7500, 12750, 24500),
+  row('hose', '4SH', 2.0, '51', '2" 4SH (spiral)', 'm', 10750, 18000, 35000),
+
+  // ---- Fittings (hose ends): fitting + ferrule, straight BSP/JIC, per end ----
+  row('fitting', 'BSP', 0.25, '6', 'Fitting 1/4" (straight)', 'end', 465, 775, 1850),
+  row('fitting', 'BSP', 0.375, '10', 'Fitting 3/8" (straight)', 'end', 565, 965, 2250),
+  row('fitting', 'BSP', 0.5, '13', 'Fitting 1/2" (straight)', 'end', 740, 1250, 2950),
+  row('fitting', 'BSP', 0.75, '19', 'Fitting 3/4" (straight)', 'end', 1235, 2100, 5000),
+  row('fitting', 'BSP', 1.0, '25', 'Fitting 1" (straight)', 'end', 2050, 3500, 8400),
+  row('fitting', 'BSP', 1.25, '32', 'Fitting 1-1/4" (straight)', 'end', 3950, 6700, 15500),
+
+  // ---- Crimping charge (labour only), per end. Reference; not auto-matched. ----
+  row('crimping', '', 0, '', 'Crimp ≤3/4" (per end)', 'end', 250, 650, 1850, { ourCost: 250, ourPrice: 585 }),
+  row('crimping', '', 0, '', 'Crimp 1"–2" spiral (per end)', 'end', 900, 1700, 3500, { ourCost: 500, ourPrice: 1530 }),
+];
 
 module.exports = { RATECARD_SEED };

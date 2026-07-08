@@ -834,28 +834,35 @@ app.post('/api/invoices/:id/payments', async (req, res) => {
 // Rate Card (editable our-cost / our-price / outside-price per spec+size)
 // ============================================================
 async function loadRateCard() {
-    const rows = await connection.query('SELECT * FROM RateCard ORDER BY Spec, SizeInch');
-    return rows.map((r) => ({
-        rateId: r.RateID,
-        spec: r.Spec,
-        sizeCode: r.SizeCode,
-        sizeInch: money.num(r.SizeInch),
-        label: r.Label,
-        unit: r.Unit || 'ft',
-        ourCost: money.round2(r.OurCost),
-        ourPrice: money.round2(r.OurPrice),
-        outsidePrice: money.round2(r.OutsidePrice),
-    }));
+    const rows = await connection.query('SELECT * FROM RateCard ORDER BY Category, Spec, SizeInch');
+    return rows.map((r) => {
+        // Fall back to the legacy single OutsidePrice for pre-tier rows.
+        const mid = r.OutsideMid != null ? money.round2(r.OutsideMid) : money.round2(r.OutsidePrice);
+        return {
+            rateId: r.RateID,
+            category: r.Category || 'hose',
+            spec: r.Spec,
+            sizeCode: r.SizeCode,
+            sizeInch: money.num(r.SizeInch),
+            label: r.Label,
+            unit: r.Unit || 'm',
+            ourCost: money.round2(r.OurCost),
+            ourPrice: money.round2(r.OurPrice),
+            outsideLow: r.OutsideLow != null ? money.round2(r.OutsideLow) : mid,
+            outsideMid: mid,
+            outsideHigh: r.OutsideHigh != null ? money.round2(r.OutsideHigh) : mid,
+        };
+    });
 }
 
 app.get('/api/ratecard', async (req, res) => {
     try {
         const rows = await loadRateCard();
-        // Per-unit savings vs outside (%), for the Rate Card / cost-analysis view.
+        // Savings vs the Mid outside band, and our margin — for the Rate Card view.
         const withSavings = rows.map((r) => ({
             ...r,
-            savingsPerUnit: money.round2(r.outsidePrice - r.ourPrice),
-            savingsPct: r.outsidePrice > 0 ? money.round2(((r.outsidePrice - r.ourPrice) / r.outsidePrice) * 100) : 0,
+            savingsPerUnit: money.round2(r.outsideMid - r.ourPrice),
+            savingsPct: r.outsideMid > 0 ? money.round2(((r.outsideMid - r.ourPrice) / r.outsideMid) * 100) : 0,
             marginPct: r.ourPrice > 0 ? money.round2(((r.ourPrice - r.ourCost) / r.ourPrice) * 100) : 0,
         }));
         res.json(withSavings);
@@ -864,13 +871,18 @@ app.get('/api/ratecard', async (req, res) => {
     }
 });
 
+// Column list + value tuple shared by Rate Card insert/update.
+function rateCardSet(b) {
+    return `Category = ${sql.q(b.category || 'hose')}, Spec = ${sql.q(b.spec)}, SizeCode = ${sql.q(b.sizeCode)}, SizeInch = ${sql.n(b.sizeInch, 0)}, Label = ${sql.q(b.label)}, Unit = ${sql.q(b.unit || 'm')}, OurCost = ${sql.n(b.ourCost, 0)}, OurPrice = ${sql.n(b.ourPrice, 0)}, OutsideLow = ${sql.n(b.outsideLow, 0)}, OutsideMid = ${sql.n(b.outsideMid, 0)}, OutsideHigh = ${sql.n(b.outsideHigh, 0)}, OutsidePrice = ${sql.n(b.outsideMid, 0)}, UpdatedAt = Now()`;
+}
+
 app.post('/api/ratecard', async (req, res) => {
     try {
         const b = req.body || {};
         if (!String(b.label || '').trim()) return res.status(400).json({ error: 'Label is required' });
         await connection.execute(
-            `INSERT INTO RateCard (Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsidePrice, UpdatedAt)
-             VALUES (${sql.q(b.spec)}, ${sql.q(b.sizeCode)}, ${sql.n(b.sizeInch, 0)}, ${sql.q(b.label)}, ${sql.q(b.unit || 'ft')}, ${sql.n(b.ourCost, 0)}, ${sql.n(b.ourPrice, 0)}, ${sql.n(b.outsidePrice, 0)}, Now())`
+            `INSERT INTO RateCard (Category, Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsideLow, OutsideMid, OutsideHigh, OutsidePrice, UpdatedAt)
+             VALUES (${sql.q(b.category || 'hose')}, ${sql.q(b.spec)}, ${sql.q(b.sizeCode)}, ${sql.n(b.sizeInch, 0)}, ${sql.q(b.label)}, ${sql.q(b.unit || 'm')}, ${sql.n(b.ourCost, 0)}, ${sql.n(b.ourPrice, 0)}, ${sql.n(b.outsideLow, 0)}, ${sql.n(b.outsideMid, 0)}, ${sql.n(b.outsideHigh, 0)}, ${sql.n(b.outsideMid, 0)}, Now())`
         );
         res.json({ success: true });
     } catch (err) {
@@ -881,10 +893,7 @@ app.post('/api/ratecard', async (req, res) => {
 app.put('/api/ratecard/:id', async (req, res) => {
     try {
         const id = sql.n(req.params.id);
-        const b = req.body || {};
-        await connection.execute(
-            `UPDATE RateCard SET Spec = ${sql.q(b.spec)}, SizeCode = ${sql.q(b.sizeCode)}, SizeInch = ${sql.n(b.sizeInch, 0)}, Label = ${sql.q(b.label)}, Unit = ${sql.q(b.unit || 'ft')}, OurCost = ${sql.n(b.ourCost, 0)}, OurPrice = ${sql.n(b.ourPrice, 0)}, OutsidePrice = ${sql.n(b.outsidePrice, 0)}, UpdatedAt = Now() WHERE RateID = ${id}`
-        );
+        await connection.execute(`UPDATE RateCard SET ${rateCardSet(req.body || {})} WHERE RateID = ${id}`);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1360,21 +1369,41 @@ app.post('/api/inventory/import', upload.single('file'), async (req, res) => {
 // Cost Comparison Analysis (driven by the editable Rate Card)
 // ============================================================
 
-// Per-foot comparison table straight from the Rate Card, with savings/margin.
+// Which outside tier the comparison uses (query ?tier=low|mid|high, default mid).
+function readTier(req) {
+    const t = String((req.query && req.query.tier) || 'mid').toLowerCase();
+    return ['low', 'mid', 'high'].includes(t) ? t : 'mid';
+}
+
+// Match an invoice line to a hose rate first, then a fitting rate.
+function matchLineRate(rates, item) {
+    return (
+        finance.matchRate(rates, { productName: item.ProductName, specCode: item.SpecificationCode }) ||
+        finance.matchFitting(rates, { productName: item.ProductName, description: item.ItemDescription, specCode: item.SpecificationCode })
+    );
+}
+
+// Rate Card as a comparison table (per unit) with savings vs mid + margin.
 async function getCostComparison() {
     const rates = await loadRateCard();
     return rates.map((r) => {
-        const diffFoot = money.round2(r.outsidePrice - r.ourPrice);
-        const savingsPct = r.outsidePrice > 0 ? money.round2((diffFoot / r.outsidePrice) * 100) : 0;
+        const diff = money.round2(r.outsideMid - r.ourPrice);
+        const savingsPct = r.outsideMid > 0 ? money.round2((diff / r.outsideMid) * 100) : 0;
+        const marginPct = r.ourPrice > 0 ? money.round2(((r.ourPrice - r.ourCost) / r.ourPrice) * 100) : 0;
         return {
             name: r.label,
+            category: r.category,
             spec: r.spec,
             size: r.sizeInch,
-            ourCostFoot: r.ourCost,
-            ourPriceFoot: r.ourPrice,
-            outsideCost: r.outsidePrice,
-            diffFoot,
+            unit: r.unit,
+            ourCost: r.ourCost,
+            ourPrice: r.ourPrice,
+            outsideLow: r.outsideLow,
+            outsideMid: r.outsideMid,
+            outsideHigh: r.outsideHigh,
+            diff,
             savingsPct,
+            marginPct,
             matched: true,
         };
     });
@@ -1394,6 +1423,7 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
         `);
 
         const rates = await loadRateCard();
+        const tier = readTier(req);
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
         let ourCostSubtotal = 0;
@@ -1402,10 +1432,10 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
             const ourAmt = money.num(item.Amount);
             ourSubtotal += ourAmt;
 
-            const rate = finance.matchRate(rates, { productName: item.ProductName, specCode: item.SpecificationCode });
-            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt }, rate);
-            // Our cost: from the rate card when the hose is matched, otherwise
-            // fall back to the stocked item's unit cost × qty.
+            const rate = matchLineRate(rates, item);
+            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt, unit: item.Unit }, rate, tier);
+            // Our cost: from the rate card when matched, otherwise fall back to
+            // the stocked item's unit cost × qty.
             const ourCostAmt = cmp.matched ? cmp.ourCost : money.round2(money.num(item.Qty) * money.num(item.Cost));
 
             outsideSubtotal += cmp.outsidePrice;
@@ -1418,11 +1448,11 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
                 ourRate: item.Rate,
                 ourAmount: ourAmt,
                 ourCost: ourCostAmt,
-                outsideRate: rate ? rate.outsidePrice : 0,
+                outsideRate: rate ? finance.tierValueOf(rate, tier) : 0,
                 outsideAmount: cmp.outsidePrice,
                 matched: cmp.matched,
-                outsideUnit: cmp.matched ? 'ft' : item.Unit,
-                outsideQty: cmp.matched ? cmp.feet : item.Qty,
+                outsideUnit: cmp.matched ? cmp.unit : item.Unit,
+                outsideQty: cmp.matched ? cmp.qty : item.Qty,
             };
         });
 
@@ -1446,6 +1476,7 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
             invoiceNo: invoice[0].InvoiceNo,
             invoiceDate: invoice[0].InvoiceDate,
             billedToName: invoice[0].BilledToName,
+            tier,
             taxes: {
                 ssclRate,
                 vatRate,
@@ -1487,6 +1518,7 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
         `);
 
         const rates = await loadRateCard();
+        const tier = readTier(req);
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
         let ourCostSubtotal = 0;
@@ -1495,8 +1527,8 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
             const ourAmt = money.num(item.Amount);
             ourSubtotal += ourAmt;
 
-            const rate = finance.matchRate(rates, { productName: item.ProductName, specCode: item.SpecificationCode });
-            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt }, rate);
+            const rate = matchLineRate(rates, item);
+            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt, unit: item.Unit }, rate, tier);
             const ourCostAmt = cmp.matched ? cmp.ourCost : money.round2(money.num(item.Qty) * money.num(item.Cost));
             outsideSubtotal += cmp.outsidePrice;
             ourCostSubtotal += ourCostAmt;
@@ -1510,9 +1542,9 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
                 'Our Amount (Rs.)': ourAmt,
                 'Our Cost (Rs.)': ourCostAmt,
                 'Job Profit (Rs.)': money.round2(ourAmt - ourCostAmt),
-                'Outside Qty': cmp.matched ? cmp.feet : item.Qty,
-                'Outside Unit': cmp.matched ? 'ft' : item.Unit,
-                'Outside Rate (Rs.)': rate ? rate.outsidePrice : 0,
+                'Outside Qty': cmp.matched ? cmp.qty : item.Qty,
+                'Outside Unit': cmp.matched ? cmp.unit : item.Unit,
+                [`Outside Rate ${tier.toUpperCase()} (Rs.)`]: rate ? finance.tierValueOf(rate, tier) : 0,
                 'Outside Amount (Rs.)': cmp.outsidePrice,
                 'Savings (Rs.)': money.round2(cmp.outsidePrice - ourAmt),
             };
@@ -1582,12 +1614,16 @@ app.get('/api/costs/export', async (req, res) => {
         const data = await getCostComparison();
 
         const excelData = data.map((row) => ({
-            'Hose Specification': row.name,
-            'Our Cost (per Foot)': row.ourCostFoot,
-            'Our Price (per Foot)': row.ourPriceFoot,
-            'Outside Price (per Foot)': row.outsideCost,
-            'Customer Savings (per Foot)': row.diffFoot,
-            'Savings (%)': row.savingsPct + '%',
+            'Category': row.category,
+            'Specification': row.name,
+            'Unit': row.unit,
+            'Our Cost': row.ourCost,
+            'Our Price': row.ourPrice,
+            'Outside Low': row.outsideLow,
+            'Outside Mid': row.outsideMid,
+            'Outside High': row.outsideHigh,
+            'Savings vs Mid (%)': row.savingsPct + '%',
+            'Our Margin (%)': row.marginPct + '%',
         }));
 
         const ws = xlsx.utils.json_to_sheet(excelData);

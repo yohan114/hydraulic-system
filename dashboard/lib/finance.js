@@ -115,6 +115,7 @@ function normaliseSpec(text) {
 const SIZE_CODE_TO_INCH = {
   '6': 0.25, '8': 0.3125, '10': 0.375, '13': 0.5,
   '16': 0.625, '19': 0.75, '25': 1.0, '32': 1.25,
+  '38': 1.5, '51': 2.0,
 };
 
 /**
@@ -126,9 +127,28 @@ function sizeInchFromCode(code) {
   return SIZE_CODE_TO_INCH[String(code == null ? '' : code).trim()];
 }
 
+// Words that mark an invoice line as a hose end / fitting rather than hose.
+const FITTING_RE = /fitting|adaptor|adapter|ferrule|coupling|nipple|flange|bsp|jic|orfs|\bend\b/i;
+
 /**
- * Find the Rate Card row that matches an invoice line by spec + size.
- * @param {Array<{spec:string, sizeInch:number}>} rates
+ * The outside price for a Rate Card row at a given tier (low/mid/high),
+ * falling back to the legacy single OutsidePrice when tiers are absent.
+ * @param {object} rate
+ * @param {('low'|'mid'|'high'|string)} [tier='mid']
+ * @returns {number}
+ */
+function tierValueOf(rate, tier) {
+  if (!rate) return 0;
+  const t = String(tier || 'mid').toLowerCase();
+  if (t === 'low' && rate.outsideLow != null) return num(rate.outsideLow);
+  if (t === 'high' && rate.outsideHigh != null) return num(rate.outsideHigh);
+  if (rate.outsideMid != null) return num(rate.outsideMid);
+  return num(rate.outsidePrice); // legacy single-price rows
+}
+
+/**
+ * Find the HOSE Rate Card row that matches an invoice line by spec + size.
+ * @param {Array<object>} rates
  * @param {object} line { productName, specCode }
  * @returns {object|null}
  */
@@ -139,31 +159,49 @@ function matchRate(rates, line) {
   if (sizeInch === undefined) return null;
   return (
     (rates || []).find(
-      (r) => r.spec === spec && Math.abs(num(r.sizeInch) - sizeInch) < 0.001
+      (r) => (r.category === 'hose' || r.category == null) && r.spec === spec && Math.abs(num(r.sizeInch) - sizeInch) < 0.001
     ) || null
   );
 }
 
 /**
- * Compare one invoice line against a matched Rate Card row.
- * Quantities are metres on the invoice; outside pricing is per foot.
- * @param {object} line { qty (metres), ourAmount (billed), rate }
- * @param {object|null} rate matched Rate Card row (per-foot our/outside prices)
- * @returns {{matched:boolean, feet:number, ourCost:number, ourPrice:number,
- *   outsidePrice:number}}
+ * Find the FITTING Rate Card row matching a hose-end invoice line by size.
+ * @param {Array<object>} rates
+ * @param {object} line { productName, description, specCode }
+ * @returns {object|null}
  */
-function compareLine(line, rate) {
-  const qtyMetres = num(line && line.qty);
-  const feet = round2(qtyMetres * FEET_PER_METRE);
+function matchFitting(rates, line) {
+  const text = `${(line && line.productName) || ''} ${(line && line.description) || ''}`;
+  if (!FITTING_RE.test(text)) return null;
+  const sizeInch = sizeInchFromCode(line && line.specCode);
+  if (sizeInch === undefined) return null;
+  return (
+    (rates || []).find((r) => r.category === 'fitting' && Math.abs(num(r.sizeInch) - sizeInch) < 0.001) || null
+  );
+}
+
+/**
+ * Compare one invoice line against a matched Rate Card row.
+ * Everything is per the row's own unit (metre for hose, end for fittings), so
+ * the invoice qty maps straight through — no unit conversion.
+ * @param {object} line { qty, ourAmount, unit }
+ * @param {object|null} rate matched Rate Card row
+ * @param {('low'|'mid'|'high')} [tier='mid'] outside tier to compare against
+ * @returns {{matched:boolean, qty:number, unit:string, ourCost:number,
+ *   ourPrice:number, outsidePrice:number}}
+ */
+function compareLine(line, rate, tier) {
+  const qty = num(line && line.qty);
   if (!rate) {
-    return { matched: false, feet: qtyMetres, ourCost: 0, ourPrice: round2(line && line.ourAmount), outsidePrice: 0 };
+    return { matched: false, qty: round2(qty), unit: (line && line.unit) || '', ourCost: 0, ourPrice: round2(line && line.ourAmount), outsidePrice: 0 };
   }
   return {
     matched: true,
-    feet,
-    ourCost: round2(feet * num(rate.ourCost)),
-    ourPrice: round2(feet * num(rate.ourPrice)),
-    outsidePrice: round2(feet * num(rate.outsidePrice)),
+    qty: round2(qty),
+    unit: rate.unit || 'm',
+    ourCost: round2(qty * num(rate.ourCost)),
+    ourPrice: round2(qty * num(rate.ourPrice)),
+    outsidePrice: round2(qty * tierValueOf(rate, tier)),
   };
 }
 
@@ -175,6 +213,8 @@ module.exports = {
   materialCostOf,
   normaliseSpec,
   sizeInchFromCode,
+  tierValueOf,
   matchRate,
+  matchFitting,
   compareLine,
 };
