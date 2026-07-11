@@ -741,7 +741,7 @@ app.post('/api/invoices/:id/cancel', async (req, res) => {
                     await connection.execute(`UPDATE Inventory SET Qty = ${newQty}, UpdatedAt = Now() WHERE InventoryID = ${invId}`);
                     await connection.execute(
                         `INSERT INTO StockMovements (InventoryID, InvoiceID, MovementType, QtyChange, PreviousQty, NewQty, MovementDate, Notes)
-                         VALUES (${invId}, ${id}, 'IN', ${money.round2(money.num(it.Qty))}, ${prevQty}, ${newQty}, Now(), 'Invoice Cancelled: ${sql.esc(reason).slice(0, 180)}')`
+                         VALUES (${invId}, ${id}, 'IN', ${money.round2(money.num(it.Qty))}, ${prevQty}, ${newQty}, Now(), ${sql.q('Invoice Cancelled: ' + String(reason).slice(0, 180))})`
                     );
                 }
             }

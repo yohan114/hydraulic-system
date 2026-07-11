@@ -828,11 +828,16 @@ function calcInvoiceTotals() {
         }
     });
 
-    // Auto-update Sundries cost and Technical charges
-    const sundriesItem = invoiceItems.find((it) => it.desc === 'Sundries cost');
-    if (sundriesItem) sundriesItem.rate = materialCost * 0.12;
-    const techItem = invoiceItems.find((it) => it.desc === 'Technical charges');
-    if (techItem) techItem.rate = materialCost * 0.9;
+    // Auto-update Sundries cost and Technical charges — ONLY while the invoice is
+    // editable. A finalized/locked invoice must reprint the exact rates that were
+    // billed; re-deriving them here (from the currently loaded material lines,
+    // unrounded) would make a reprint disagree with the stored bill.
+    if (isInvoiceEditable) {
+        const sundriesItem = invoiceItems.find((it) => it.desc === 'Sundries cost');
+        if (sundriesItem) sundriesItem.rate = round2(materialCost * 0.12);
+        const techItem = invoiceItems.find((it) => it.desc === 'Technical charges');
+        if (techItem) techItem.rate = round2(materialCost * 0.9);
+    }
 
     // Pass 2: Calculate subTotal, update row amounts + margin hints
     const rows = document.querySelectorAll('#invItemsBody .item-row');
