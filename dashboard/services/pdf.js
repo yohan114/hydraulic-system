@@ -46,7 +46,9 @@ async function htmlToPdf(html) {
     return await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '12mm', bottom: '12mm', left: '10mm', right: '10mm' },
+      // No PDF margin — the invoice HTML is a full-A4 flex sheet that controls its
+      // own padding and pins the footer to the bottom of the page.
+      margin: { top: '0', bottom: '0', left: '0', right: '0' },
     });
   } finally {
     await browser.close();

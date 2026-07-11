@@ -120,8 +120,12 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invoice.InvoiceNo || 'Invoice')}</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; margin: 0; padding: 0; font-size: 12px; }
-  .wrap { padding: 26px 32px 0; }
+  @page { size: A4; margin: 0; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; }
+  /* Full-A4 flex sheet: content grows to fill, footer pinned to the bottom. */
+  .sheet { min-height: 297mm; display: flex; flex-direction: column; }
+  .wrap { flex: 1 0 auto; padding: 26px 34px 0; }
   .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid ${INK}; padding-bottom: 12px; }
   .brand img { max-height: 44px; display: block; margin-bottom: 6px; }
   .brand .name { font-size: 18px; font-weight: 700; color: ${INK}; }
@@ -153,7 +157,7 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
   .sign img { max-height: 56px; display: block; margin: 0 auto 4px; }
   .sign .line { border-top: 1px dashed #94a3b8; width: 210px; margin: 0 auto 6px; }
   .sign .label { font-size: 11px; color: #64748b; font-weight: 500; }
-  .footer { background: ${INK}; color: #fff; border-top: 3px solid ${ACCENT}; padding: 12px 32px; display: flex; align-items: center; gap: 18px; font-size: 10px; }
+  .footer { flex-shrink: 0; background: ${INK}; color: #fff; border-top: 3px solid ${ACCENT}; padding: 12px 34px; display: flex; align-items: center; gap: 18px; font-size: 10px; }
   .footer .brandmini { font-weight: 700; font-size: 14px; white-space: nowrap; }
   .footer .brandmini span { color: ${ACCENT}; }
   .footer .col { display: flex; gap: 7px; align-items: flex-start; line-height: 1.4; flex: 1; }
@@ -161,6 +165,7 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
   .footer .vat { text-align: right; letter-spacing: 1.5px; font-size: 9px; white-space: nowrap; }
   .footer .vat .k { color: ${ACCENT}; display: block; margin-bottom: 2px; }
 </style></head><body>
+  <div class="sheet">
   <div class="wrap">
     <div class="head">
       <div class="brand">
@@ -212,6 +217,7 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
     <div class="col"><div class="ic">✉</div><div>${BUSINESS.email}</div></div>
     <div class="col"><div class="ic">◎</div><div>${BUSINESS.address}</div></div>
     <div class="vat"><span class="k">VAT REG</span>${esc(BUSINESS.vat)}</div>
+  </div>
   </div>
 </body></html>`;
 }
