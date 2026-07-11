@@ -43,12 +43,17 @@ body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); colo
 .app-container { display: flex; height: 100vh; overflow: hidden; }
 
 /* Sidebar */
-.sidebar { width: var(--sidebar-w); background-color: var(--card-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; z-index: 10; box-shadow: var(--shadow-sm); }
-.sidebar-header { padding: 24px; border-bottom: 1px solid var(--border-color); }
+.sidebar { width: var(--sidebar-w); background-color: var(--card-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; z-index: 10; box-shadow: var(--shadow-sm); height: 100vh; }
+.sidebar-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
 .logo { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 700; color: var(--primary); }
 .logo i { font-size: 24px; }
-.sidebar-nav { padding: 24px 16px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
-.nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+/* The nav list scrolls on its own so a long menu never pushes the footer
+   (theme toggle / account) off-screen. min-height:0 lets the flex child shrink. */
+.sidebar-nav { padding: 16px 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.sidebar-nav::-webkit-scrollbar { width: 6px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+.sidebar-nav { scrollbar-width: thin; scrollbar-color: var(--border-color) transparent; }
+.nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; font-weight: 500; transition: all 0.2s ease; flex-shrink: 0; }
 .nav-item i { font-size: 20px; }
 .nav-item:hover { background-color: var(--secondary); color: var(--text-main); }
 .nav-item.active { background-color: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
@@ -247,6 +252,214 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
 .badge-finalized { background: #dcfce7; color: #15803d; }
 .badge-low { background: #fee2e2; color: #b91c1c; }
 .badge-ok { background: #f1f5f9; color: #475569; }
+.badge-paid { background: #dcfce7; color: #15803d; }
+.badge-partial { background: #fef3c7; color: #b45309; }
+.badge-unpaid { background: #fee2e2; color: #b91c1c; }
+.badge-cancelled { background: #e2e8f0; color: #475569; text-decoration: line-through; }
+
+/* Margin hint shown under a rate cell while billing */
+.margin-hint { font-size: 10px; margin-top: 2px; font-family: 'DM Mono', monospace; }
+.margin-hint.ok { color: #15803d; }
+.margin-hint.warn { color: #b91c1c; font-weight: 600; }
+.margin-hint.muted { color: #94a3b8; }
+
+/* Account controls in the sidebar */
+.sidebar-footer { padding: 14px 16px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.sidebar-footer .account-line { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.sidebar-footer .account-actions { display: flex; gap: 8px; }
+.sidebar-footer .account-actions button { flex: 1; font-size: 12px; padding: 8px 10px; }
+.default-pw-warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 20px; display: none; }
+.default-pw-warning.show { display: block; }
+
+/* Login overlay */
+.login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #1e3a8a, #0f172a); display: none; align-items: center; justify-content: center; z-index: 2000; }
+.login-overlay.active { display: flex; }
+.login-card { background: var(--card-bg); width: 100%; max-width: 380px; border-radius: 16px; box-shadow: var(--shadow-lg); padding: 36px 32px; }
+.login-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; color: var(--text-main); }
+.login-card p.sub { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+.login-card .form-group { margin-bottom: 16px; }
+.login-error { color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 18px; }
+.login-hint { color: var(--text-muted); font-size: 11px; margin-top: 16px; text-align: center; }
+
+/* Discount input inside the totals table */
+input.disc-input { width: 90px; padding: 2px 6px; text-align: right; border: 1px solid var(--line); border-radius: 3px; font: inherit; background: #fff; }
+input.disc-input:focus { outline: 1px solid var(--orange); border-color: var(--orange); }
+.roundoff-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
+
+/* ==================================================================== */
+/* FRESH LOOK + DARK MODE + UX COMPONENTS                                */
+/* ==================================================================== */
+
+/* Dark theme — overrides the app-chrome variables only. The invoice page
+   keeps its own light "paper" palette (--paper/--ink/--line/...) so previews
+   and printouts stay light in either theme. JS sets data-theme on <html>. */
+:root[data-theme="dark"] {
+    --bg-color: #0b1220;
+    --card-bg: #131c2e;
+    --text-main: #e6edf7;
+    --text-muted: #93a4bd;
+    --border-color: #24314a;
+    --secondary: #1a2438;
+    --secondary-hover: #212d45;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.45);
+    --shadow-md: 0 6px 16px rgba(0,0,0,.5);
+    --shadow-lg: 0 16px 40px rgba(0,0,0,.6);
+}
+:root[data-theme="dark"] body { background: radial-gradient(1200px 600px at 100% -10%, rgba(37,99,235,.10), transparent 60%), var(--bg-color); }
+
+/* Smooth theme transition */
+body, .sidebar, .card, .stat-card, .widget, .modal-content, .form-control, .btn, .table th, .table td { transition: background-color .25s ease, color .25s ease, border-color .25s ease; }
+
+/* Fresh-look polish (applies to both themes) */
+.sidebar { background: var(--card-bg); }
+:root[data-theme="dark"] .sidebar { background: #0f1728; }
+.nav-item { border-radius: 10px; }
+.nav-item.active { background: linear-gradient(135deg, var(--primary), #4f46e5); box-shadow: 0 8px 20px rgba(37,99,235,.35); }
+.top-header { border-bottom: 1px solid transparent; }
+:root[data-theme="dark"] .top-header { background: rgba(11,18,32,.7); }
+
+.stat-card { border-radius: 16px; position: relative; }
+.stat-card::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; border-radius: 16px 16px 0 0; background: linear-gradient(90deg, var(--primary), #4f46e5); opacity: 0; transition: opacity .2s; }
+.stat-card:hover::after { opacity: .9; }
+
+.btn { border-radius: 8px; }
+.btn-primary { background: linear-gradient(135deg, var(--primary), #3b56e0); }
+.btn-primary:hover { background: linear-gradient(135deg, var(--primary-hover), #3145c9); }
+.btn-text { background: transparent !important; box-shadow: none !important; padding: 6px 10px; }
+.btn:disabled { opacity: .55; cursor: not-allowed; transform: none !important; }
+
+.card { border-radius: 16px; }
+.table th { background: var(--secondary); }
+:root[data-theme="dark"] .table th { background: #1a2438; }
+.table tbody tr { transition: background-color .12s; }
+
+/* Form controls adapt to theme */
+.form-control { background: var(--card-bg); color: var(--text-main); }
+.form-control::placeholder { color: var(--text-muted); opacity: .8; }
+select.form-control option { color: initial; }
+
+/* Theme toggle button in the sidebar footer */
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; cursor: pointer; }
+
+/* Top progress bar (indeterminate) shown while any fetch is in flight */
+.top-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 3000; background: transparent; overflow: hidden; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.top-progress.active { opacity: 1; }
+.top-progress::before { content: ""; position: absolute; height: 100%; width: 40%; left: -40%; background: linear-gradient(90deg, transparent, var(--primary), #6366f1, transparent); animation: progress-slide 1.1s ease-in-out infinite; }
+@keyframes progress-slide { 0% { left: -40%; } 100% { left: 100%; } }
+
+/* Toasts */
+.toast-container { position: fixed; top: 20px; right: 20px; z-index: 4000; display: flex; flex-direction: column; gap: 10px; max-width: min(380px, 90vw); }
+.toast { display: flex; align-items: flex-start; gap: 10px; padding: 13px 16px; border-radius: 12px; background: var(--card-bg); color: var(--text-main); box-shadow: var(--shadow-lg); border: 1px solid var(--border-color); border-left: 4px solid var(--primary); font-size: 14px; animation: toast-in .22s ease; }
+.toast.hide { animation: toast-out .2s ease forwards; }
+.toast.success { border-left-color: #10b981; }
+.toast.error { border-left-color: #ef4444; }
+.toast.info { border-left-color: var(--primary); }
+.toast .toast-ic { font-weight: 700; line-height: 1.3; }
+.toast.success .toast-ic { color: #10b981; }
+.toast.error .toast-ic { color: #ef4444; }
+.toast.info .toast-ic { color: var(--primary); }
+.toast .toast-msg { flex: 1; line-height: 1.4; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes toast-out { to { opacity: 0; transform: translateX(30px); } }
+
+/* Skeleton loading rows */
+.skeleton-row td { padding: 16px 24px; }
+.skeleton { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--secondary) 25%, var(--secondary-hover) 50%, var(--secondary) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.2s infinite; }
+@keyframes skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Inline spinner */
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border-color); border-top-color: var(--primary); border-radius: 50%; animation: spin .7s linear infinite; }
+.section-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--text-muted); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Empty states */
+.empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
+.empty-state .empty-emoji { font-size: 40px; margin-bottom: 12px; opacity: .8; }
+.empty-state h3 { font-size: 16px; color: var(--text-main); margin-bottom: 6px; }
+.empty-state p { font-size: 13px; }
+
+/* Confirm/prompt dialog reuses .modal; slightly narrower */
+#confirmDialog .modal-content { max-width: 440px; }
+#confirmDialog .confirm-message { font-size: 14px; color: var(--text-muted); line-height: 1.55; margin-bottom: 8px; }
+#confirmDialog input.form-control { margin-top: 12px; }
+
+/* ==================================================================== */
+/* RESPONSIVE LAYOUT                                                     */
+/* ==================================================================== */
+
+/* Reusable two-column split (collapses on narrow screens) */
+.split-2 { display: grid; gap: 24px; align-items: start; }
+.split-2.wide-left { grid-template-columns: 380px 1fr; }
+.split-2.wide-right { grid-template-columns: 320px 1fr; }
+
+/* Header title + hamburger (hamburger hidden on desktop) */
+.header-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.header-title h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-toggle { display: none; background: transparent; border: 1px solid var(--border-color); color: var(--text-main); width: 40px; height: 40px; border-radius: 10px; font-size: 22px; cursor: pointer; align-items: center; justify-content: center; flex-shrink: 0; }
+.menu-toggle:hover { background: var(--secondary); }
+
+/* Mobile off-canvas sidebar backdrop */
+.sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); z-index: 1400; }
+.sidebar-backdrop.show { display: block; }
+
+/* Large laptops / small desktops */
+@media (max-width: 1200px) {
+    .content-area { padding: 0 28px 32px; }
+    .top-header { padding: 20px 28px; }
+}
+
+/* Tablets: stack the dashboard widgets */
+@media (max-width: 1024px) {
+    .dashboard-widgets { grid-template-columns: 1fr; }
+}
+
+/* Narrow: collapse the two-column splits */
+@media (max-width: 900px) {
+    .split-2, .split-2.wide-left, .split-2.wide-right { grid-template-columns: 1fr; }
+}
+
+/* Phones & small tablets: off-canvas sidebar + compact chrome */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed; top: 0; left: 0; bottom: 0; width: 264px; max-width: 84vw;
+        transform: translateX(-100%); transition: transform 0.25s ease; z-index: 1500;
+        box-shadow: none;
+    }
+    .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
+    .main-content { width: 100%; }
+    .menu-toggle { display: inline-flex; }
+
+    .top-header { padding: 12px 14px; position: sticky; }
+    .top-header h1 { font-size: 19px; }
+    .content-area { padding: 0 14px 24px; }
+
+    .stats-grid { grid-template-columns: 1fr; gap: 14px; margin-bottom: 20px; }
+    .section-header { flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+    .header-actions { flex-wrap: wrap; gap: 10px; }
+    .header-actions .btn, .section-header .btn { flex: 1 1 auto; }
+    .invoice-toolbar { flex-wrap: wrap; gap: 12px; }
+
+    /* Forms & modals stack and fit the viewport */
+    .row { flex-direction: column; gap: 0; }
+    .modal { padding: 14px; align-items: flex-start; }
+    .modal-content { max-width: 96vw !important; margin-top: 24px; max-height: 90vh; overflow-y: auto; }
+
+    /* Denser tables so more fits before horizontal scroll */
+    .table th, .table td { padding: 10px 12px; font-size: 13px; }
+    .stat-card { padding: 18px; }
+    .stat-details p { font-size: 24px; }
+
+    /* Invoice-save actions stack full width */
+    .invoice-save-actions { flex-wrap: wrap; }
+    .invoice-save-actions .btn { flex: 1 1 auto; }
+}
+
+/* Very small phones */
+@media (max-width: 420px) {
+    .content-area { padding: 0 10px 20px; }
+    .stat-card { gap: 14px; }
+    .btn { padding: 9px 14px; font-size: 13px; }
+}
 
 /* Print rules */
 @media print {
@@ -265,7 +478,7 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
     .page { box-shadow: none; margin: 0; width: 210mm; page-break-after: avoid; page-break-inside: avoid; }
 
     [contenteditable="true"] { background: none !important; box-shadow: none !important; }
-    input.cell, textarea.cell, input.tax-rate { background: none !important; outline: none !important; border: none !important; resize: none; }
+    input.cell, textarea.cell, input.tax-rate, input.disc-input { background: none !important; outline: none !important; border: none !important; resize: none; }
 
     .page-header, .page-footer, .meta-strip, table.items th, table.totals tr.grand td, .section-num, .page-footer::before, .page-footer .contacts .ic, .page::before {
       -webkit-print-color-adjust: exact; print-color-adjust: exact;

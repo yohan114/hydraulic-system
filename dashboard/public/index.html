@@ -12,9 +12,53 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Top progress bar (shown while any fetch is in flight) -->
+    <div id="topProgress" class="top-progress"></div>
+    <!-- Toast notifications -->
+    <div id="toastContainer" class="toast-container no-print"></div>
+
+    <!-- Confirm / prompt dialog -->
+    <div id="confirmDialog" class="modal no-print">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="confirm-title">Please confirm</h2>
+                <button class="close-btn" onclick="resolveConfirm(false)"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="confirm-message" id="confirm-message"></div>
+                <input type="text" id="confirm-input" class="form-control" style="display:none;">
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="resolveConfirm(false)">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirm-ok" onclick="resolveConfirm(true)">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login gate -->
+    <div id="loginOverlay" class="login-overlay">
+        <form class="login-card" onsubmit="doLogin(event)">
+            <h2>Smart Billing</h2>
+            <p class="sub">Hydraulic Hose Repair — sign in to continue</p>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="loginUsername" class="form-control" value="admin" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="loginPassword" class="form-control" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%; margin-top:8px;">Sign In</button>
+            <div class="login-error" id="loginError"></div>
+            <div class="login-hint">Default login is <strong>admin / admin123</strong> — change it after signing in.</div>
+        </form>
+    </div>
+
     <div class="app-container">
+        <!-- Mobile sidebar backdrop -->
+        <div class="sidebar-backdrop no-print" id="sidebarBackdrop" onclick="closeSidebar()"></div>
         <!-- Sidebar -->
-        <aside class="sidebar no-print">
+        <aside class="sidebar no-print" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo" style="display: flex; flex-direction: column; align-items: flex-start; gap: 4px;">
                     <img src="logo.png" alt="Edward and Christie" style="max-height: 35px;" onerror="this.style.display='none'">
@@ -41,18 +85,38 @@
                     <i class="ri-file-excel-line"></i> Export Invoices
                 </a>
                 <a href="#" class="nav-item" data-target="cost-analysis">
-                    <i class="ri-pie-chart-line"></i> Cost Analysis
+                    <i class="ri-price-tag-3-line"></i> Rate Card
                 </a>
                 <a href="#" class="nav-item" data-target="invoice-comparison">
                     <i class="ri-scales-line"></i> Invoice Comparison
                 </a>
+                <a href="#" class="nav-item" data-target="labour">
+                    <i class="ri-team-line"></i> Labour
+                </a>
+                <a href="#" class="nav-item" data-target="expenses">
+                    <i class="ri-wallet-3-line"></i> Expenses
+                </a>
+                <a href="#" class="nav-item" data-target="reports">
+                    <i class="ri-line-chart-line"></i> Profit &amp; Loss
+                </a>
             </nav>
+            <div class="sidebar-footer" id="sidebarFooter" style="display:none;">
+                <button class="btn btn-secondary theme-toggle" onclick="toggleTheme()"><span id="themeToggleLabel">🌙 Dark mode</span></button>
+                <div class="account-line"><i class="ri-user-line"></i> <span id="accountName">admin</span></div>
+                <div class="account-actions">
+                    <button class="btn btn-secondary" onclick="openModal('changePasswordModal')"><i class="ri-key-line"></i> Password</button>
+                    <button class="btn btn-secondary" onclick="logout()"><i class="ri-logout-box-line"></i> Sign out</button>
+                </div>
+            </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
             <header class="top-header no-print">
-                <h1 id="page-title">Dashboard</h1>
+                <div class="header-title">
+                    <button class="menu-toggle" id="menuToggle" onclick="toggleSidebar()" aria-label="Menu"><i class="ri-menu-line"></i></button>
+                    <h1 id="page-title">Dashboard</h1>
+                </div>
                 <div class="header-actions">
                     <button class="btn btn-primary" onclick="showSection('new-invoice'); startNewInvoice();"><i class="ri-add-line"></i> Create Invoice</button>
                 </div>
@@ -61,6 +125,9 @@
             <div class="content-area">
                 <!-- Dashboard Section -->
                 <section id="dashboard" class="page-section active no-print">
+                    <div class="default-pw-warning" id="defaultPwWarning">
+                        <i class="ri-alert-line"></i> You are still using the default password. Click <strong>Password</strong> in the sidebar to set your own.
+                    </div>
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">
@@ -89,8 +156,18 @@
                                 <p id="stat-low-stock">0</p>
                             </div>
                         </div>
+                        <div class="stat-card">
+                            <div class="stat-icon" style="background: rgba(220, 38, 38, 0.1); color: #dc2626;">
+                                <i class="ri-wallet-3-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Outstanding Receivables</h3>
+                                <p id="stat-outstanding" style="font-size: 22px;">Rs. 0.00</p>
+                                <span id="stat-outstanding-count" style="font-size:12px;color:var(--text-muted);">0 invoices unpaid</span>
+                            </div>
+                        </div>
                     </div>
-                    
+
                     <div class="dashboard-widgets">
                         <div class="widget">
                             <div class="widget-header">
@@ -185,7 +262,7 @@
                           </div>
                           <div class="doc-badge">
                             <div class="label" id="docLabel">Invoice</div>
-                            <div class="ref">REF · <strong contenteditable="true" id="refInvoice">INV/2026/05/001</strong></div>
+                            <div class="ref">REF · <strong id="refInvoice" title="Auto-assigned — cannot be edited">INV/2026/05/001</strong></div>
                           </div>
                         </div>
                         
@@ -244,8 +321,13 @@
                                     <tr><td>Sub Total</td><td id="invSubTotal">Rs. 0.00</td></tr>
                                     <tr><td>SSCL <input type="number" class="tax-rate no-print" id="invSsclRate" value="2.5" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invSsclRateText" style="display:none">2.5</span>%</td><td id="invSscl">Rs. 0.00</td></tr>
                                     <tr><td>VAT <input type="number" class="tax-rate no-print" id="invVatRate" value="18" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invVatRateText" style="display:none">18</span>%</td><td id="invVat">Rs. 0.00</td></tr>
+                                    <tr><td>Discount (Rs.) <input type="number" class="disc-input no-print" id="invDiscount" value="0" min="0" step="0.01" oninput="calcInvoiceTotals()"></td><td id="invDiscountVal">Rs. 0.00</td></tr>
+                                    <tr id="invRoundOffRow" style="display:none;"><td>Round Off</td><td id="invRoundOff">Rs. 0.00</td></tr>
                                     <tr class="grand"><td>Total Due</td><td id="invGrandTotal">Rs. 0.00</td></tr>
                                   </table>
+                                  <label class="roundoff-toggle no-print" style="margin-top:8px;">
+                                    <input type="checkbox" id="invRoundToRupee" onchange="calcInvoiceTotals()"> Round total to nearest rupee
+                                  </label>
                                 </div>
                               </div>
 
@@ -307,6 +389,8 @@
                                         <th>Billed To</th>
                                         <th>Grand Total</th>
                                         <th>Status</th>
+                                        <th>Payment</th>
+                                        <th>Balance</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -373,63 +457,128 @@
                     </div>
                 </section>
 
-                <!-- Cost Analysis Section -->
+                <!-- Rate Card Section (editable) -->
                 <section id="cost-analysis" class="page-section no-print">
                     <div class="section-header">
-                        <h2>Cost Comparison Dashboard</h2>
+                        <h2>Rate Card</h2>
                         <div class="header-actions">
-                            <button class="btn btn-primary" onclick="exportCostComparison()">
-                                <i class="ri-file-excel-line"></i> Export Comparison Excel
-                            </button>
+                            <button class="btn btn-secondary" onclick="exportCostComparison()"><i class="ri-file-excel-line"></i> Export</button>
+                            <button class="btn btn-primary" onclick="openRateModal()"><i class="ri-add-line"></i> Add Rate</button>
                         </div>
                     </div>
-                    
-                    <!-- Stats Grid for Cost Analysis -->
+                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px; max-width: 820px;">
+                        LKR, VAT-excl. — hose is <strong>per metre</strong>, fittings &amp; crimping are <strong>per end</strong>. Outside is a <strong>Low / Mid / High</strong> market band (Low = unbranded import · Mid = reputable brand · High = genuine OEM). Edit from your real supplier quotes — these seeds are a researched benchmark, <em>not a price list</em>.
+                    </p>
                     <div class="stats-grid" style="margin-bottom: 24px;">
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6;">
-                                <i class="ri-git-compare-line"></i>
-                            </div>
-                            <div class="stat-details">
-                                <h3>Hoses Compared</h3>
-                                <p id="cost-stat-count">0 / 15</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
-                                <i class="ri-percent-line"></i>
-                            </div>
-                            <div class="stat-details">
-                                <h3>Average Savings</h3>
-                                <p id="cost-stat-avg">0.0%</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
-                                <i class="ri-trophy-line"></i>
-                            </div>
-                            <div class="stat-details">
-                                <h3>Max Savings</h3>
-                                <p id="cost-stat-max">0.0%</p>
-                            </div>
-                        </div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(59,130,246,0.1); color:#3b82f6;"><i class="ri-list-check-2"></i></div><div class="stat-details"><h3>Rates on File</h3><p id="rate-stat-count">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-percent-line"></i></div><div class="stat-details"><h3>Avg Savings vs Mid</h3><p id="rate-stat-savings">0.0%</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-funds-line"></i></div><div class="stat-details"><h3>Avg Our Margin</h3><p id="rate-stat-margin">0.0%</p></div></div>
                     </div>
-
                     <div class="card">
                         <div class="table-responsive">
                             <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Specification / Size</th>
-                                        <th class="num">Our Price (per Meter)</th>
-                                        <th class="num">Our Cost (per Foot)</th>
-                                        <th class="num">Outside Cost (per Foot)</th>
-                                        <th class="num">Absolute Savings (per Foot)</th>
-                                        <th class="num">Savings (%)</th>
-                                        <th>Status</th>
+                                        <th>Item</th>
+                                        <th class="num">Our Cost</th>
+                                        <th class="num">Our Price</th>
+                                        <th class="num">Low</th>
+                                        <th class="num">Mid</th>
+                                        <th class="num">High</th>
+                                        <th class="num">Save vs Mid</th>
+                                        <th class="num">Margin</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="cost-analysis-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Labour Section -->
+                <section id="labour" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Labour</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="openWorkerModal()"><i class="ri-user-add-line"></i> Add Worker</button>
+                            <button class="btn btn-primary" onclick="openLabourModal()"><i class="ri-add-line"></i> Record Payment</button>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(59,130,246,0.1); color:#3b82f6;"><i class="ri-team-line"></i></div><div class="stat-details"><h3>Active Workers</h3><p id="labour-stat-workers">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(220,38,38,0.1); color:#dc2626;"><i class="ri-money-dollar-circle-line"></i></div><div class="stat-details"><h3>Paid This Month</h3><p id="labour-stat-month" style="font-size:22px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-history-line"></i></div><div class="stat-details"><h3>Total Paid</h3><p id="labour-stat-total" style="font-size:22px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div class="split-2 wide-right">
+                        <div class="card" style="padding:0;">
+                            <div class="widget-header" style="padding:16px 20px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Workers</h2></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>Name</th><th>Role</th><th></th></tr></thead><tbody id="workers-tbody"></tbody></table></div>
+                        </div>
+                        <div class="card" style="padding:0;">
+                            <div class="widget-header" style="padding:16px 20px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Labour Payments</h2></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Worker</th><th>Period</th><th class="num">Amount</th><th>Method</th><th></th></tr></thead><tbody id="labour-tbody"></tbody></table></div>
+                        </div>
+                    </div>
+
+                    <!-- Technician charges from invoices -->
+                    <div class="card" style="margin-top:24px; padding:0;">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                            <h2 style="font-size:15px;">Technician Charges (from invoices)</h2>
+                            <div style="display:flex; gap:20px; font-size:13px; flex-wrap:wrap;">
+                                <span style="color:var(--text-muted);">Total: <strong id="tech-stat-total" style="color:var(--text-main);">Rs. 0.00</strong></span>
+                                <span style="color:var(--text-muted);">Paid: <strong id="tech-stat-paid" style="color:#10b981;">Rs. 0.00</strong></span>
+                                <span style="color:var(--text-muted);">Outstanding: <strong id="tech-stat-out" style="color:var(--danger);">Rs. 0.00</strong></span>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Technical Charge</th><th>Status</th><th>Technician</th><th>Action</th></tr></thead>
+                                <tbody id="technical-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Expenses Section -->
+                <section id="expenses" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Expenses</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" onclick="openExpenseModal()"><i class="ri-add-line"></i> Add Expense</button>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(220,38,38,0.1); color:#dc2626;"><i class="ri-receipt-line"></i></div><div class="stat-details"><h3>Spent This Month</h3><p id="exp-stat-month" style="font-size:22px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-archive-line"></i></div><div class="stat-details"><h3>Total Expenses</h3><p id="exp-stat-total" style="font-size:22px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div class="card"><div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Category</th><th>Notes</th><th>Method</th><th class="num">Amount</th><th></th></tr></thead><tbody id="expenses-tbody"></tbody></table></div></div>
+                </section>
+
+                <!-- Reports / P&L Section -->
+                <section id="reports" class="page-section no-print">
+                    <div class="section-header"><h2>Profit &amp; Loss</h2></div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-arrow-up-circle-line"></i></div><div class="stat-details"><h3>Revenue (ex-tax)</h3><p id="pl-stat-revenue" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-shopping-bag-line"></i></div><div class="stat-details"><h3>Costs (COGS+Labour+Exp)</h3><p id="pl-stat-costs" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(37,99,235,0.1); color:var(--primary);"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Net Profit</h3><p id="pl-stat-net" style="font-size:20px;">Rs. 0.00</p><span id="pl-stat-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-wallet-3-line"></i></div><div class="stat-details"><h3>Net Cash Flow</h3><p id="pl-stat-cash" style="font-size:20px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Monthly Profit &amp; Loss</h2></div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">Gross</th><th class="num">Labour</th><th class="num">Expenses</th><th class="num">Net Profit</th><th class="num">Margin</th><th class="num">Cash In</th><th class="num">Cash Out</th></tr></thead>
+                                <tbody id="pl-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Per-Invoice Profit</h2></div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Revenue (ex-tax)</th><th class="num">Material Cost</th><th class="num">Gross Profit</th><th class="num">Margin</th></tr></thead>
+                                <tbody id="invoice-profit-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -441,7 +590,7 @@
                         <h2>Invoice Tax & Cost Comparison</h2>
                     </div>
                     
-                    <div style="display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start;">
+                    <div class="split-2 wide-left">
                         <!-- Invoices Selection Sidebar -->
                         <div class="card" style="padding: 20px;">
                             <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
@@ -474,14 +623,17 @@
                         
                         <div id="compare-details-panel" style="display: none; flex-direction: column; gap: 24px;">
                             <!-- Dynamic Header Card -->
-                            <div class="card" style="padding: 24px; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="card" style="padding: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                                 <div>
                                     <h3 id="compare-inv-no" style="font-size: 20px; font-weight: 600; color: var(--text-main);">...</h3>
                                     <p id="compare-inv-meta" style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">...</p>
                                 </div>
-                                <button class="btn btn-primary" id="btnExportSingleCompare" onclick="">
-                                    <i class="ri-file-excel-line"></i> Export Invoice Excel
-                                </button>
+                                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                                    <span style="font-size:13px; color:var(--text-muted);">Our Cost · Our Price · Market (Mid)</span>
+                                    <button class="btn btn-primary" id="btnExportSingleCompare" onclick="">
+                                        <i class="ri-file-excel-line"></i> Export
+                                    </button>
+                                </div>
                             </div>
                             
                             <!-- Dynamic KPI Cards -->
@@ -500,7 +652,7 @@
                                         <i class="ri-money-dollar-circle-fill"></i>
                                     </div>
                                     <div class="stat-details">
-                                        <h3 style="font-size: 12px;">Outside Grand Total</h3>
+                                        <h3 style="font-size: 12px;">Market (Mid) Grand Total</h3>
                                         <p id="compare-stat-outside" style="font-size: 20px; font-weight: 700;">Rs. 0.00</p>
                                     </div>
                                 </div>
@@ -509,12 +661,22 @@
                                         <i class="ri-wallet-line"></i>
                                     </div>
                                     <div class="stat-details">
-                                        <h3 style="font-size: 12px;">Net Savings (VAT Inc.)</h3>
+                                        <h3 style="font-size: 12px;">Customer Savings vs Market</h3>
                                         <p id="compare-stat-savings" style="font-size: 20px; font-weight: 700; color: #10b981;">Rs. 0.00</p>
                                     </div>
                                 </div>
+                                <div class="stat-card" style="padding: 16px 20px;">
+                                    <div class="stat-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--primary);">
+                                        <i class="ri-funds-line"></i>
+                                    </div>
+                                    <div class="stat-details">
+                                        <h3 style="font-size: 12px;">Our Profit (Revenue − Cost)</h3>
+                                        <p id="compare-stat-profit" style="font-size: 20px; font-weight: 700; color: var(--primary);">Rs. 0.00</p>
+                                        <span id="compare-stat-profit-pct" style="font-size:12px;color:var(--text-muted);">0% margin</span>
+                                    </div>
+                                </div>
                             </div>
-                            
+
                             <!-- Tax Comparison Block -->
                             <div class="card" style="padding: 24px;">
                                 <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
@@ -524,8 +686,8 @@
                                     <thead>
                                         <tr>
                                             <th>Cost Component</th>
-                                            <th class="num">Billed Amount (Our System)</th>
-                                            <th class="num">Outside Market Amount</th>
+                                            <th class="num">Our Price</th>
+                                            <th class="num">Market (Mid)</th>
                                             <th class="num">Your LKR Savings</th>
                                         </tr>
                                     </thead>
@@ -568,13 +730,12 @@
                                         <thead>
                                             <tr>
                                                 <th>Description</th>
-                                                <th class="num">Billed Qty</th>
+                                                <th class="num">Qty</th>
+                                                <th class="num">Our Cost</th>
                                                 <th class="num">Our Price</th>
-                                                <th class="num">Our Total</th>
-                                                <th class="num">Outside Qty</th>
-                                                <th class="num">Outside Price</th>
-                                                <th class="num">Outside Total</th>
-                                                <th class="num">Savings</th>
+                                                <th class="num">Profit</th>
+                                                <th class="num">Market (Mid)</th>
+                                                <th class="num">Vs Market</th>
                                             </tr>
                                         </thead>
                                         <tbody id="compare-items-tbody"></tbody>
@@ -644,6 +805,10 @@
                             <label>Unit Price (Rs)</label>
                             <input type="number" id="prod-price" class="form-control" step="0.01" required value="0">
                         </div>
+                        <div class="col">
+                            <label>Unit Cost (Rs)</label>
+                            <input type="number" id="prod-cost" class="form-control" step="0.01" value="0" title="Your purchase cost — used to show profit margin while billing">
+                        </div>
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('addProductModal')">Cancel</button>
@@ -678,6 +843,237 @@
                         <tbody id="modal-inventory-tbody"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Record Payment Modal -->
+    <div id="paymentModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>Record Payment</h2>
+                <button class="close-btn" onclick="closeModal('paymentModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="paymentForm" onsubmit="submitPayment(event)">
+                    <input type="hidden" id="pay-invoice-id">
+                    <div style="background: var(--secondary); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Invoice</span><strong id="pay-invoice-no">—</strong></div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Grand Total</span><span id="pay-grand-total">Rs. 0.00</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">Outstanding Balance</span><strong id="pay-balance" style="color:var(--danger)">Rs. 0.00</strong></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Amount (Rs.)</label>
+                            <input type="number" id="pay-amount" class="form-control" step="0.01" min="0.01" required>
+                        </div>
+                        <div class="col">
+                            <label>Method</label>
+                            <select id="pay-method" class="form-control">
+                                <option value="Cash">Cash</option>
+                                <option value="Bank Transfer">Bank Transfer</option>
+                                <option value="Cheque">Cheque</option>
+                                <option value="Card">Card</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Date</label>
+                            <input type="date" id="pay-date" class="form-control">
+                        </div>
+                        <div class="col">
+                            <label>Notes (optional)</label>
+                            <input type="text" id="pay-notes" class="form-control">
+                        </div>
+                    </div>
+                    <div id="pay-history" style="margin-top:8px;"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="setFullPayment()">Pay Full Balance</button>
+                        <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2>Change Password</h2>
+                <button class="close-btn" onclick="closeModal('changePasswordModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+                    <div class="form-group">
+                        <label>Current Password</label>
+                        <input type="password" id="cp-current" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>New Password (min 4 characters)</label>
+                        <input type="password" id="cp-new" class="form-control" required minlength="4">
+                    </div>
+                    <div class="login-error" id="cp-error"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('changePasswordModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Update Password</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Card Modal -->
+    <div id="rateModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="rateModalTitle">Add Rate</h2>
+                <button class="close-btn" onclick="closeModal('rateModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="rateForm" onsubmit="submitRate(event)">
+                    <input type="hidden" id="rate-id">
+                    <div class="form-group row">
+                        <div class="col"><label>Category</label>
+                            <select id="rate-category" class="form-control" onchange="rateSyncUnit()"><option value="hose">Hose (per metre)</option><option value="fitting">Fitting (per end)</option><option value="crimping">Crimping (per end)</option></select>
+                        </div>
+                        <div class="col"><label>Label</label><input type="text" id="rate-label" class="form-control" placeholder='e.g. 1/2" R2 (2-wire)' required></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Spec</label>
+                            <select id="rate-spec" class="form-control"><option value="">—</option><option>R1</option><option>R2</option><option>4SP</option><option>4SH</option><option>BSP</option><option>JIC</option></select>
+                        </div>
+                        <div class="col"><label>Size Code (mm bore)</label>
+                            <select id="rate-sizecode" class="form-control" onchange="rateSyncSizeInch()">
+                                <option value="">—</option><option value="6">6 (1/4")</option><option value="8">8 (5/16")</option><option value="10">10 (3/8")</option>
+                                <option value="13">13 (1/2")</option><option value="16">16 (5/8")</option><option value="19">19 (3/4")</option>
+                                <option value="25">25 (1")</option><option value="32">32 (1-1/4")</option><option value="38">38 (1-1/2")</option><option value="51">51 (2")</option>
+                            </select>
+                        </div>
+                        <div class="col"><label>Size (inch)</label><input type="number" id="rate-sizeinch" class="form-control" step="0.0001"></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Our Cost (Rs.)</label><input type="number" id="rate-ourcost" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Our Price (Rs.)</label><input type="number" id="rate-ourprice" class="form-control" step="0.01" value="0"></div>
+                    </div>
+                    <label style="font-weight:500; color:var(--text-muted); font-size:14px;">Outside market band (per <span id="rate-unit-label">metre</span>)</label>
+                    <div class="form-group row" style="margin-top:8px;">
+                        <div class="col"><label>Low</label><input type="number" id="rate-outlow" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Mid</label><input type="number" id="rate-outmid" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>High</label><input type="number" id="rate-outhigh" class="form-control" step="0.01" value="0"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('rateModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Rate</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Worker Modal -->
+    <div id="workerModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header"><h2 id="workerModalTitle">Add Worker</h2><button class="close-btn" onclick="closeModal('workerModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="workerForm" onsubmit="submitWorker(event)">
+                    <input type="hidden" id="worker-id">
+                    <div class="form-group"><label>Name</label><input type="text" id="worker-name" class="form-control" required></div>
+                    <div class="form-group"><label>Role (optional)</label><input type="text" id="worker-role" class="form-control" placeholder="e.g. Technician"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('workerModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Worker</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Labour Payment Modal -->
+    <div id="labourModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header"><h2>Record Labour Payment</h2><button class="close-btn" onclick="closeModal('labourModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="labourForm" onsubmit="submitLabour(event)">
+                    <div class="form-group"><label>Worker</label>
+                        <select id="labour-worker" class="form-control"><option value="">— Monthly total (whole team) —</option></select>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Amount (Rs.)</label><input type="number" id="labour-amount" class="form-control" step="0.01" min="0.01" required></div>
+                        <div class="col"><label>Pay Period</label><input type="month" id="labour-period" class="form-control"></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Date</label><input type="date" id="labour-date" class="form-control"></div>
+                        <div class="col"><label>Method</label>
+                            <select id="labour-method" class="form-control"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Notes (optional)</label><input type="text" id="labour-notes" class="form-control"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('labourModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Technician Charge Pay Modal -->
+    <div id="techPayModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 460px;">
+            <div class="modal-header"><h2>Pay Technician Charge</h2><button class="close-btn" onclick="closeModal('techPayModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="techPayForm" onsubmit="submitTechPay(event)">
+                    <input type="hidden" id="techpay-invoice-id">
+                    <div style="background: var(--secondary); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px;">
+                        <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">Invoice</span><strong id="techpay-invoice-no">—</strong></div>
+                        <div style="display:flex; justify-content:space-between; margin-top:6px;"><span style="color:var(--text-muted)">Technical charge</span><strong id="techpay-amount">Rs. 0.00</strong></div>
+                    </div>
+                    <div class="form-group"><label>Technician</label>
+                        <select id="techpay-worker" class="form-control"><option value="">— Unassigned —</option></select>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Paid Date</label><input type="date" id="techpay-date" class="form-control"></div>
+                        <div class="col"><label>Method</label>
+                            <select id="techpay-method" class="form-control"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+                        </div>
+                    </div>
+                    <p style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">Marking paid records it as a labour payment, so it appears in your Profit &amp; Loss.</p>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('techPayModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Mark Paid</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Expense Modal -->
+    <div id="expenseModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header"><h2>Add Expense</h2><button class="close-btn" onclick="closeModal('expenseModal')"><i class="ri-close-line"></i></button></div>
+            <div class="modal-body">
+                <form id="expenseForm" onsubmit="submitExpense(event)">
+                    <div class="form-group row">
+                        <div class="col"><label>Category</label>
+                            <select id="expense-category" class="form-control"><option>Purchases</option><option>Rent</option><option>Electricity</option><option>Water</option><option>Tools</option><option>Transport</option><option>Other</option></select>
+                        </div>
+                        <div class="col"><label>Amount (Rs.)</label><input type="number" id="expense-amount" class="form-control" step="0.01" min="0.01" required></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Date</label><input type="date" id="expense-date" class="form-control"></div>
+                        <div class="col"><label>Method</label>
+                            <select id="expense-method" class="form-control"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Credit</option></select>
+                        </div>
+                    </div>
+                    <div class="form-group"><label>Notes (optional)</label><input type="text" id="expense-notes" class="form-control"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('expenseModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Expense</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
