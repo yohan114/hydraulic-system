@@ -241,8 +241,10 @@ router.post('/api/invoices/draft', async (req, res) => {
 
         const totals = billing.computeTotals({
             items,
-            ssclRate: body.ssclRate,
-            vatRate: body.vatRate,
+            // Invoices are no longer taxed — force both rates to 0 authoritatively
+            // (the billing engine is unchanged; 0% simply yields no tax).
+            ssclRate: 0,
+            vatRate: 0,
             discount: body.discount,
             roundToRupee: body.roundToRupee,
         });
@@ -299,8 +301,9 @@ router.post('/api/invoices/finalize', async (req, res) => {
 
     const totals = billing.computeTotals({
         items,
-        ssclRate: body.ssclRate,
-        vatRate: body.vatRate,
+        // No tax on new invoices — force both rates to 0 (engine unchanged).
+        ssclRate: 0,
+        vatRate: 0,
         discount: body.discount,
         roundToRupee: body.roundToRupee,
     });

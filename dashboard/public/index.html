@@ -368,7 +368,7 @@
                                 <div class="add-buttons no-print" id="addItemBtnContainer">
                                   <button type="button" onclick="openModal('selectInventoryModal')">+ Select from Inventory</button>
                                   <button type="button" onclick="addCustomRow()">+ Add Custom Row</button>
-                                  <button type="button" onclick="addStandardCharges()">+ Add Technical & Sundries</button>
+                                  <button type="button" onclick="addStandardCharges()">+ Add Technical Charges</button>
                                 </div>
                               </div>
 
@@ -379,10 +379,11 @@
                                     <div class="key">Notes</div>
                                     <div contenteditable="true" id="invNotes">Thank you for your business. Please reference the document number on all correspondence and payments.</div>
                                   </div>
+                                  <!-- Invoices are no longer taxed (SSCL/VAT removed). For the pre-existing
+                                       tax invoices, their stored SSCL/VAT rows are injected here at view/print
+                                       time (see renderStoredTotals) so those historical bills still reconcile. -->
                                   <table class="totals">
                                     <tr><td>Sub Total</td><td id="invSubTotal">Rs. 0.00</td></tr>
-                                    <tr><td>SSCL <input type="number" class="tax-rate no-print" id="invSsclRate" value="2.5" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invSsclRateText" style="display:none">2.5</span>%</td><td id="invSscl">Rs. 0.00</td></tr>
-                                    <tr><td>VAT <input type="number" class="tax-rate no-print" id="invVatRate" value="18" step="0.1" oninput="calcInvoiceTotals()"><span class="print-only" id="invVatRateText" style="display:none">18</span>%</td><td id="invVat">Rs. 0.00</td></tr>
                                     <tr><td>Discount (Rs.) <input type="number" class="disc-input no-print" id="invDiscount" value="0" min="0" step="0.01" oninput="calcInvoiceTotals()"></td><td id="invDiscountVal">Rs. 0.00</td></tr>
                                     <tr id="invRoundOffRow" style="display:none;"><td>Round Off</td><td id="invRoundOff">Rs. 0.00</td></tr>
                                     <tr class="grand"><td>Total Due</td><td id="invGrandTotal">Rs. 0.00</td></tr>

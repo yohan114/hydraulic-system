@@ -7,6 +7,7 @@ let invoiceItems = [];
 let nextItemId = 1;
 let isInvoiceEditable = true;
 let currentInvoiceId = null; // set when editing/viewing a saved invoice
+let currentLoadedInvoice = null; // the full stored invoice row when viewing a saved (locked) invoice
 let authToken = localStorage.getItem('billing_token') || '';
 let authEnabled = true;
 let currentRole = 'admin'; // 'admin' | 'cashier' | 'viewer' (admin when auth is off)
@@ -470,10 +471,6 @@ function setInvoiceEditable(editable) {
     const billedToAddress = document.getElementById('billedToAddress');
     if (billedToAddress) billedToAddress.disabled = !editable;
 
-    const invSsclRate = document.getElementById('invSsclRate');
-    if (invSsclRate) invSsclRate.disabled = !editable;
-    const invVatRate = document.getElementById('invVatRate');
-    if (invVatRate) invVatRate.disabled = !editable;
     const invDiscount = document.getElementById('invDiscount');
     if (invDiscount) invDiscount.disabled = !editable;
     const invRoundToRupee = document.getElementById('invRoundToRupee');

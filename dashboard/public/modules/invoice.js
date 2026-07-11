@@ -33,6 +33,7 @@ async function fetchNextInvoiceNo() {
 
 async function startNewInvoice() {
     currentInvoiceId = null;
+    currentLoadedInvoice = null;
     setInvoiceEditable(true);
     document.getElementById('invDate').value = new Date().toISOString().split('T')[0];
 
@@ -45,8 +46,6 @@ async function startNewInvoice() {
     const deliveredToAddress = document.getElementById('deliveredToAddress');
     if (deliveredToAddress) deliveredToAddress.value = '';
 
-    document.getElementById('invSsclRate').value = '2.5';
-    document.getElementById('invVatRate').value = '18';
     document.getElementById('invDiscount').value = '0';
     document.getElementById('invRoundToRupee').checked = false;
 
@@ -117,11 +116,12 @@ function addCustomRow() {
 }
 
 function addStandardCharges() {
+    // Two fixed charge rows, each guarded so a second click never duplicates them.
     if (!invoiceItems.find((it) => it.desc === 'Technical charges')) {
         invoiceItems.push({ id: nextItemId++, inventoryId: null, desc: 'Technical charges', unit: 'Nos', length: 0, qty: 1, rate: 1500, cost: 0, maxQty: null });
     }
-    if (!invoiceItems.find((it) => it.desc === 'Sundries cost')) {
-        invoiceItems.push({ id: nextItemId++, inventoryId: null, desc: 'Sundries cost', unit: 'Nos', length: 0, qty: 1, rate: 0, cost: 0, maxQty: null });
+    if (!invoiceItems.find((it) => it.desc === 'Crimping charge')) {
+        invoiceItems.push({ id: nextItemId++, inventoryId: null, desc: 'Crimping charge', unit: 'Nos', length: 0, qty: 1, rate: 500, cost: 0, maxQty: null });
     }
     renderInvoiceItems();
 }
@@ -184,46 +184,65 @@ function renderInvoiceItems() {
     calcInvoiceTotals();
 }
 
+// Remove any historical SSCL/VAT rows previously injected for a legacy invoice.
+function clearHistoricalTaxRows() {
+    document.querySelectorAll('tr[data-historical-tax]').forEach((r) => r.remove());
+}
+
+// Inject the stored SSCL/VAT rows (right after Sub Total) for a legacy tax
+// invoice, so its printed totals still reconcile. New invoices carry no tax, so
+// nothing is injected for them.
+function renderHistoricalTaxRows(inv) {
+    clearHistoricalTaxRows();
+    const subRow = document.getElementById('invSubTotal').closest('tr');
+    if (!subRow) return;
+    const sscl = round2(Number(inv.SSCLAmount) || 0);
+    const vat = round2(Number(inv.VATAmount) || 0);
+    const mk = (label, rate, amount) => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-historical-tax', '1');
+        tr.innerHTML = `<td>${label} ${rate}%</td><td>${formatCurrency(amount)}</td>`;
+        return tr;
+    };
+    let after = subRow;
+    if (vat > 0) { const r = mk('VAT', Number(inv.VATRate) || 0, vat); after.after(r); }
+    if (sscl > 0) { const r = mk('SSCL', Number(inv.SSCLRate) || 0, sscl); subRow.after(r); }
+}
+
+// Display a locked/saved invoice's totals EXACTLY as stored (immutable). Legacy
+// invoices keep their SSCL/VAT; invoices billed after tax removal simply have
+// zero tax and show none.
+function renderStoredTotals(inv) {
+    const subTotal = round2(Number(inv.SubTotal) || 0);
+    const discount = round2(Number(inv.Discount) || 0);
+    const roundOff = round2(Number(inv.RoundOff) || 0);
+    const grand = round2(Number(inv.GrandTotal) || 0);
+
+    document.getElementById('invSubTotal').textContent = formatCurrency(subTotal);
+    renderHistoricalTaxRows(inv);
+    document.getElementById('invDiscountVal').textContent = (discount > 0 ? '- ' : '') + formatCurrency(discount);
+    const roRow = document.getElementById('invRoundOffRow');
+    if (Math.abs(roundOff) > 0) { roRow.style.display = ''; document.getElementById('invRoundOff').textContent = formatCurrency(roundOff); }
+    else { roRow.style.display = 'none'; }
+    document.getElementById('invGrandTotal').textContent = formatCurrency(grand);
+    return { subTotal, discount, roundOff, grand };
+}
+
+// Totals for the invoice form. Invoices are NO LONGER TAXED:
+//   Grand Total = Sub Total − Discount (± Round Off)
+// A locked invoice being viewed instead shows its stored totals verbatim (so the
+// 11 legacy tax invoices reprint correctly).
 function calcInvoiceTotals() {
+    // Pass: sum line amounts (and refresh row amounts + margin hints).
     let subTotal = 0;
-    let materialCost = 0;
-
-    // Pass 1: Find material cost (excludes the auto rows)
-    invoiceItems.forEach((it) => {
-        if (it.desc !== 'Sundries cost' && it.desc !== 'Technical charges') {
-            materialCost += (it.qty || 0) * (it.rate || 0);
-        }
-    });
-
-    // Auto-update Sundries cost and Technical charges — ONLY while the invoice is
-    // editable. A finalized/locked invoice must reprint the exact rates that were
-    // billed; re-deriving them here (from the currently loaded material lines,
-    // unrounded) would make a reprint disagree with the stored bill.
-    if (isInvoiceEditable) {
-        const sundriesItem = invoiceItems.find((it) => it.desc === 'Sundries cost');
-        if (sundriesItem) sundriesItem.rate = round2(materialCost * 0.12);
-        const techItem = invoiceItems.find((it) => it.desc === 'Technical charges');
-        if (techItem) techItem.rate = round2(materialCost * 0.9);
-    }
-
-    // Pass 2: Calculate subTotal, update row amounts + margin hints
     const rows = document.querySelectorAll('#invItemsBody .item-row');
     invoiceItems.forEach((it, idx) => {
         const amt = round2((it.qty || 0) * (it.rate || 0));
         subTotal += amt;
         const row = rows[idx];
         if (!row) return;
-
         const rowAmtTd = row.querySelector('.row-amount');
         if (rowAmtTd) rowAmtTd.textContent = amt.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-        // Reflect auto-calculated rates in their inputs
-        if (it.desc === 'Sundries cost' || it.desc === 'Technical charges') {
-            const rateInput = row.querySelector('input[oninput*="rate"]');
-            if (rateInput && document.activeElement !== rateInput) rateInput.value = round2(it.rate).toFixed(2);
-        }
-
-        // Live-update the margin hint (e.g. when the rate drops below cost)
         const hint = row.querySelector('.margin-hint');
         if (hint && isInvoiceEditable) {
             const tmp = document.createElement('div');
@@ -234,24 +253,17 @@ function calcInvoiceTotals() {
     });
     subTotal = round2(subTotal);
 
-    // Clamp to [0,100] to match the server, so the preview total can't diverge
-    // from what the server will actually store.
-    const clampRate = (v) => Math.min(Math.max(parseFloat(v) || 0, 0), 100);
-    const ssclRate = clampRate(document.getElementById('invSsclRate').value);
-    const vatRate = clampRate(document.getElementById('invVatRate').value);
+    // Viewing a saved (locked) invoice -> show exactly what was stored.
+    if (!isInvoiceEditable && currentLoadedInvoice) {
+        return renderStoredTotals(currentLoadedInvoice);
+    }
+
+    // Editable / new invoice -> tax-free.
+    clearHistoricalTaxRows();
     const discountInput = parseFloat(document.getElementById('invDiscount').value) || 0;
     const roundToRupee = document.getElementById('invRoundToRupee').checked;
-
-    document.getElementById('invSsclRateText').textContent = ssclRate;
-    document.getElementById('invVatRateText').textContent = vatRate;
-
-    // Mirror server tax order: SubTotal -> SSCL -> VAT -> Discount -> (Round off)
-    const ssclAmt = round2(subTotal * (ssclRate / 100));
-    const preVat = round2(subTotal + ssclAmt);
-    const vatAmt = round2(preVat * (vatRate / 100));
-    const afterTax = round2(preVat + vatAmt);
-    const discount = round2(Math.min(Math.max(discountInput, 0), afterTax));
-    let grand = round2(afterTax - discount);
+    const discount = round2(Math.min(Math.max(discountInput, 0), subTotal));
+    let grand = round2(subTotal - discount);
     let roundOff = 0;
     if (roundToRupee) {
         const g = Math.round(grand);
@@ -260,19 +272,13 @@ function calcInvoiceTotals() {
     }
 
     document.getElementById('invSubTotal').textContent = formatCurrency(subTotal);
-    document.getElementById('invSscl').textContent = formatCurrency(ssclAmt);
-    document.getElementById('invVat').textContent = formatCurrency(vatAmt);
     document.getElementById('invDiscountVal').textContent = (discount > 0 ? '- ' : '') + formatCurrency(discount);
     const roRow = document.getElementById('invRoundOffRow');
-    if (roundToRupee) {
-        roRow.style.display = '';
-        document.getElementById('invRoundOff').textContent = formatCurrency(roundOff);
-    } else {
-        roRow.style.display = 'none';
-    }
+    if (roundToRupee) { roRow.style.display = ''; document.getElementById('invRoundOff').textContent = formatCurrency(roundOff); }
+    else { roRow.style.display = 'none'; }
     document.getElementById('invGrandTotal').textContent = formatCurrency(grand);
 
-    return { subTotal, ssclRate, ssclAmt, vatRate, vatAmt, discount, roundOff, roundToRupee, grand };
+    return { subTotal, discount, roundOff, roundToRupee, grand };
 }
 
 async function saveInvoice(status) {
@@ -290,8 +296,7 @@ async function saveInvoice(status) {
         billedToAddress: document.getElementById('billedToAddress') ? document.getElementById('billedToAddress').value : '',
         deliveredToName: document.getElementById('deliveredToName') ? document.getElementById('deliveredToName').value : '',
         deliveredToAddress: document.getElementById('deliveredToAddress') ? document.getElementById('deliveredToAddress').value : '',
-        ssclRate: totals.ssclRate,
-        vatRate: totals.vatRate,
+        // No tax: SSCL/VAT are no longer billed. The server forces both rates to 0.
         discount: totals.discount,
         roundToRupee: totals.roundToRupee,
         items: invoiceItems.map((i) => ({
@@ -455,6 +460,7 @@ async function viewInvoice(id) {
         if (inv.error) return toast(inv.error, 'error');
 
         currentInvoiceId = inv.InvoiceID;
+        currentLoadedInvoice = inv; // so locked invoices render their stored totals (incl. legacy tax)
         document.getElementById('refInvoice').textContent = inv.InvoiceNo;
         document.getElementById('invDate').value = inv.InvoiceDate ? inv.InvoiceDate.split('T')[0] : '';
         const billedToName = document.getElementById('billedToName');
@@ -466,8 +472,6 @@ async function viewInvoice(id) {
         const deliveredToAddress = document.getElementById('deliveredToAddress');
         if (deliveredToAddress) deliveredToAddress.value = inv.DeliveredToAddress || '';
 
-        document.getElementById('invSsclRate').value = inv.SSCLRate;
-        document.getElementById('invVatRate').value = inv.VATRate;
         document.getElementById('invDiscount').value = Number(inv.Discount) || 0;
         document.getElementById('invRoundToRupee').checked = Math.abs(Number(inv.RoundOff) || 0) > 0;
 

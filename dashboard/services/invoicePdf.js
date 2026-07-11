@@ -141,8 +141,8 @@ function buildInvoiceHtml(invoice, items) {
 
   <div class="totals"><table>
     ${taxRow('Sub Total', totals.subTotal)}
-    ${taxRow(`SSCL (${totals.ssclRate}%)`, totals.ssclAmount)}
-    ${taxRow(`VAT (${totals.vatRate}%)`, totals.vatAmount)}
+    ${totals.ssclAmount ? taxRow(`SSCL (${totals.ssclRate}%)`, totals.ssclAmount) : ''}
+    ${totals.vatAmount ? taxRow(`VAT (${totals.vatRate}%)`, totals.vatAmount) : ''}
     ${totals.discount ? taxRow('Discount', -totals.discount) : ''}
     ${totals.roundOff ? taxRow('Round Off', totals.roundOff) : ''}
     <tr class="grand"><td>Grand Total</td><td class="r">${fmt(totals.grandTotal)}</td></tr>
