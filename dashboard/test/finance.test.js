@@ -117,14 +117,17 @@ test('compareLine unmatched falls back to billed amount', () => {
 });
 
 test('tiered rate card seed is internally consistent', () => {
-  assert.equal(RATECARD_SEED.length, 21);
+  assert.equal(RATECARD_SEED.length, 27);
   const cats = new Set();
   for (const r of RATECARD_SEED) {
     cats.add(r.category);
     assert.ok(['hose', 'fitting', 'crimping'].includes(r.category), `${r.label}: bad category`);
     assert.ok(r.outsideLow <= r.outsideMid && r.outsideMid <= r.outsideHigh, `${r.label}: tiers must ascend`);
     assert.ok(r.ourCost < r.ourPrice, `${r.label}: cost below price`);
-    assert.ok(r.ourPrice <= r.outsideMid, `${r.label}: our price should not exceed mid outside`);
+    // Hose/fitting undercut the market (price at/below Mid); crimping is billed at
+    // the market High tier, so its ceiling is High rather than Mid.
+    const ceiling = r.category === 'crimping' ? r.outsideHigh : r.outsideMid;
+    assert.ok(r.ourPrice <= ceiling, `${r.label}: our price should not exceed the outside ceiling`);
     assert.ok(['m', 'end'].includes(r.unit), `${r.label}: unit`);
   }
   assert.deepEqual([...cats].sort(), ['crimping', 'fitting', 'hose']);

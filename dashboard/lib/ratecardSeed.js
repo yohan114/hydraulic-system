@@ -70,9 +70,19 @@ const RATECARD_SEED = [
   row('fitting', 'BSP', 1.0, '25', 'Fitting 1" (straight)', 'end', 2050, 3500, 8400),
   row('fitting', 'BSP', 1.25, '32', 'Fitting 1-1/4" (straight)', 'end', 3950, 6700, 15500),
 
-  // ---- Crimping charge (labour only), per end. Reference; not auto-matched. ----
-  row('crimping', '', 0, '', 'Crimp ≤3/4" (per end)', 'end', 250, 650, 1850, { ourCost: 250, ourPrice: 585 }),
-  row('crimping', '', 0, '', 'Crimp 1"–2" spiral (per end)', 'end', 900, 1700, 3500, { ourCost: 500, ourPrice: 1530 }),
+  // ---- Crimping charge, per end. From the shipment datasheet's Crimping Charges
+  // sheet: outsideLow/Mid/High are the local market tiers; ourCost is the true
+  // internal cost (machine amortization + burdened labour + consumables + power);
+  // ourPrice is set to the market HIGH rate (branded-shop / test-certificate tier).
+  // Reference rows — not auto-matched to invoice lines. ----
+  row('crimping', '', 0.25, '6', 'Crimp 1/4" (per end)', 'end', 250, 650, 1800, { ourCost: 290, ourPrice: 1800 }),
+  row('crimping', '', 0.3125, '8', 'Crimp 5/16" (per end)', 'end', 250, 650, 1800, { ourCost: 290, ourPrice: 1800 }),
+  row('crimping', '', 0.375, '10', 'Crimp 3/8" (per end)', 'end', 250, 650, 1800, { ourCost: 313, ourPrice: 1800 }),
+  row('crimping', '', 0.5, '13', 'Crimp 1/2" (per end)', 'end', 280, 700, 1900, { ourCost: 336, ourPrice: 1900 }),
+  row('crimping', '', 0.625, '16', 'Crimp 5/8" (per end)', 'end', 380, 850, 2200, { ourCost: 360, ourPrice: 2200 }),
+  row('crimping', '', 0.75, '19', 'Crimp 3/4" (per end)', 'end', 450, 950, 2500, { ourCost: 383, ourPrice: 2500 }),
+  row('crimping', '', 1.0, '25', 'Crimp 1" (per end)', 'end', 650, 1350, 3500, { ourCost: 453, ourPrice: 3500 }),
+  row('crimping', '', 1.25, '32', 'Crimp 1-1/4" (per end)', 'end', 900, 1800, 4500, { ourCost: 523, ourPrice: 4500 }),
 ];
 
 module.exports = { RATECARD_SEED };
