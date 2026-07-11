@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const ADODB = require('node-adodb');
 const path = require('path');
 const xlsx = require('xlsx');
 const multer = require('multer');
@@ -28,9 +27,9 @@ const upload = multer({ dest: UPLOAD_DIR });
 
 const app = express();
 
-// Set up node-adodb with appropriate provider
-const connectionString = `Provider=Microsoft.ACE.OLEDB.12.0;Data Source=../HydraulicHoseRepair.accdb;Persist Security Info=False;`;
-const connection = ADODB.open(connectionString, true);
+// SQLite data layer (cross-platform, in-process). Exposes the same async
+// query()/execute() shape the app was written against — see lib/db.js.
+const connection = require('./lib/db');
 
 // Serialises invoice creation/finalisation so concurrent requests can never be
 // handed the same invoice number or race the stock deduction (see lib/mutex.js).
@@ -242,19 +241,15 @@ async function resolveInvoiceIdByNo(invoiceNo) {
 // ============================================================
 app.get('/api/dashboard', async (req, res) => {
     try {
-        // Each node-adodb call spawns its own out-of-process worker, so running
-        // the independent reads concurrently (instead of awaiting one at a time)
-        // cuts the dashboard load time roughly to that of the single slowest
-        // query. Unused/expensive aggregates (top items, qty-by-product) were
-        // dropped — the UI never consumed them. Sales-by-month and receivables
-        // are both derived from ONE finalized-invoice scan.
+        // Sales-by-month and receivables are both derived from ONE finalized-
+        // invoice scan; the recent lists are small TOP-N reads.
         const finalizedSql = `SELECT FinalizedAt, GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized'`;
         const [invItems, invQty, lowStock, recentInvoices, movements, finalized] = await Promise.all([
             connection.query('SELECT COUNT(*) AS total FROM Inventory'),
             connection.query('SELECT SUM(Qty) AS totalQty FROM Inventory'),
             connection.query('SELECT COUNT(*) AS lowStock FROM Inventory WHERE Qty <= 5'),
-            connection.query('SELECT TOP 5 * FROM Invoices WHERE Status = "Finalized" ORDER BY FinalizedAt DESC'),
-            connection.query('SELECT TOP 5 StockMovements.*, Inventory.ProductName FROM StockMovements LEFT JOIN Inventory ON StockMovements.InventoryID = Inventory.InventoryID ORDER BY MovementDate DESC'),
+            connection.query("SELECT * FROM Invoices WHERE Status = 'Finalized' ORDER BY FinalizedAt DESC LIMIT 5"),
+            connection.query('SELECT StockMovements.*, Inventory.ProductName FROM StockMovements LEFT JOIN Inventory ON StockMovements.InventoryID = Inventory.InventoryID ORDER BY MovementDate DESC LIMIT 5'),
             connection.query(finalizedSql).catch(() => connection.query(`SELECT FinalizedAt, GrandTotal FROM Invoices WHERE Status = 'Finalized'`)),
         ]);
 

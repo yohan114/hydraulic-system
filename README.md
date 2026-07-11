@@ -2,9 +2,10 @@
 
 A workshop management system for hydraulic hose repair: inventory, invoicing with
 Sri Lankan tax calculations (SSCL + VAT), material transaction tracking, and a
-**smart, locked, accurate billing** layer. Data is stored in a Microsoft Access
-database (`HydraulicHoseRepair.accdb`); the day-to-day UI is a Node.js/Express web
-dashboard in [`dashboard/`](dashboard/).
+**smart, locked, accurate billing** layer. Data is stored in a single **SQLite**
+database file (`hydraulic.db`, via `better-sqlite3`); the UI is a Node.js/Express
+web dashboard in [`dashboard/`](dashboard/). It runs on **any OS** — no Microsoft
+Access or Windows dependency.
 
 ## Smart Billing (Lock · Accurate · Smart)
 
@@ -65,32 +66,19 @@ See [`dashboard/README`](#smart-billing-web-dashboard) below for setup.
 
 ## Prerequisites
 
-1. **Microsoft Access** 2016, 2019, 2021, or Microsoft 365
-2. **PowerShell** 5.1 or later (pre-installed on Windows 10/11)
-3. **VBA Trust Setting**: In Access, enable "Trust access to the VBA project object model":
-   - Open Access → File → Options → Trust Center → Trust Center Settings
-   - Click "Macro Settings"
-   - Check ✅ "Trust access to the VBA project object model"
-   - Click OK
+1. **Node.js** LTS (18+). That's it — no Microsoft Access, no PowerShell, no COM.
+2. Works on **Windows, macOS, or Linux**.
 
 ## Installation
 
-1. Open PowerShell **as Administrator**
-2. Navigate to this folder:
-   ```powershell
-   cd "d:\hydraulic 1"
-   ```
-3. If needed, allow script execution:
-   ```powershell
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-   ```
-4. Run the build script:
-   ```powershell
-   .\build.ps1
-   ```
-5. Wait for the build to complete (about 30-60 seconds)
-6. Open `HydraulicHoseRepair.accdb` in Microsoft Access
-7. Click "Enable Content" if prompted about macros
+```bash
+cd dashboard
+npm install     # installs express + better-sqlite3 (prebuilt binary)
+npm start       # serves http://localhost:9999
+```
+
+The bundled `hydraulic.db` already contains the inventory, rate card and invoice
+history. A fresh database is created automatically if the file is missing.
 
 ## First-Time Setup
 
@@ -133,15 +121,19 @@ See [`dashboard/README`](#smart-billing-web-dashboard) below for setup.
 ## File Structure
 
 ```
-d:\hydraulic 1\
-├── build.ps1                  # Master build script
+hydraulic-system/
 ├── README.md                  # This file
-├── HydraulicHoseRepair.accdb  # The database (created by build.ps1)
-└── scripts\
-    ├── 01_create_schema.ps1   # Tables, relationships, queries
-    ├── 02_create_vba.ps1      # VBA business logic modules
-    ├── 03_create_forms.ps1    # User interface forms
-    └── 04_create_reports.ps1  # Print reports
+├── hydraulic.db               # The SQLite database (data lives here)
+└── dashboard/
+    ├── server.js              # Express app + all API endpoints
+    ├── migrate.js             # Idempotent SQLite schema bootstrap + seed
+    ├── lib/
+    │   ├── db.js              # better-sqlite3 data layer (query/execute)
+    │   ├── billing.js         # Server-authoritative totals/tax engine
+    │   ├── money.js           # Decimal-safe rounding
+    │   └── …                  # finance, invoiceNo, auth, mutex, sql, ratecardSeed
+    ├── public/                # Dashboard UI (index.html, app.js, styles.css)
+    └── test/                  # Unit tests (npm test)
 ```
 
 ## Tax Calculation
@@ -163,18 +155,19 @@ Grand Total         =  After Tax − Discount (± Round Off)
 
 ## Smart Billing Web Dashboard
 
-The dashboard in [`dashboard/`](dashboard/) is the primary UI (Node.js + Express,
-talking to the same `.accdb` via `node-adodb`; Windows-only driver).
+The dashboard in [`dashboard/`](dashboard/) is the UI (Node.js + Express, storing
+data in `hydraulic.db` via `better-sqlite3` — a fast, in-process, cross-platform
+SQLite driver; no Access/COM install needed).
 
-```powershell
+```bash
 cd dashboard
 npm install
-npm run migrate     # one-time: add smart-billing columns/tables to an existing DB
+npm run migrate     # optional: create/upgrade the schema (also runs on boot)
 npm start           # serves http://localhost:9999
 ```
 
-- The server also runs the idempotent schema upgrade automatically on boot, so a
-  DB created before this release gains the new columns without manual steps.
+- The server runs the idempotent schema bootstrap automatically on boot, so a
+  fresh or older `hydraulic.db` gains any missing tables/columns without manual steps.
 - First login: **admin / admin123** — use the **Password** button in the sidebar to
   change it. Set `BILLING_PASSWORD` to change the default, or `BILLING_AUTH=off` to
   disable the login entirely for a trusted single-user machine.
@@ -195,15 +188,16 @@ npm start           # serves http://localhost:9999
 
 | Issue | Solution |
 |---|---|
-| "Microsoft Access not found" | Install MS Access or ensure it's not running when building |
-| VBA module import fails | Enable "Trust access to VBA project object model" in Trust Center |
-| Script won't run | Run `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
-| Database locked | Close all Access instances and retry |
-| Forms don't appear | Open database, press F11 to show Navigation Pane |
+| `npm install` fails building better-sqlite3 | Ensure a supported Node.js LTS; prebuilt binaries cover Windows/macOS/Linux. On odd platforms install build tools (`node-gyp`). |
+| "database is locked" | Only one process should write at a time; close any other instance/backup tool holding `hydraulic.db`. |
+| Port 9999 in use | Set `PORT=xxxx` before `npm start`. |
+| Forgot the login | Set `BILLING_PASSWORD=...` (or `BILLING_AUTH=off` for a trusted single-user machine). |
 
 ## Backup
 
-The database is a single `.accdb` file. Back it up regularly by copying it to another location. Recommended: daily backup to USB or cloud storage.
+The database is a single portable file — `hydraulic.db`. Back it up by copying that
+one file to another location (works while the app is stopped; for a hot copy use
+`sqlite3 hydraulic.db ".backup backup.db"`). Recommended: daily backup to USB or cloud.
 
 ---
 

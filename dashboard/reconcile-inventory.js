@@ -32,11 +32,9 @@
  * For a brand-new / empty database use reseed-inventory.js instead (full rebuild).
  */
 
-const path = require('path');
-const ADODB = require('node-adodb');
+const connection = require('./lib/db');
 const { q, n } = require('./lib/sql');
 
-const DB = path.join(__dirname, '..', 'HydraulicHoseRepair.accdb');
 const MASTER = require('./data/shipment-HS25E1112W1.json');
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -46,11 +44,6 @@ const norm = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9-]/g, '');
 const matchKey = (c) => norm(c).replace(/(ST|T|W)$/, '');
 
 async function run() {
-  const connection = ADODB.open(
-    `Provider=Microsoft.ACE.OLEDB.12.0;Data Source=${DB};Persist Security Info=False;`,
-    true
-  );
-
   const existing = await connection.query('SELECT * FROM Inventory');
   console.log(`Loaded ${existing.length} existing inventory rows.`);
 

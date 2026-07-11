@@ -8,3 +8,8 @@ dashboard/node_modules/
 dashboard/.auth-secret
 # Uploaded import files (multer scratch dir)
 dashboard/uploads/
+
+# SQLite transient sidecars (the DB itself, hydraulic.db, IS committed)
+hydraulic.db-wal
+hydraulic.db-shm
+hydraulic.db-journal

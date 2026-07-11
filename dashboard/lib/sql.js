@@ -1,15 +1,16 @@
 'use strict';
 
 /**
- * SQL literal helpers for the Access (ACE OLEDB) dialect.
+ * SQL literal helpers for SQLite (better-sqlite3).
  *
- * node-adodb has no real parameter binding, so values are interpolated into
- * statements. These helpers make that safe:
+ * The app builds SQL by interpolating values into statements, so these helpers
+ * make that safe (single-quote doubling is the correct/complete string escape
+ * for SQLite, which has no backslash escaping):
  *   - `q()` single-quote-escapes and wraps strings (or emits NULL),
  *   - `n()` forces a value to a finite number and THROWS on anything else, so a
  *     malformed/injected numeric field fails the request instead of reaching
  *     the database,
- *   - `dbDate()` renders a JS date as an Access `#yyyy-mm-dd#` literal.
+ *   - `dbDate()` renders a date as a SQLite `'yyyy-mm-dd 00:00:00'` literal.
  */
 
 /** Escape a string for use inside single quotes. */
@@ -50,18 +51,22 @@ function numFinite(value) {
 }
 
 /**
- * Render a date as an Access date literal `#yyyy-mm-dd hh:mm:ss#`, or NULL.
+ * Render a date as a SQLite date-time string literal `'yyyy-mm-dd 00:00:00'`,
+ * or NULL. A plain `YYYY-MM-DD` input (what the date picker sends) is used
+ * verbatim so there is no UTC-parsing drift across timezones.
  * @param {Date|string} value
  * @returns {string}
  */
 function dbDate(value) {
   if (!value) return 'NULL';
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `'${m[1]}-${m[2]}-${m[3]} 00:00:00'`;
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return 'NULL';
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
-  return `#${yyyy}-${mm}-${dd} 00:00:00#`;
+  return `'${yyyy}-${mm}-${dd} 00:00:00'`;
 }
 
 module.exports = { esc, q, n, dbDate };

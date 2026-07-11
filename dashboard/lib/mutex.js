@@ -3,12 +3,14 @@
 /**
  * A tiny async mutex.
  *
- * node-adodb executes each statement in a short-lived out-of-process worker, so
- * two overlapping HTTP requests can interleave a "read the last invoice number"
+ * Two overlapping HTTP requests can interleave a "read the last invoice number"
  * and an "insert" and end up with duplicate numbers. Serialising the whole
  * critical section (generate number -> insert header -> insert items -> deduct
- * stock) through this mutex removes that race without needing DB-level locking,
- * which Access does not offer through this driver.
+ * stock) through this mutex removes that race at the application level.
+ *
+ * (With the synchronous better-sqlite3 driver each statement now runs
+ *  atomically in-process, but the mutex still guards the multi-statement
+ *  invoice/stock critical section as a single unit.)
  */
 class Mutex {
   constructor() {
