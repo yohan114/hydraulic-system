@@ -414,6 +414,87 @@ function renderInvoiceProfit(ip) {
     });
 }
 
+// ----------------------------------------------------
+// Price Analysis: per-item our-price vs market, margin %, monthly trend
+// ----------------------------------------------------
+async function loadPriceAnalysis() {
+    showSkeleton('price-analysis-tbody', 10, 6);
+    try {
+        const res = await authFetch(`${API_URL}/reports/price-analysis`);
+        const data = await res.json();
+        if (!res.ok) { toast(data.error || 'Could not load price analysis', 'error'); return; }
+        renderPriceAnalysis(data);
+    } catch (e) { console.error('Error loading price analysis', e); }
+}
+
+function renderPriceAnalysis(data) {
+    const t = data.totals || {};
+    document.getElementById('pa-stat-revenue').textContent = formatCurrency(t.ourRevenue);
+    document.getElementById('pa-stat-cost').textContent = formatCurrency(t.totalCost);
+    document.getElementById('pa-stat-profit').innerHTML = signed(t.grossProfit);
+    document.getElementById('pa-stat-margin').textContent = `${t.marginPct == null ? 0 : t.marginPct}% margin`;
+    document.getElementById('pa-stat-savings').textContent = formatCurrency(t.savingsVsMarket);
+
+    renderPATrend(data.monthly || []);
+
+    const tb = document.getElementById('price-analysis-tbody');
+    tb.innerHTML = '';
+    const rows = data.items || [];
+    if (!rows.length) { emptyRow('price-analysis-tbody', 10, '📊', 'No finalized sales yet', 'Finalize invoices to see per-item price analysis.'); return; }
+    rows.forEach((r) => {
+        // Highlight items sold below cost (negative margin) — the pricing risk.
+        const marginColor = r.marginPct >= 0 ? (r.marginPct >= 20 ? '#10b981' : '#f59e0b') : '#ef4444';
+        tb.innerHTML += `
+            <tr>
+                <td><strong>${escAttr(r.productName)}</strong><br><span style="font-size:11px;color:var(--text-muted)">${escAttr(r.uniqueId) || ''}</span></td>
+                <td>${escAttr(r.unit) || ''}</td>
+                <td class="num">${r.qtySold}</td>
+                <td class="num">${formatCurrency(r.avgOurRate)}</td>
+                <td class="num">${formatCurrency(r.marketMid)}</td>
+                <td class="num">${formatCurrency(r.unitCost)}</td>
+                <td class="num">${formatCurrency(r.ourRevenue)}</td>
+                <td class="num">${signed(r.grossProfit)}</td>
+                <td class="num" style="color:${marginColor};font-weight:600;">${r.marginPct}%</td>
+                <td class="num">${formatCurrency(r.savingsVsMarket)}</td>
+            </tr>`;
+    });
+}
+
+// Inline-SVG grouped bar chart (no external libs — CSP/offline safe). Per month:
+// Our Revenue vs Market Revenue vs Cost, with the margin % labelled.
+function renderPATrend(monthly) {
+    const host = document.getElementById('pa-trend');
+    if (!host) return;
+    if (!monthly.length) { host.innerHTML = '<div style="color:var(--text-muted);padding:20px 0;">No monthly data yet.</div>'; return; }
+    const max = Math.max(1, ...monthly.map((m) => Math.max(m.ourRevenue, m.marketRevenue, m.materialCost)));
+    const barW = 26, groupGap = 46, innerGap = 6, chartH = 180, topPad = 16, labelH = 42;
+    const groupW = barW * 3 + innerGap * 2;
+    const width = Math.max(360, monthly.length * (groupW + groupGap) + groupGap);
+    const height = chartH + topPad + labelH;
+    const y = (v) => topPad + chartH - (v / max) * chartH;
+    const series = [
+        { key: 'ourRevenue', color: '#2563eb', label: 'Our Revenue' },
+        { key: 'marketRevenue', color: '#8b5cf6', label: 'Market' },
+        { key: 'materialCost', color: '#f59e0b', label: 'Cost' },
+    ];
+    let bars = '';
+    monthly.forEach((m, i) => {
+        const gx = groupGap + i * (groupW + groupGap);
+        series.forEach((s, j) => {
+            const x = gx + j * (barW + innerGap);
+            const val = m[s.key];
+            const yy = y(val);
+            bars += `<rect x="${x}" y="${yy}" width="${barW}" height="${topPad + chartH - yy}" rx="3" fill="${s.color}"><title>${s.label}: ${formatCurrency(val)}</title></rect>`;
+        });
+        bars += `<text x="${gx + groupW / 2}" y="${topPad + chartH + 16}" text-anchor="middle" font-size="12" fill="var(--text-color, #333)">${m.month}</text>`;
+        bars += `<text x="${gx + groupW / 2}" y="${topPad + chartH + 32}" text-anchor="middle" font-size="11" fill="var(--text-muted, #888)">${m.marginPct}% margin</text>`;
+    });
+    const legend = series.map((s) => `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;font-size:12px;"><span style="width:12px;height:12px;border-radius:3px;background:${s.color};display:inline-block;"></span>${s.label}</span>`).join('');
+    host.innerHTML = `<div style="margin-bottom:10px;">${legend}</div><svg width="${width}" height="${height}" role="img" aria-label="Monthly revenue vs market vs cost">${bars}</svg>`;
+}
+
+function exportPriceAnalysis() { downloadExport('/reports/price-analysis/export', 'Price_Analysis.xlsx'); }
+
 async function loadInvoiceComparisonList() {
     try {
         const res = await authFetch(`${API_URL}/invoices`);

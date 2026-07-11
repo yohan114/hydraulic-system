@@ -154,6 +154,149 @@ router.get('/api/reports/invoice-profit', async (req, res) => {
 });
 
 
+// Price analysis: per-item our-price-vs-market-price with margins, plus a
+// monthly trend — the consolidated, always-current replacement for the loose
+// per-invoice comparison spreadsheets.
+//
+// Aggregated over finalized invoices; cost/market/list price come from the
+// current Inventory row (same basis as the invoice-profit report). "Savings vs
+// market" is what the customer saved by buying from us instead of at the market
+// mid rate (positive = we undercut the market).
+async function priceAnalysis() {
+    const itemRows = await connection.query(`
+        SELECT ii.InventoryID, i.UniqueID, i.ProductName, i.SpecificationCode, i.Unit,
+               i.Cost AS UnitCost, i.MarketMid AS UnitMarket, i.Price AS ListPrice,
+               SUM(ii.Qty) AS QtySold, SUM(ii.Qty * ii.Rate) AS OurRevenue
+        FROM ((InvoiceItems ii INNER JOIN Invoices inv ON ii.InvoiceID = inv.InvoiceID)
+              INNER JOIN Inventory i ON ii.InventoryID = i.InventoryID)
+        WHERE inv.Status = 'Finalized'
+        GROUP BY ii.InventoryID, i.UniqueID, i.ProductName, i.SpecificationCode, i.Unit, i.Cost, i.MarketMid, i.Price
+    `);
+
+    const items = itemRows.map((r) => {
+        const qty = money.num(r.QtySold);
+        const ourRevenue = money.round2(r.OurRevenue);
+        const unitCost = money.num(r.UnitCost);
+        const unitMarket = money.num(r.UnitMarket);
+        const totalCost = money.round2(qty * unitCost);
+        const marketRevenue = money.round2(qty * unitMarket);
+        const grossProfit = money.round2(ourRevenue - totalCost);
+        const avgOurRate = qty > 0 ? money.round2(ourRevenue / qty) : 0;
+        return {
+            inventoryId: r.InventoryID,
+            uniqueId: r.UniqueID,
+            productName: r.ProductName,
+            specCode: r.SpecificationCode,
+            unit: r.Unit,
+            qtySold: qty,
+            avgOurRate,
+            listPrice: money.round2(r.ListPrice),
+            marketMid: money.round2(unitMarket),
+            unitCost: money.round2(unitCost),
+            ourRevenue,
+            marketRevenue,
+            totalCost,
+            grossProfit,
+            marginPct: ourRevenue > 0 ? money.round2((grossProfit / ourRevenue) * 100) : 0,
+            savingsVsMarket: money.round2(marketRevenue - ourRevenue),
+        };
+    }).sort((a, b) => b.ourRevenue - a.ourRevenue);
+
+    const monthRows = await connection.query(`
+        SELECT substr(inv.InvoiceDate, 1, 7) AS Month,
+               SUM(ii.Qty * ii.Rate) AS OurRevenue,
+               SUM(ii.Qty * COALESCE(i.Cost, 0)) AS MaterialCost,
+               SUM(ii.Qty * COALESCE(i.MarketMid, 0)) AS MarketRevenue
+        FROM ((InvoiceItems ii INNER JOIN Invoices inv ON ii.InvoiceID = inv.InvoiceID)
+              LEFT JOIN Inventory i ON ii.InventoryID = i.InventoryID)
+        WHERE inv.Status = 'Finalized'
+        GROUP BY substr(inv.InvoiceDate, 1, 7)
+        ORDER BY Month ASC
+    `);
+
+    const monthly = monthRows
+        .filter((m) => m.Month)
+        .map((m) => {
+            const ourRevenue = money.round2(m.OurRevenue);
+            const materialCost = money.round2(m.MaterialCost);
+            const marketRevenue = money.round2(m.MarketRevenue);
+            const grossProfit = money.round2(ourRevenue - materialCost);
+            return {
+                month: m.Month,
+                ourRevenue,
+                materialCost,
+                marketRevenue,
+                grossProfit,
+                marginPct: ourRevenue > 0 ? money.round2((grossProfit / ourRevenue) * 100) : 0,
+                savingsVsMarket: money.round2(marketRevenue - ourRevenue),
+            };
+        });
+
+    const totals = items.reduce(
+        (a, r) => ({
+            qtySold: a.qtySold + r.qtySold,
+            ourRevenue: a.ourRevenue + r.ourRevenue,
+            marketRevenue: a.marketRevenue + r.marketRevenue,
+            totalCost: a.totalCost + r.totalCost,
+            grossProfit: a.grossProfit + r.grossProfit,
+            savingsVsMarket: a.savingsVsMarket + r.savingsVsMarket,
+        }),
+        { qtySold: 0, ourRevenue: 0, marketRevenue: 0, totalCost: 0, grossProfit: 0, savingsVsMarket: 0 }
+    );
+    for (const k of Object.keys(totals)) totals[k] = money.round2(totals[k]);
+    totals.marginPct = totals.ourRevenue > 0 ? money.round2((totals.grossProfit / totals.ourRevenue) * 100) : 0;
+
+    return { items, monthly, totals };
+}
+
+
+router.get('/api/reports/price-analysis', async (req, res) => {
+    try {
+        res.json(await priceAnalysis());
+    } catch (err) {
+        res.status(500).json({ error: 'Could not compute price analysis. Ensure the database is migrated. ' + err.message });
+    }
+});
+
+
+router.get('/api/reports/price-analysis/export', async (req, res) => {
+    try {
+        const { items } = await priceAnalysis();
+        const excelData = items.map((r) => ({
+            'Unique ID': r.uniqueId || '',
+            'Product': r.productName || '',
+            'Spec Code': r.specCode || '',
+            'Unit': r.unit || '',
+            'Qty Sold': r.qtySold,
+            'Avg Our Rate': r.avgOurRate,
+            'List Price': r.listPrice,
+            'Market Mid': r.marketMid,
+            'Unit Cost': r.unitCost,
+            'Our Revenue': r.ourRevenue,
+            'Market Revenue': r.marketRevenue,
+            'Gross Profit': r.grossProfit,
+            'Margin %': r.marginPct,
+            'Customer Savings vs Market': r.savingsVsMarket,
+        }));
+        const ws = xlsx.utils.json_to_sheet(excelData);
+        const maxLens = {};
+        excelData.forEach((row) => Object.keys(row).forEach((key) => {
+            maxLens[key] = Math.max(maxLens[key] || key.length, String(row[key] == null ? '' : row[key]).length);
+        }));
+        ws['!cols'] = Object.keys(maxLens).map((key) => ({ wch: maxLens[key] + 3 }));
+        const wb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(wb, ws, 'Price Analysis');
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Disposition', 'attachment; filename="Price_Analysis.xlsx"');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error generating export');
+    }
+});
+
+
 router.get('/api/reports/pl', async (req, res) => {
     try {
         const [profitRows, labour, expenses, payments] = await Promise.all([

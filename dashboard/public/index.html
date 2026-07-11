@@ -93,6 +93,9 @@
                 <a href="#" class="nav-item" data-target="invoice-comparison">
                     <i class="ri-scales-line"></i> Invoice Comparison
                 </a>
+                <a href="#" class="nav-item" data-target="price-analysis">
+                    <i class="ri-bar-chart-box-line"></i> Price Analysis
+                </a>
                 <a href="#" class="nav-item" data-target="labour">
                     <i class="ri-team-line"></i> Labour
                 </a>
@@ -632,6 +635,40 @@
                             <table class="table">
                                 <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Revenue (ex-tax)</th><th class="num">Material Cost</th><th class="num">Gross Profit</th><th class="num">Margin</th></tr></thead>
                                 <tbody id="invoice-profit-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Price Analysis Section -->
+                <section id="price-analysis" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Price Analysis — Our Price vs Market</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="exportPriceAnalysis()"><i class="ri-file-excel-line"></i> Export to Excel</button>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="margin-bottom: 24px;">
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-arrow-up-circle-line"></i></div><div class="stat-details"><h3>Our Revenue</h3><p id="pa-stat-revenue" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-shopping-bag-line"></i></div><div class="stat-details"><h3>Material Cost</h3><p id="pa-stat-cost" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(37,99,235,0.1); color:var(--primary);"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Gross Profit</h3><p id="pa-stat-profit" style="font-size:20px;">Rs. 0.00</p><span id="pa-stat-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background: rgba(139,92,246,0.1); color:#8b5cf6;"><i class="ri-price-tag-3-line"></i></div><div class="stat-details"><h3>Customer Savings vs Market</h3><p id="pa-stat-savings" style="font-size:20px;">Rs. 0.00</p></div></div>
+                    </div>
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Monthly Trend — Our Revenue vs Market vs Cost</h2></div>
+                        <div id="pa-trend" style="padding: 20px 24px; overflow-x:auto;"></div>
+                    </div>
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Per-Item Price vs Market</h2></div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr>
+                                    <th>Product</th><th>Unit</th><th class="num">Qty Sold</th>
+                                    <th class="num">Avg Our Rate</th><th class="num">Market Mid</th><th class="num">Unit Cost</th>
+                                    <th class="num">Our Revenue</th><th class="num">Gross Profit</th><th class="num">Margin</th>
+                                    <th class="num">Savings vs Market</th>
+                                </tr></thead>
+                                <tbody id="price-analysis-tbody"></tbody>
                             </table>
                         </div>
                     </div>

@@ -397,6 +397,7 @@ function showSection(sectionId) {
         'export-invoices': 'Export Invoices',
         'cost-analysis': 'Rate Card',
         'invoice-comparison': 'Invoice Comparison',
+        'price-analysis': 'Price Analysis',
         'labour': 'Labour',
         'expenses': 'Expenses',
         'reports': 'Profit & Loss',
@@ -411,6 +412,7 @@ function showSection(sectionId) {
     else if (sectionId === 'export-invoices') loadExportStats();
     else if (sectionId === 'cost-analysis') loadRateCard();
     else if (sectionId === 'invoice-comparison') loadInvoiceComparisonList();
+    else if (sectionId === 'price-analysis') loadPriceAnalysis();
     else if (sectionId === 'labour') loadLabour();
     else if (sectionId === 'expenses') loadExpenses();
     else if (sectionId === 'reports') loadReports();
