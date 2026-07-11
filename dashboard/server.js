@@ -12,6 +12,7 @@ const path = require('path');
 
 const { ensureSchema } = require('./migrate');
 const connection = require('./db');
+const { runStartupBackup } = require('./lib/backup');
 const { router: authRouter, requireAuth } = require('./routes/auth');
 
 const PORT = process.env.PORT || 9999;
@@ -51,6 +52,15 @@ async function start() {
     }
   } catch (e) {
     console.warn('Schema check skipped:', e.message);
+  }
+
+  // Daily safety snapshot to backups/YYYY-MM-DD.db (keeps the last 7 days).
+  try {
+    const b = await runStartupBackup(connection._db);
+    if (b.file) console.log(`Backup: wrote ${b.file}${b.pruned.length ? ` (pruned ${b.pruned.length} old)` : ''}`);
+    else if (b.skipped) console.log("Backup: today's snapshot already present.");
+  } catch (e) {
+    console.warn('Backup skipped:', e.message);
   }
 
   app.listen(PORT, () => {

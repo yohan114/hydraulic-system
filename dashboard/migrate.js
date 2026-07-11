@@ -18,7 +18,8 @@ const TABLES = {
   Inventory: `CREATE TABLE IF NOT EXISTS Inventory (
     InventoryID INTEGER PRIMARY KEY, UniqueID TEXT, ProductName TEXT, SpecificationCode TEXT,
     Size TEXT, Description TEXT, Length REAL, Qty REAL, Unit TEXT, CreatedAt TEXT, UpdatedAt TEXT,
-    Price REAL, Cost REAL, MarketMid REAL)`,
+    Price REAL, Cost REAL, MarketMid REAL,
+    SupplierID INTEGER, LastPurchasePrice REAL, LastPurchaseDate TEXT, ReorderLevel REAL)`,
   Invoices: `CREATE TABLE IF NOT EXISTS Invoices (
     InvoiceID INTEGER PRIMARY KEY, InvoiceNo TEXT, InvoiceDate TEXT, PONo TEXT, PODate TEXT, DeliveryDate TEXT,
     BilledToName TEXT, BilledToAddress TEXT, DeliveredToName TEXT, DeliveredToAddress TEXT,
@@ -45,14 +46,25 @@ const TABLES = {
     LabourPaymentID INTEGER PRIMARY KEY, WorkerID INTEGER, Amount REAL, PayPeriod TEXT, PaymentDate TEXT, Method TEXT, Notes TEXT, CreatedAt TEXT)`,
   Expenses: `CREATE TABLE IF NOT EXISTS Expenses (
     ExpenseID INTEGER PRIMARY KEY, Category TEXT, Amount REAL, ExpenseDate TEXT, Method TEXT, Notes TEXT, CreatedAt TEXT)`,
+  Suppliers: `CREATE TABLE IF NOT EXISTS Suppliers (
+    SupplierID INTEGER PRIMARY KEY, Name TEXT, ContactPerson TEXT, Phone TEXT, Email TEXT, Address TEXT,
+    Notes TEXT, Active INTEGER, CreatedAt TEXT, UpdatedAt TEXT)`,
+  Purchases: `CREATE TABLE IF NOT EXISTS Purchases (
+    PurchaseID INTEGER PRIMARY KEY, InventoryID INTEGER, SupplierID INTEGER, Qty REAL, UnitPrice REAL,
+    PurchaseDate TEXT, Notes TEXT, CreatedAt TEXT)`,
 };
 
 // Columns that may be absent on a database created by an earlier build — added
 // if missing so schema evolution stays automatic.
 const COLUMN_ENSURES = {
-  Inventory: { Price: 'REAL', Cost: 'REAL', MarketMid: 'REAL' },
+  Inventory: {
+    Price: 'REAL', Cost: 'REAL', MarketMid: 'REAL',
+    // Supplier link + last-purchase tracking (cost accuracy) + per-item reorder threshold.
+    SupplierID: 'INTEGER', LastPurchasePrice: 'REAL', LastPurchaseDate: 'TEXT', ReorderLevel: 'REAL',
+  },
   Invoices: { Discount: 'REAL', RoundOff: 'REAL', AmountPaid: 'REAL', PaymentStatus: 'TEXT', CancelledAt: 'TEXT', CancelReason: 'TEXT' },
   RateCard: { Category: 'TEXT', OutsideLow: 'REAL', OutsideMid: 'REAL', OutsideHigh: 'REAL' },
+  Users: { Role: 'TEXT' },
 };
 
 const INDEXES = [
@@ -65,6 +77,9 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_ii_inventory ON InvoiceItems(InventoryID)',
   'CREATE INDEX IF NOT EXISTS idx_sm_inventory ON StockMovements(InventoryID)',
   'CREATE INDEX IF NOT EXISTS idx_pay_invoice ON Payments(InvoiceID)',
+  'CREATE INDEX IF NOT EXISTS idx_inv_supplier ON Inventory(SupplierID)',
+  'CREATE INDEX IF NOT EXISTS idx_pur_inventory ON Purchases(InventoryID)',
+  'CREATE INDEX IF NOT EXISTS idx_pur_supplier ON Purchases(SupplierID)',
 ];
 
 /**
@@ -101,6 +116,10 @@ async function ensureSchema(conn) {
     'UPDATE Invoices SET RoundOff = 0 WHERE RoundOff IS NULL',
     'UPDATE Inventory SET Cost = 0 WHERE Cost IS NULL',
     'UPDATE Inventory SET MarketMid = 0 WHERE MarketMid IS NULL',
+    // Default reorder threshold matches the old hard-coded low-stock rule (Qty <= 5).
+    'UPDATE Inventory SET ReorderLevel = 5 WHERE ReorderLevel IS NULL',
+    // Any pre-roles user rows are administrators (there was only ever one admin).
+    "UPDATE Users SET Role = 'admin' WHERE Role IS NULL OR Role = ''",
   ];
   for (const s of backfills) { try { db.exec(s); } catch (_) {} }
 
