@@ -99,14 +99,16 @@ const INDEX_UPGRADES = [
 ];
 
 // True when the driver error means "this column/table already exists".
-function isAlreadyExists(message) {
-    const m = String(message || '').toLowerCase();
+function isAlreadyExists(err) {
+    const msg = String(err.message || '').toLowerCase();
+    const procMsg = String((err.process && err.process.message) || '').toLowerCase();
+    const m = `${msg} ${procMsg}`;
     return (
         m.includes('already exists') ||
         m.includes('already has') ||
         m.includes('duplicate') ||
         // Access reports a re-added column as a general field-already-in-use error.
-        m.includes('field') && m.includes('already')
+        (m.includes('field') && m.includes('already'))
     );
 }
 
@@ -125,10 +127,11 @@ async function ensureSchema(connection) {
             await connection.execute(ddl);
             applied.push(name);
         } catch (err) {
-            if (isAlreadyExists(err.message)) {
+            if (isAlreadyExists(err)) {
                 skipped.push(name);
             } else {
-                failed.push({ name, error: err.message });
+                const errMsg = (err.process && err.process.message) || err.message;
+                failed.push({ name, error: errMsg });
             }
         }
     }
