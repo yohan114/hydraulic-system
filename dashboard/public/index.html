@@ -1078,6 +1078,12 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- app.js was split into ordered modules. core.js MUST load first (shared
+         state/consts); feature modules follow in any order since onclick
+         handlers resolve at call-time. -->
+    <script src="modules/core.js"></script>
+    <script src="modules/inventory.js"></script>
+    <script src="modules/invoice.js"></script>
+    <script src="modules/dashboard.js"></script>
 </body>
 </html>
