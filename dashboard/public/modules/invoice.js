@@ -116,13 +116,77 @@ function addCustomRow() {
 }
 
 function addStandardCharges() {
-    // Two fixed charge rows, each guarded so a second click never duplicates them.
+    // Fixed labour/service fee; guarded so a second click never duplicates it.
+    // (Crimping is size-based — added via the "+ Add Crimping" picker instead.)
     if (!invoiceItems.find((it) => it.desc === 'Technical charges')) {
         invoiceItems.push({ id: nextItemId++, inventoryId: null, desc: 'Technical charges', unit: 'Nos', length: 0, qty: 1, rate: 1500, cost: 0, maxQty: null });
     }
-    if (!invoiceItems.find((it) => it.desc === 'Crimping charge')) {
-        invoiceItems.push({ id: nextItemId++, inventoryId: null, desc: 'Crimping charge', unit: 'Nos', length: 0, qty: 1, rate: 500, cost: 0, maxQty: null });
+    renderInvoiceItems();
+}
+
+// ----------------------------------------------------
+// Crimping charge — priced from the Rate Card by hose size × number of ends.
+// ----------------------------------------------------
+let crimpingRates = [];
+
+async function loadCrimpingRates() {
+    if (crimpingRates.length) return crimpingRates;
+    try {
+        const res = await authFetch(`${API_URL}/ratecard/crimping`);
+        const data = await res.json();
+        if (Array.isArray(data)) crimpingRates = data;
+    } catch (e) { console.error('Error loading crimping rates', e); }
+    return crimpingRates;
+}
+
+async function openCrimpingModal() {
+    await loadCrimpingRates();
+    const sel = document.getElementById('crimp-size');
+    if (!crimpingRates.length) {
+        toast('No crimping rates found in the Rate Card. Add them under Rate Card first.', 'error');
+        return;
     }
+    sel.innerHTML = crimpingRates.map((r) =>
+        `<option value="${r.rateId}">${escAttr(r.label)} — ${formatCurrency(r.ourPrice)}/end</option>`
+    ).join('');
+    document.getElementById('crimp-ends').value = 2;
+    updateCrimpingPreview();
+    openModal('crimpingModal');
+}
+
+function selectedCrimp() {
+    const id = Number(document.getElementById('crimp-size').value);
+    return crimpingRates.find((r) => r.rateId === id) || null;
+}
+
+function updateCrimpingPreview() {
+    const r = selectedCrimp();
+    const ends = Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1);
+    const el = document.getElementById('crimp-preview');
+    if (!r) { el.textContent = ''; return; }
+    const total = round2(r.ourPrice * ends);
+    el.innerHTML = `${formatCurrency(r.ourPrice)} / end &times; ${ends} end${ends === 1 ? '' : 's'} = <strong>${formatCurrency(total)}</strong>`;
+}
+
+function addCrimpingLine(e) {
+    if (e) e.preventDefault();
+    const r = selectedCrimp();
+    if (!r) return;
+    const ends = Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1);
+    // Strip the "(per end)" suffix from the rate-card label for a clean line description.
+    const size = String(r.label).replace(/\s*\(per end\)\s*/i, '').replace(/^Crimp\s*/i, '');
+    invoiceItems.push({
+        id: nextItemId++,
+        inventoryId: null,
+        desc: `Crimping charge — ${size}`,
+        unit: r.unit || 'end',
+        length: 0,
+        qty: ends,
+        rate: r.ourPrice,
+        cost: r.ourCost || 0, // drives the margin hint (labour/machine cost per end)
+        maxQty: null,
+    });
+    closeModal('crimpingModal');
     renderInvoiceItems();
 }
 

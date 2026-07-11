@@ -369,6 +369,7 @@
                                   <button type="button" onclick="openModal('selectInventoryModal')">+ Select from Inventory</button>
                                   <button type="button" onclick="addCustomRow()">+ Add Custom Row</button>
                                   <button type="button" onclick="addStandardCharges()">+ Add Technical Charges</button>
+                                  <button type="button" onclick="openCrimpingModal()">+ Add Crimping</button>
                                 </div>
                               </div>
 
@@ -1156,6 +1157,36 @@
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('purchaseModal')">Cancel</button>
                         <button type="submit" class="btn btn-primary">Save Purchase</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Crimping Charge Modal (size-based, from the Rate Card) -->
+    <div id="crimpingModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 460px;">
+            <div class="modal-header">
+                <h2>Add Crimping Charge</h2>
+                <button class="close-btn" onclick="closeModal('crimpingModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="crimpingForm" onsubmit="addCrimpingLine(event)">
+                    <div class="form-group">
+                        <label>Hose Size</label>
+                        <select id="crimp-size" class="form-control" onchange="updateCrimpingPreview()"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Number of ends</label>
+                        <input type="number" id="crimp-ends" class="form-control" value="2" min="1" step="1" oninput="updateCrimpingPreview()">
+                        <small style="color:var(--text-muted);">A hose assembly usually has 2 ends (one crimp per end).</small>
+                    </div>
+                    <div class="form-group" style="background:var(--bg-color,#f8fafc);border:1px solid var(--border-color,#e5e7eb);border-radius:8px;padding:12px 14px;">
+                        <span id="crimp-preview" style="font-size:15px;"></span>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('crimpingModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add to Invoice</button>
                     </div>
                 </form>
             </div>

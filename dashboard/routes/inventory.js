@@ -208,6 +208,28 @@ router.get('/api/ratecard', async (req, res) => {
     }
 });
 
+// Crimping rates from the Rate Card, by hose size — feeds the invoice
+// "Add Crimping" picker (charge = per-end rate × number of ends). Read-only, so
+// any role may fetch it while billing.
+router.get('/api/ratecard/crimping', async (req, res) => {
+    try {
+        const rows = await connection.query(
+            "SELECT RateID, Label, SizeCode, SizeInch, Unit, OurCost, OurPrice FROM RateCard WHERE Category = 'crimping' ORDER BY SizeInch"
+        );
+        res.json(rows.map((r) => ({
+            rateId: r.RateID,
+            label: r.Label,
+            sizeCode: r.SizeCode,
+            sizeInch: r.SizeInch,
+            unit: r.Unit || 'end',
+            ourCost: money.round2(r.OurCost),
+            ourPrice: money.round2(r.OurPrice),
+        })));
+    } catch (err) {
+        res.status(500).json({ error: 'Could not load crimping rates. Run "npm run migrate" first. ' + err.message });
+    }
+});
+
 // Column list + value tuple shared by Rate Card insert/update.
 
 router.post('/api/ratecard', adminOnly, async (req, res) => {
