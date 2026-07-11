@@ -146,10 +146,13 @@ async function openCrimpingModal() {
         toast('No crimping rates found in the Rate Card. Add them under Rate Card first.', 'error');
         return;
     }
-    sel.innerHTML = crimpingRates.map((r) =>
-        `<option value="${r.rateId}">${escAttr(r.label)} — ${formatCurrency(r.ourPrice)}/end</option>`
-    ).join('');
-    document.getElementById('crimp-ends').value = 2;
+    // The Rate Card price is the full crimping charge for the hose (both ends),
+    // so it is shown as a flat rate — NOT multiplied per end.
+    sel.innerHTML = crimpingRates.map((r) => {
+        const size = String(r.label).replace(/\s*\(per end\)\s*/i, '').replace(/^Crimp\s*/i, '');
+        return `<option value="${r.rateId}">${escAttr(size)} — ${formatCurrency(r.ourPrice)}</option>`;
+    }).join('');
+    document.getElementById('crimp-qty').value = 1;
     updateCrimpingPreview();
     openModal('crimpingModal');
 }
@@ -159,31 +162,37 @@ function selectedCrimp() {
     return crimpingRates.find((r) => r.rateId === id) || null;
 }
 
+function crimpQty() {
+    return Math.max(1, parseInt(document.getElementById('crimp-qty').value, 10) || 1);
+}
+
 function updateCrimpingPreview() {
     const r = selectedCrimp();
-    const ends = Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1);
+    const qty = crimpQty();
     const el = document.getElementById('crimp-preview');
     if (!r) { el.textContent = ''; return; }
-    const total = round2(r.ourPrice * ends);
-    el.innerHTML = `${formatCurrency(r.ourPrice)} / end &times; ${ends} end${ends === 1 ? '' : 's'} = <strong>${formatCurrency(total)}</strong>`;
+    const total = round2(r.ourPrice * qty);
+    el.innerHTML = qty === 1
+        ? `<strong>${formatCurrency(total)}</strong> (covers both ends)`
+        : `${formatCurrency(r.ourPrice)} &times; ${qty} hoses = <strong>${formatCurrency(total)}</strong>`;
 }
 
 function addCrimpingLine(e) {
     if (e) e.preventDefault();
     const r = selectedCrimp();
     if (!r) return;
-    const ends = Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1);
+    const qty = crimpQty();
     // Strip the "(per end)" suffix from the rate-card label for a clean line description.
     const size = String(r.label).replace(/\s*\(per end\)\s*/i, '').replace(/^Crimp\s*/i, '');
     invoiceItems.push({
         id: nextItemId++,
         inventoryId: null,
         desc: `Crimping charge — ${size}`,
-        unit: r.unit || 'end',
+        unit: 'Nos',           // charged per hose (both ends), not per end
         length: 0,
-        qty: ends,
-        rate: r.ourPrice,
-        cost: r.ourCost || 0, // drives the margin hint (labour/machine cost per end)
+        qty,
+        rate: r.ourPrice,      // full both-ends rate from the Rate Card
+        cost: r.ourCost || 0,  // drives the margin hint
         maxQty: null,
     });
     closeModal('crimpingModal');
