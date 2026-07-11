@@ -390,6 +390,7 @@ function showSection(sectionId) {
     const titles = {
         'dashboard': 'Dashboard',
         'inventory': 'Inventory Management',
+        'suppliers': 'Suppliers',
         'new-invoice': 'Invoice Document',
         'history': 'Invoice History',
         'transactions': 'Stock Movements',
@@ -404,6 +405,7 @@ function showSection(sectionId) {
 
     if (sectionId === 'dashboard') loadDashboard();
     else if (sectionId === 'inventory') loadInventory();
+    else if (sectionId === 'suppliers') loadSuppliers();
     else if (sectionId === 'history') loadHistory();
     else if (sectionId === 'transactions') loadTransactions();
     else if (sectionId === 'export-invoices') loadExportStats();

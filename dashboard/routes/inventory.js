@@ -7,7 +7,12 @@ const path = require('path');
 const connection = require('../db');
 const money = require('../lib/money');
 const sql = require('../lib/sql');
+const ledger = require('../services/stockLedger');
+const { invoiceMutex } = require('../lib/mutex');
 const { loadRateCard, getCostComparison, rateCardSet } = require('../services/ratecard');
+
+// SupplierID is nullable, so it needs NULL rather than sql.n()'s throw-on-blank.
+function supplierRef(v) { return v == null || v === '' ? 'NULL' : sql.n(v); }
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (_) {}
 const upload = multer({ dest: UPLOAD_DIR });
@@ -15,7 +20,29 @@ const router = express.Router();
 
 router.get('/api/inventory', async (req, res) => {
     try {
-        const data = await connection.query('SELECT * FROM Inventory ORDER BY InventoryID DESC');
+        const data = await connection.query(
+            `SELECT Inventory.*, Suppliers.Name AS SupplierName
+             FROM Inventory LEFT JOIN Suppliers ON Inventory.SupplierID = Suppliers.SupplierID
+             ORDER BY Inventory.InventoryID DESC`
+        );
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+// Items at or below their per-item reorder threshold (defaults to 5 when unset).
+router.get('/api/inventory/low-stock', async (req, res) => {
+    try {
+        const data = await connection.query(
+            `SELECT Inventory.InventoryID, Inventory.UniqueID, Inventory.ProductName, Inventory.SpecificationCode,
+                    Inventory.Qty, Inventory.Unit, COALESCE(Inventory.ReorderLevel, 5) AS ReorderLevel,
+                    Suppliers.Name AS SupplierName
+             FROM Inventory LEFT JOIN Suppliers ON Inventory.SupplierID = Suppliers.SupplierID
+             WHERE Inventory.Qty <= COALESCE(Inventory.ReorderLevel, 5)
+             ORDER BY (COALESCE(Inventory.ReorderLevel, 5) - Inventory.Qty) DESC, Inventory.Qty ASC`
+        );
         res.json(data);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -39,13 +66,13 @@ router.get('/api/inventory/search', async (req, res) => {
 
 router.post('/api/inventory', async (req, res) => {
     try {
-        const { uniqueId, productName, specificationCode, size, description, length, qty, unit, price, cost } = req.body;
+        const { uniqueId, productName, specificationCode, size, description, length, qty, unit, price, cost, supplierId, reorderLevel } = req.body;
         if (!uniqueId || !productName) return res.status(400).json({ error: 'UniqueID and ProductName are required' });
         const check = await connection.query(`SELECT UniqueID FROM Inventory WHERE UniqueID = ${sql.q(uniqueId)}`);
         if (check.length > 0) return res.status(400).json({ error: 'UniqueID already exists' });
 
-        const sqlStr = `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, CreatedAt, UpdatedAt)
-            VALUES (${sql.q(uniqueId)}, ${sql.q(productName)}, ${sql.q(specificationCode)}, ${sql.q(size)}, ${sql.q(description)}, ${sql.n(length, 0)}, ${sql.n(qty, 0)}, ${sql.q(unit)}, ${sql.n(price, 0)}, ${sql.n(cost, 0)}, Now(), Now())`;
+        const sqlStr = `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, SupplierID, ReorderLevel, CreatedAt, UpdatedAt)
+            VALUES (${sql.q(uniqueId)}, ${sql.q(productName)}, ${sql.q(specificationCode)}, ${sql.q(size)}, ${sql.q(description)}, ${sql.n(length, 0)}, ${sql.n(qty, 0)}, ${sql.q(unit)}, ${sql.n(price, 0)}, ${sql.n(cost, 0)}, ${supplierRef(supplierId)}, ${sql.n(reorderLevel, 5)}, Now(), Now())`;
 
         await connection.execute(sqlStr);
         res.json({ success: true });
@@ -58,7 +85,7 @@ router.post('/api/inventory', async (req, res) => {
 router.put('/api/inventory/:id', async (req, res) => {
     try {
         const id = sql.n(req.params.id);
-        const { productName, specificationCode, size, description, length, qty, unit, price, cost } = req.body;
+        const { productName, specificationCode, size, description, length, qty, unit, price, cost, supplierId, reorderLevel } = req.body;
         const sqlStr = `UPDATE Inventory SET
             ProductName = ${sql.q(productName)},
             SpecificationCode = ${sql.q(specificationCode)},
@@ -69,6 +96,8 @@ router.put('/api/inventory/:id', async (req, res) => {
             Unit = ${sql.q(unit)},
             Price = ${sql.n(price, 0)},
             Cost = ${sql.n(cost, 0)},
+            SupplierID = ${supplierRef(supplierId)},
+            ReorderLevel = ${sql.n(reorderLevel, 5)},
             UpdatedAt = Now()
             WHERE InventoryID = ${id}`;
 
@@ -88,6 +117,52 @@ router.delete('/api/inventory/:id', async (req, res) => {
 
         await connection.execute(`DELETE FROM Inventory WHERE InventoryID = ${id}`);
         res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+// Record a stock purchase: logs it to Purchases, refreshes the item's
+// last-purchase price/date and supplier, optionally overwrites the costing
+// price, and (when qty > 0) books a stock-IN movement so quantity goes up.
+// Wrapped in the invoice mutex so the Qty read-modify-write can't race a
+// concurrent invoice finalize.
+router.post('/api/inventory/:id/purchase', async (req, res) => {
+    try {
+        const id = sql.n(req.params.id);
+        const b = req.body || {};
+        const unitPrice = money.round2(money.num(b.unitPrice));
+        const qty = money.round2(money.num(b.qty));
+        if (!(unitPrice > 0)) return res.status(400).json({ error: 'A positive unit price is required' });
+
+        const result = await invoiceMutex.runExclusive(async () => {
+            const inv = await connection.query(`SELECT InventoryID, Cost FROM Inventory WHERE InventoryID = ${id}`);
+            if (inv.length === 0) return { notFound: true };
+
+            const supplierSet = (b.supplierId != null && b.supplierId !== '') ? `, SupplierID = ${supplierRef(b.supplierId)}` : '';
+            const costSet = b.updateCost ? `, Cost = ${unitPrice}` : '';
+            await connection.execute(
+                `UPDATE Inventory SET LastPurchasePrice = ${unitPrice}, LastPurchaseDate = ${sql.dbDate(b.date) === 'NULL' ? 'Now()' : sql.dbDate(b.date)}${supplierSet}${costSet}, UpdatedAt = Now()
+                 WHERE InventoryID = ${id}`
+            );
+            await connection.execute(
+                `INSERT INTO Purchases (InventoryID, SupplierID, Qty, UnitPrice, PurchaseDate, Notes, CreatedAt)
+                 VALUES (${id}, ${supplierRef(b.supplierId)}, ${qty}, ${unitPrice}, ${sql.dbDate(b.date) === 'NULL' ? 'Now()' : sql.dbDate(b.date)}, ${sql.q(b.notes)}, Now())`
+            );
+
+            let movement = null;
+            if (qty > 0) {
+                movement = await ledger.recordMovement({
+                    inventoryId: id, type: 'IN', qtyChange: qty,
+                    notes: `Purchase${b.notes ? ' — ' + b.notes : ''}`,
+                });
+            }
+            return { movement };
+        });
+
+        if (result.notFound) return res.status(404).json({ error: 'Inventory item not found' });
+        res.json({ success: true, newQty: result.movement ? result.movement.newQty : undefined });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

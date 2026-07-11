@@ -37,6 +37,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(authRouter);
 app.use(require('./routes/inventory'));
 app.use(require('./routes/invoices'));
+app.use(require('./routes/suppliers'));
 app.use(require('./routes/customers'));
 app.use(require('./routes/payments'));
 app.use(require('./routes/reports'));

@@ -39,11 +39,35 @@ function renderDashboard(data) {
                 <td>${m.NewQty}</td>
             </tr>`;
     });
+
+    renderLowStock(data.lowStockItems || []);
 }
 
-async function loadDashboard() {
+// Low-stock widget: items at/below their per-item reorder level, worst first.
+function renderLowStock(items) {
+    const tbody = document.getElementById('low-stock-tbody');
+    if (!tbody) return;
+    const badge = document.getElementById('low-stock-count-badge');
+    if (badge) { badge.textContent = items.length; badge.style.display = items.length ? 'inline-block' : 'none'; }
+    tbody.innerHTML = '';
+    if (!items.length) { emptyRow('low-stock-tbody', 7, '✅', 'All stock levels healthy', 'No items are at or below their reorder level.'); return; }
+    items.forEach((it) => {
+        tbody.innerHTML += `
+            <tr>
+                <td><strong>${escAttr(it.UniqueID) || '-'}</strong></td>
+                <td>${escAttr(it.ProductName) || ''}</td>
+                <td>${escAttr(it.SpecificationCode) || '-'}</td>
+                <td><span class="badge badge-low">${it.Qty} ${escAttr(it.Unit) || ''}</span></td>
+                <td>${it.ReorderLevel}</td>
+                <td>${it.SupplierName ? escAttr(it.SupplierName) : '<span style="color:var(--text-muted)">—</span>'}</td>
+                <td><button class="btn btn-text" onclick="openPurchaseModal(${it.InventoryID})">Buy</button></td>
+            </tr>`;
+    });
+}
+
+async function loadDashboard(opts = {}) {
     if (dataCache.dashboard) renderDashboard(dataCache.dashboard);
-    else {
+    else if (!opts.background) {
         showSkeleton('recent-invoices-tbody', 4, 4);
         showSkeleton('recent-movements-tbody', 5, 4);
     }

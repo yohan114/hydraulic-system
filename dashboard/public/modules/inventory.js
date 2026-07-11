@@ -25,19 +25,23 @@ async function loadInventory(opts = {}) {
 function renderInventory(items) {
     const tbody = document.getElementById('inventory-tbody');
     tbody.innerHTML = '';
-    if (!items.length) { emptyRow('inventory-tbody', 9, '📦', 'No products found', 'Add a product or adjust your search.'); return; }
+    if (!items.length) { emptyRow('inventory-tbody', 10, '📦', 'No products found', 'Add a product or adjust your search.'); return; }
     items.forEach((item) => {
+        const reorder = item.ReorderLevel == null ? 5 : item.ReorderLevel;
+        const low = Number(item.Qty) <= Number(reorder);
         tbody.innerHTML += `
             <tr>
-                <td>${item.UniqueID}</td>
-                <td><strong>${item.ProductName}</strong></td>
-                <td>${item.SpecificationCode}</td>
-                <td>${item.Size || '-'}</td>
+                <td>${escAttr(item.UniqueID)}</td>
+                <td><strong>${escAttr(item.ProductName)}</strong></td>
+                <td>${escAttr(item.SpecificationCode)}</td>
+                <td>${escAttr(item.Size) || '-'}</td>
                 <td>${item.Length}</td>
-                <td><span class="badge ${item.Qty <= 5 ? 'badge-low' : 'badge-ok'}">${item.Qty}</span></td>
-                <td>${item.Unit}</td>
+                <td><span class="badge ${low ? 'badge-low' : 'badge-ok'}" title="Reorder at ${reorder}">${item.Qty}</span></td>
+                <td>${escAttr(item.Unit)}</td>
                 <td>${formatCurrency(item.Price || 0)}</td>
+                <td>${item.SupplierName ? escAttr(item.SupplierName) : '<span style="color:var(--text-muted)">—</span>'}</td>
                 <td>
+                    <button class="btn btn-text" onclick="openPurchaseModal(${item.InventoryID})" title="Record a stock purchase">Buy</button>
                     <button class="btn btn-text" onclick="editProduct(${item.InventoryID})">Edit</button>
                     <button class="btn btn-text text-danger" style="color:red" onclick="deleteProduct(${item.InventoryID})">Del</button>
                 </td>
@@ -72,6 +76,11 @@ function editProduct(id) {
     document.getElementById('prod-price').value = p.Price || 0;
     const costEl = document.getElementById('prod-cost');
     if (costEl) costEl.value = p.Cost || 0;
+    populateSupplierSelect('prod-supplier', p.SupplierID);
+    const reorderEl = document.getElementById('prod-reorder');
+    if (reorderEl) reorderEl.value = p.ReorderLevel == null ? 5 : p.ReorderLevel;
+    const lastEl = document.getElementById('prod-lastpurchase');
+    if (lastEl) lastEl.value = p.LastPurchasePrice ? `${formatCurrency(p.LastPurchasePrice)}${p.LastPurchaseDate ? ' on ' + formatDate(p.LastPurchaseDate) : ''}` : '—';
 
     document.getElementById('addProductTitle').textContent = 'Edit Product';
     openModal('addProductModal');
@@ -92,6 +101,8 @@ async function submitAddProduct(e) {
         unit: document.getElementById('prod-unit').value,
         price: document.getElementById('prod-price').value,
         cost: costEl ? costEl.value : 0,
+        supplierId: document.getElementById('prod-supplier').value || null,
+        reorderLevel: document.getElementById('prod-reorder').value,
     };
 
     const url = id ? `${API_URL}/inventory/${id}` : `${API_URL}/inventory`;
@@ -109,11 +120,173 @@ async function submitAddProduct(e) {
             closeModal('addProductModal');
             invalidateCache('inventory', 'dashboard');
             loadInventory();
+            loadDashboard({ background: true });
             e.target.reset();
             document.getElementById('prod-id').value = '';
             document.getElementById('prod-unique').disabled = false;
             toast(id ? 'Product updated' : 'Product added', 'success');
         }
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+function openAddProductModal() {
+    const form = document.getElementById('addProductForm');
+    if (form) form.reset();
+    document.getElementById('prod-id').value = '';
+    document.getElementById('prod-unique').disabled = false;
+    document.getElementById('addProductTitle').textContent = 'Add Inventory Product';
+    populateSupplierSelect('prod-supplier', '');
+    const reorderEl = document.getElementById('prod-reorder');
+    if (reorderEl) reorderEl.value = 5;
+    const lastEl = document.getElementById('prod-lastpurchase');
+    if (lastEl) lastEl.value = '—';
+    openModal('addProductModal');
+}
+
+// ----------------------------------------------------
+// Suppliers
+// ----------------------------------------------------
+let allSuppliers = [];
+
+async function loadSuppliers(opts = {}) {
+    if (!opts.background) showSkeleton('suppliers-tbody', 6);
+    try {
+        const res = await authFetch(`${API_URL}/suppliers`);
+        const data = await res.json();
+        if (!Array.isArray(data)) { toast(data.error || 'Could not load suppliers', 'error'); return; }
+        allSuppliers = data;
+        if (!opts.background) renderSuppliers(data);
+    } catch (e) { console.error('Error loading suppliers', e); }
+}
+
+function renderSuppliers(items) {
+    const tbody = document.getElementById('suppliers-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if (!items.length) { emptyRow('suppliers-tbody', 6, '🚚', 'No suppliers yet', 'Add a supplier to link it to inventory items.'); return; }
+    items.forEach((s) => {
+        tbody.innerHTML += `
+            <tr>
+                <td><strong>${escAttr(s.Name)}</strong></td>
+                <td>${escAttr(s.ContactPerson) || '-'}</td>
+                <td>${escAttr(s.Phone) || '-'}</td>
+                <td>${escAttr(s.Email) || '-'}</td>
+                <td>${s.ItemCount || 0}</td>
+                <td>
+                    <button class="btn btn-text" onclick="editSupplier(${s.SupplierID})">Edit</button>
+                    <button class="btn btn-text text-danger" style="color:red" onclick="deleteSupplier(${s.SupplierID})">Del</button>
+                </td>
+            </tr>`;
+    });
+}
+
+// Fill a <select> with the supplier list, selecting `selectedId` if given.
+// Loads suppliers first if the cache is empty (e.g. product modal opened before
+// the Suppliers tab was ever visited).
+async function populateSupplierSelect(selectId, selectedId) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    if (!allSuppliers.length) { try { await loadSuppliers({ background: true }); } catch (_) {} }
+    const sid = selectedId == null ? '' : String(selectedId);
+    sel.innerHTML = '<option value="">— None —</option>' +
+        allSuppliers.map((s) => `<option value="${s.SupplierID}" ${String(s.SupplierID) === sid ? 'selected' : ''}>${escAttr(s.Name)}</option>`).join('');
+}
+
+function openSupplierModal() {
+    document.getElementById('supplierForm').reset();
+    document.getElementById('supplier-id').value = '';
+    document.getElementById('supplierModalTitle').textContent = 'Add Supplier';
+    openModal('supplierModal');
+}
+
+function editSupplier(id) {
+    const s = allSuppliers.find((x) => x.SupplierID === id);
+    if (!s) return;
+    document.getElementById('supplier-id').value = s.SupplierID;
+    document.getElementById('supplier-name').value = s.Name || '';
+    document.getElementById('supplier-contact').value = s.ContactPerson || '';
+    document.getElementById('supplier-phone').value = s.Phone || '';
+    document.getElementById('supplier-email').value = s.Email || '';
+    document.getElementById('supplier-address').value = s.Address || '';
+    document.getElementById('supplier-notes').value = s.Notes || '';
+    document.getElementById('supplierModalTitle').textContent = 'Edit Supplier';
+    openModal('supplierModal');
+}
+
+async function submitSupplier(e) {
+    e.preventDefault();
+    const id = document.getElementById('supplier-id').value;
+    const payload = {
+        name: document.getElementById('supplier-name').value,
+        contactPerson: document.getElementById('supplier-contact').value,
+        phone: document.getElementById('supplier-phone').value,
+        email: document.getElementById('supplier-email').value,
+        address: document.getElementById('supplier-address').value,
+        notes: document.getElementById('supplier-notes').value,
+    };
+    const url = id ? `${API_URL}/suppliers/${id}` : `${API_URL}/suppliers`;
+    try {
+        const res = await authFetch(url, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        closeModal('supplierModal');
+        allSuppliers = [];            // force refresh so dropdowns pick up the change
+        loadSuppliers();
+        invalidateCache('inventory');
+        toast(id ? 'Supplier updated' : 'Supplier added', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+async function deleteSupplier(id) {
+    const ok = await confirmDialog({ title: 'Delete supplier?', message: 'This removes the supplier record.', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try {
+        const res = await authFetch(`${API_URL}/suppliers/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        allSuppliers = [];
+        loadSuppliers();
+        toast('Supplier deleted', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+// ----------------------------------------------------
+// Record purchase (updates last purchase price + stock)
+// ----------------------------------------------------
+async function openPurchaseModal(inventoryId) {
+    // The dashboard low-stock widget can call this before the inventory list has
+    // loaded; make sure allInventory is populated so we can prefill the item.
+    if (!allInventory.length) { try { await loadInventory({ background: true }); } catch (_) {} }
+    const p = allInventory.find((i) => i.InventoryID === inventoryId);
+    document.getElementById('purchaseForm').reset();
+    document.getElementById('purchase-inventory-id').value = inventoryId;
+    document.getElementById('purchase-item-label').textContent = p ? `${p.ProductName} — ${p.SpecificationCode} (in stock: ${p.Qty})` : '';
+    document.getElementById('purchase-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('purchase-price').value = p && p.LastPurchasePrice ? p.LastPurchasePrice : (p && p.Cost ? p.Cost : 0);
+    populateSupplierSelect('purchase-supplier', p ? p.SupplierID : '');
+    openModal('purchaseModal');
+}
+
+async function submitPurchase(e) {
+    e.preventDefault();
+    const id = document.getElementById('purchase-inventory-id').value;
+    const payload = {
+        qty: document.getElementById('purchase-qty').value,
+        unitPrice: document.getElementById('purchase-price').value,
+        supplierId: document.getElementById('purchase-supplier').value || null,
+        date: document.getElementById('purchase-date').value,
+        updateCost: document.getElementById('purchase-updatecost').checked,
+        notes: document.getElementById('purchase-notes').value,
+    };
+    try {
+        const res = await authFetch(`${API_URL}/inventory/${id}/purchase`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        closeModal('purchaseModal');
+        invalidateCache('inventory', 'dashboard', 'movements');
+        loadInventory();
+        loadDashboard({ background: true });
+        toast('Purchase recorded' + (data.newQty != null ? ` — new stock: ${data.newQty}` : ''), 'success');
     } catch (err) { toast(String(err), 'error'); }
 }
 

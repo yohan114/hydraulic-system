@@ -13,10 +13,14 @@ router.get('/api/dashboard', async (req, res) => {
         // Sales-by-month and receivables are both derived from ONE finalized-
         // invoice scan; the recent lists are small TOP-N reads.
         const finalizedSql = `SELECT FinalizedAt, GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized'`;
-        const [invItems, invQty, lowStock, recentInvoices, movements, finalized] = await Promise.all([
+        // Low stock is now per-item: Qty at/below that item's ReorderLevel (default 5).
+        const lowStockSql = `SELECT InventoryID, UniqueID, ProductName, SpecificationCode, Qty, Unit, COALESCE(ReorderLevel, 5) AS ReorderLevel
+                             FROM Inventory WHERE Qty <= COALESCE(ReorderLevel, 5)
+                             ORDER BY (COALESCE(ReorderLevel, 5) - Qty) DESC, Qty ASC`;
+        const [invItems, invQty, lowStockItems, recentInvoices, movements, finalized] = await Promise.all([
             connection.query('SELECT COUNT(*) AS total FROM Inventory'),
             connection.query('SELECT SUM(Qty) AS totalQty FROM Inventory'),
-            connection.query('SELECT COUNT(*) AS lowStock FROM Inventory WHERE Qty <= 5'),
+            connection.query(lowStockSql).catch(() => connection.query('SELECT InventoryID, ProductName, Qty, Unit, 5 AS ReorderLevel FROM Inventory WHERE Qty <= 5')),
             connection.query("SELECT * FROM Invoices WHERE Status = 'Finalized' ORDER BY FinalizedAt DESC LIMIT 5"),
             connection.query('SELECT StockMovements.*, Inventory.ProductName FROM StockMovements LEFT JOIN Inventory ON StockMovements.InventoryID = Inventory.InventoryID ORDER BY MovementDate DESC LIMIT 5'),
             connection.query(finalizedSql).catch(() => connection.query(`SELECT FinalizedAt, GrandTotal FROM Invoices WHERE Status = 'Finalized'`)),
@@ -40,10 +44,11 @@ router.get('/api/dashboard', async (req, res) => {
             stats: {
                 totalInventory: invItems[0]?.total || 0,
                 totalQty: invQty[0]?.totalQty || 0,
-                lowStock: lowStock[0]?.lowStock || 0,
+                lowStock: lowStockItems.length,
                 outstandingTotal,
                 outstandingCount,
             },
+            lowStockItems,
             recentInvoices,
             movements,
             salesByMonth,

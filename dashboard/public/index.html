@@ -72,6 +72,9 @@
                 <a href="#" class="nav-item" data-target="inventory">
                     <i class="ri-box-3-line"></i> Inventory
                 </a>
+                <a href="#" class="nav-item" data-target="suppliers">
+                    <i class="ri-truck-line"></i> Suppliers
+                </a>
                 <a href="#" class="nav-item" data-target="new-invoice">
                     <i class="ri-file-add-line"></i> New Invoice
                 </a>
@@ -147,7 +150,7 @@
                                 <p id="stat-qty">0</p>
                             </div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card" style="cursor:pointer;" onclick="showSection('inventory'); document.querySelector('.nav-item[data-target=inventory]')?.click();" title="View inventory">
                             <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
                                 <i class="ri-alert-line"></i>
                             </div>
@@ -206,6 +209,28 @@
                                 </table>
                             </div>
                         </div>
+                        <div class="widget" style="grid-column: 1 / -1;">
+                            <div class="widget-header">
+                                <h2><i class="ri-alert-line" style="color:#f59e0b;"></i> Low Stock — Reorder Needed</h2>
+                                <span id="low-stock-count-badge" class="badge badge-low" style="display:none;">0</span>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Unique ID</th>
+                                            <th>Product</th>
+                                            <th>Spec Code</th>
+                                            <th>In Stock</th>
+                                            <th>Reorder At</th>
+                                            <th>Supplier</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="low-stock-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -218,7 +243,7 @@
                             <input type="file" id="importFile" accept=".xlsx, .xls, .csv" style="display:none" onchange="handleImportFile(event)">
                             <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()"><i class="ri-upload-2-line"></i> Import</button>
                             <button class="btn btn-secondary" onclick="exportInventory()"><i class="ri-download-2-line"></i> Export</button>
-                            <button class="btn btn-primary" onclick="openModal('addProductModal')"><i class="ri-add-line"></i> Add Product</button>
+                            <button class="btn btn-primary" onclick="openAddProductModal()"><i class="ri-add-line"></i> Add Product</button>
                         </div>
                     </div>
                     <div class="card">
@@ -234,10 +259,38 @@
                                         <th>Qty</th>
                                         <th>Unit</th>
                                         <th>Price (Rs)</th>
+                                        <th>Supplier</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="inventory-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Suppliers Section -->
+                <section id="suppliers" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Suppliers</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" onclick="openSupplierModal()"><i class="ri-add-line"></i> Add Supplier</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Contact</th>
+                                        <th>Phone</th>
+                                        <th>Email</th>
+                                        <th>Items</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="suppliers-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -810,9 +863,117 @@
                             <input type="number" id="prod-cost" class="form-control" step="0.01" value="0" title="Your purchase cost — used to show profit margin while billing">
                         </div>
                     </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Supplier (Optional)</label>
+                            <select id="prod-supplier" class="form-control"><option value="">— None —</option></select>
+                        </div>
+                        <div class="col">
+                            <label>Reorder Level</label>
+                            <input type="number" id="prod-reorder" class="form-control" step="0.01" value="5" title="Low-stock alert triggers when quantity falls to or below this level">
+                        </div>
+                        <div class="col">
+                            <label>Last Purchase</label>
+                            <input type="text" id="prod-lastpurchase" class="form-control" disabled placeholder="—">
+                        </div>
+                    </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('addProductModal')">Cancel</button>
                         <button type="submit" class="btn btn-primary">Save Product</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add / Edit Supplier Modal -->
+    <div id="supplierModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="supplierModalTitle">Add Supplier</h2>
+                <button class="close-btn" onclick="closeModal('supplierModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="supplierForm" onsubmit="submitSupplier(event)">
+                    <input type="hidden" id="supplier-id">
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Supplier Name</label>
+                            <input type="text" id="supplier-name" class="form-control" required>
+                        </div>
+                        <div class="col">
+                            <label>Contact Person</label>
+                            <input type="text" id="supplier-contact" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Phone</label>
+                            <input type="text" id="supplier-phone" class="form-control">
+                        </div>
+                        <div class="col">
+                            <label>Email</label>
+                            <input type="text" id="supplier-email" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Address</label>
+                        <input type="text" id="supplier-address" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <input type="text" id="supplier-notes" class="form-control">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('supplierModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Supplier</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Record Purchase Modal -->
+    <div id="purchaseModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2>Record Purchase</h2>
+                <button class="close-btn" onclick="closeModal('purchaseModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="purchaseForm" onsubmit="submitPurchase(event)">
+                    <input type="hidden" id="purchase-inventory-id">
+                    <p id="purchase-item-label" style="margin-bottom:14px;color:var(--text-muted);"></p>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Quantity Received</label>
+                            <input type="number" id="purchase-qty" class="form-control" step="0.01" value="0" title="Adds to stock as a stock-IN movement">
+                        </div>
+                        <div class="col">
+                            <label>Unit Price (Rs)</label>
+                            <input type="number" id="purchase-price" class="form-control" step="0.01" required value="0">
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Supplier</label>
+                            <select id="purchase-supplier" class="form-control"><option value="">— None —</option></select>
+                        </div>
+                        <div class="col">
+                            <label>Date</label>
+                            <input type="date" id="purchase-date" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label"><input type="checkbox" id="purchase-updatecost"> Update the item's unit cost to this purchase price</label>
+                    </div>
+                    <div class="form-group">
+                        <label>Notes (e.g. PO number)</label>
+                        <input type="text" id="purchase-notes" class="form-control">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('purchaseModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Purchase</button>
                     </div>
                 </form>
             </div>
