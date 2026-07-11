@@ -39,19 +39,59 @@ async function resolveInvoiceIdByNo(invoiceNo) {
 // Dashboard & Charts
 // ============================================================
 
+// Attach derived balance/payment status without trusting stale columns.
+function enrichInvoices(rows) {
+    return rows.map((inv) => {
+        const pay = billing.paymentStatus(inv.GrandTotal, inv.AmountPaid);
+        return {
+            ...inv,
+            Balance: inv.Status === 'Finalized' ? pay.balance : 0,
+            PaymentStatus: inv.Status === 'Finalized' ? pay.status : inv.Status,
+        };
+    });
+}
+
+// GET /api/invoices
+//   - No `page` param  -> full array (backward compatible: comparison list,
+//     export-stats, prefetch all rely on this shape).
+//   - `page` present   -> server-side paginated envelope
+//     { invoices, total, page, pageSize, totalPages }, with optional `search`
+//     (invoice no / customer) and `status` filters. Keeps history fast on
+//     thousands of invoices instead of shipping them all to the browser.
 router.get('/api/invoices', async (req, res) => {
     try {
-        const data = await connection.query('SELECT * FROM Invoices ORDER BY InvoiceID DESC');
-        // Attach derived balance/payment status without trusting stale columns.
-        const enriched = data.map((inv) => {
-            const pay = billing.paymentStatus(inv.GrandTotal, inv.AmountPaid);
-            return {
-                ...inv,
-                Balance: inv.Status === 'Finalized' ? pay.balance : 0,
-                PaymentStatus: inv.Status === 'Finalized' ? pay.status : inv.Status,
-            };
-        });
-        res.json(enriched);
+        const { page, pageSize, search, status } = req.query;
+
+        const conds = [];
+        if (search && String(search).trim()) {
+            const s = sql.esc(String(search).trim());
+            conds.push(`(InvoiceNo LIKE '%${s}%' OR BilledToName LIKE '%${s}%')`);
+        }
+        if (status && String(status).trim() && String(status) !== 'All') {
+            conds.push(`Status = ${sql.q(status)}`);
+        }
+        const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+        if (page === undefined) {
+            const data = await connection.query(`SELECT * FROM Invoices ${where} ORDER BY InvoiceID DESC`);
+            return res.json(enrichInvoices(data));
+        }
+
+        const sizeRaw = parseInt(pageSize, 10);
+        const size = Number.isFinite(sizeRaw) ? Math.min(Math.max(sizeRaw, 1), 200) : 25;
+        const pageRaw = parseInt(page, 10);
+        const pageNum = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+
+        const totalRow = await connection.query(`SELECT COUNT(*) AS c FROM Invoices ${where}`);
+        const total = (totalRow[0] && totalRow[0].c) || 0;
+        const totalPages = Math.max(1, Math.ceil(total / size));
+        const safePage = Math.min(pageNum, totalPages);
+        const offset = (safePage - 1) * size;
+
+        const data = await connection.query(
+            `SELECT * FROM Invoices ${where} ORDER BY InvoiceID DESC LIMIT ${size} OFFSET ${offset}`
+        );
+        res.json({ invoices: enrichInvoices(data), total, page: safePage, pageSize: size, totalPages });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

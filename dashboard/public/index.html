@@ -432,6 +432,13 @@
                     <div class="section-header">
                         <h2>Invoice History</h2>
                         <div class="header-actions">
+                            <input type="text" id="historySearch" placeholder="Search invoice # or customer..." class="form-control" style="width:260px" oninput="onHistorySearch()">
+                            <select id="historyStatus" class="form-control" style="width:140px" onchange="onHistoryFilter()">
+                                <option value="All">All statuses</option>
+                                <option value="Finalized">Finalized</option>
+                                <option value="Draft">Draft</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
                             <button class="btn btn-secondary" onclick="exportAllInvoices()"><i class="ri-file-excel-line"></i> Export All to Excel</button>
                         </div>
                     </div>
@@ -452,6 +459,13 @@
                                 </thead>
                                 <tbody id="history-tbody"></tbody>
                             </table>
+                        </div>
+                        <div class="pagination-bar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-top:1px solid var(--border-color);flex-wrap:wrap;">
+                            <span id="history-page-info" style="font-size:13px;color:var(--text-muted);"></span>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <button class="btn btn-secondary" id="history-prev" onclick="historyPrev()">‹ Prev</button>
+                                <button class="btn btn-secondary" id="history-next" onclick="historyNext()">Next ›</button>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -1025,7 +1039,7 @@
                 <button class="close-btn" onclick="closeModal('selectInventoryModal')"><i class="ri-close-line"></i></button>
             </div>
             <div class="modal-body">
-                <input type="text" id="modalInventorySearch" placeholder="Search product..." class="form-control mb-3" onkeyup="searchModalInventory()">
+                <input type="text" id="modalInventorySearch" placeholder="Search product..." class="form-control mb-3" oninput="debouncedModalSearch()">
                 <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                     <table class="table">
                         <thead>

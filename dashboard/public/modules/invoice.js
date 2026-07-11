@@ -63,7 +63,11 @@ async function startNewInvoice() {
     await fetchNextInvoiceNo();
 }
 
-// Modal select inventory
+// Modal select inventory — the query hits the server /inventory/search endpoint,
+// so it is debounced to fire one request after the user stops typing rather than
+// one per keystroke (the picker never loads the full inventory into a dropdown).
+const debouncedModalSearch = debounce(() => searchModalInventory(), 250);
+
 async function searchModalInventory() {
     const q = document.getElementById('modalInventorySearch').value;
     try {
@@ -391,19 +395,58 @@ function renderHistory(data) {
     });
 }
 
+// Server-side paginated history so thousands of invoices stay fast.
+let historyPage = 1;
+const HISTORY_PAGE_SIZE = 25;
+let historySearch = '';
+let historyStatus = 'All';
+let historyTotalPages = 1;
+
 async function loadHistory(opts = {}) {
-    if (dataCache.invoices) {
-        if (!opts.background) renderHistory(dataCache.invoices);
-    } else if (!opts.background) {
-        showSkeleton('history-tbody', 8);
-    }
+    if (!opts.background) showSkeleton('history-tbody', 8);
+    const params = new URLSearchParams({
+        page: String(historyPage),
+        pageSize: String(HISTORY_PAGE_SIZE),
+        status: historyStatus,
+    });
+    if (historySearch) params.set('search', historySearch);
     try {
-        const res = await authFetch(`${API_URL}/invoices`);
+        const res = await authFetch(`${API_URL}/invoices?${params.toString()}`);
         const data = await res.json();
-        dataCache.invoices = data;
-        if (!opts.background) renderHistory(data);
+        if (opts.background) return; // just warming the connection/cache
+        const rows = data.invoices || [];
+        historyPage = data.page || 1;
+        historyTotalPages = data.totalPages || 1;
+        renderHistory(rows);
+        updateHistoryPager(data.total || 0);
     } catch (e) { console.error('Error loading history', e); }
 }
+
+function updateHistoryPager(total) {
+    const info = document.getElementById('history-page-info');
+    if (info) {
+        const start = total === 0 ? 0 : (historyPage - 1) * HISTORY_PAGE_SIZE + 1;
+        const end = Math.min(historyPage * HISTORY_PAGE_SIZE, total);
+        info.textContent = total === 0 ? 'No invoices' : `Showing ${start}–${end} of ${total} · page ${historyPage} of ${historyTotalPages}`;
+    }
+    const prev = document.getElementById('history-prev');
+    const next = document.getElementById('history-next');
+    if (prev) prev.disabled = historyPage <= 1;
+    if (next) next.disabled = historyPage >= historyTotalPages;
+}
+
+function historyPrev() { if (historyPage > 1) { historyPage--; loadHistory(); } }
+function historyNext() { if (historyPage < historyTotalPages) { historyPage++; loadHistory(); } }
+function onHistoryFilter() {
+    historyStatus = document.getElementById('historyStatus').value;
+    historyPage = 1;
+    loadHistory();
+}
+const onHistorySearch = debounce(() => {
+    historySearch = document.getElementById('historySearch').value.trim();
+    historyPage = 1;
+    loadHistory();
+}, 300);
 
 async function viewInvoice(id) {
     try {

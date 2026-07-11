@@ -143,6 +143,17 @@ function emptyRow(tbodyId, cols, emoji, title, sub) {
     if (tb) tb.innerHTML = `<tr><td colspan="${cols}"><div class="empty-state"><div class="empty-emoji">${emoji}</div><h3>${title}</h3><p>${sub || ''}</p></div></td></tr>`;
 }
 
+// Debounce: return a wrapper that delays calling `fn` until `ms` after the last
+// invocation — used so typing in a search box fires ONE request, not one per
+// keystroke.
+function debounce(fn, ms = 250) {
+    let t = null;
+    return function (...args) {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(this, args), ms);
+    };
+}
+
 // In-memory cache for stale-while-revalidate rendering + prefetch.
 const dataCache = {};
 function invalidateCache(...keys) {
