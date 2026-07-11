@@ -34,6 +34,7 @@ async function fetchNextInvoiceNo() {
 async function startNewInvoice() {
     currentInvoiceId = null;
     currentLoadedInvoice = null;
+    billType = 'inside'; // every new invoice starts as the full internal copy
     setInvoiceEditable(true);
     document.getElementById('invDate').value = new Date().toISOString().split('T')[0];
 
@@ -224,19 +225,66 @@ function marginHintHtml(it) {
     return `<div class="margin-hint ok">▲ ${pct}% margin</div>`;
 }
 
+// Simplified, customer-facing description for the OUTSIDE bill. Display-only —
+// it NEVER mutates item.desc, so the full description (with part numbers / spec
+// codes) is always what gets saved to the database.
+function getOutsideDesc(item) {
+    const d = String(item.desc || '');
+    const dl = d.toLowerCase();
+    const unit = String(item.unit || '').toLowerCase();
+    if (dl.includes('crimping')) return d;                       // already customer-friendly
+    if (dl.includes('technical charge')) return 'Service charge';
+    if (unit === 'm' || unit === 'ft') return 'Hydraulic hose supply & fitting';
+    if (dl.includes('bsp straight') || d.includes('22611')) return 'Union fitting (BSP Straight)';
+    if (dl.includes('bsp 90') || d.includes('22692') || dl.includes('elbow')) return 'Elbow fitting (BSP 90°)';
+    if (dl.includes('ferrule') || d.includes('00210') || dl.includes('2sn')) return 'Ferrule fitting';
+    if (dl.includes('flange')) return 'Flange fitting';
+    if (dl.includes('union')) return 'Union fitting';
+    const i = d.indexOf(' - ');
+    return (i >= 0 ? d.slice(0, i) : d).trim();
+}
+
+function setBillType(type) {
+    billType = type === 'outside' ? 'outside' : 'inside';
+    renderInvoiceItems();
+}
+
+// Reflect billType in the toolbar toggle, the items-table column visibility, and
+// the printed copy badge. Display-only; nothing here is persisted.
+function applyBillTypeUI() {
+    const outside = billType === 'outside';
+    const insideBtn = document.getElementById('billTypeInside');
+    const outsideBtn = document.getElementById('billTypeOutside');
+    if (insideBtn) insideBtn.classList.toggle('active', !outside);
+    if (outsideBtn) outsideBtn.classList.toggle('active', outside);
+    const table = document.getElementById('itemsTable');
+    if (table) table.classList.toggle('outside-bill', outside);
+    const badge = document.getElementById('copyBadge');
+    if (badge) {
+        badge.textContent = outside ? 'OUTSIDE BILL — Customer Copy' : 'INTERNAL BILL — Company Copy';
+        badge.classList.toggle('outside', outside);
+    }
+}
+
 function renderInvoiceItems() {
     const tbody = document.getElementById('invItemsBody');
     tbody.innerHTML = '';
     const editable = isInvoiceEditable;
+    const outside = billType === 'outside';
 
     invoiceItems.forEach((it, idx) => {
         const amount = round2((it.qty || 0) * (it.rate || 0));
+        // Outside bill: simplified description as STATIC text (never editable, so
+        // it.desc — the full internal description — is preserved and saved).
+        const descCell = outside
+            ? `<td><span class="cell left">${escAttr(getOutsideDesc(it))}</span></td>`
+            : `<td><input class="cell left" type="text" value="${escAttr(it.desc)}" oninput="updateInvoiceItem(${it.id}, 'desc', this.value)" ${editable ? '' : 'disabled'}></td>`;
         tbody.innerHTML += `
             <tr class="item-row">
                 <td class="idx">${String(idx + 1).padStart(2, '0')}</td>
-                <td><input class="cell left" type="text" value="${escAttr(it.desc)}" oninput="updateInvoiceItem(${it.id}, 'desc', this.value)" ${editable ? '' : 'disabled'}></td>
-                <td><input class="cell center" type="text" value="${escAttr(it.unit)}" oninput="updateInvoiceItem(${it.id}, 'unit', this.value)" ${editable ? '' : 'disabled'}></td>
-                <td><input class="cell" type="number" value="${it.length}" min="0" step="0.01" oninput="updateInvoiceItem(${it.id}, 'length', this.value)" ${editable ? '' : 'disabled'}></td>
+                ${descCell}
+                <td class="col-unit"><input class="cell center" type="text" value="${escAttr(it.unit)}" oninput="updateInvoiceItem(${it.id}, 'unit', this.value)" ${editable ? '' : 'disabled'}></td>
+                <td class="col-length"><input class="cell" type="number" value="${it.length}" min="0" step="0.01" oninput="updateInvoiceItem(${it.id}, 'length', this.value)" ${editable ? '' : 'disabled'}></td>
                 <td>
                     <input class="cell" type="number" value="${it.qty}" min="0" step="0.01" oninput="updateInvoiceItem(${it.id}, 'qty', this.value)" ${editable ? '' : 'disabled'}>
                     ${it.maxQty !== null && editable ? `<div style="font-size:10px; color:gray">Max: ${it.maxQty}</div>` : ''}
@@ -254,6 +302,7 @@ function renderInvoiceItems() {
     const rowActionsElements = document.querySelectorAll('.row-actions');
     rowActionsElements.forEach((el) => (el.style.display = editable ? '' : 'none'));
 
+    applyBillTypeUI();
     calcInvoiceTotals();
 }
 

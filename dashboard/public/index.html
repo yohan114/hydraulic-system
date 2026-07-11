@@ -310,6 +310,13 @@
                     <div class="invoice-toolbar no-print">
                         <h2 id="invoice-view-title">New Invoice</h2>
                         <div class="header-actions">
+                            <span class="billtype-toggle" title="Inside = full internal copy · Outside = simplified customer copy">
+                                Bill Type:
+                                <span class="seg">
+                                    <button type="button" id="billTypeInside" class="active" onclick="setBillType('inside')">Inside</button>
+                                    <button type="button" id="billTypeOutside" onclick="setBillType('outside')">Outside</button>
+                                </span>
+                            </span>
                             <button class="btn" onclick="startNewInvoice()"><i class="ri-refresh-line"></i> Clear</button>
                         </div>
                     </div>
@@ -325,6 +332,7 @@
                           <div class="doc-badge">
                             <div class="label" id="docLabel">Invoice</div>
                             <div class="ref">REF · <strong id="refInvoice" title="Auto-assigned — cannot be edited">INV/2026/05/001</strong></div>
+                            <div class="copy-badge" id="copyBadge">INTERNAL BILL — Company Copy</div>
                           </div>
                         </div>
                         
@@ -355,8 +363,8 @@
                                     <tr>
                                       <th style="width: 32px;">#</th>
                                       <th>Description</th>
-                                      <th style="width: 56px;">Unit</th>
-                                      <th style="width: 56px;" class="num">Length</th>
+                                      <th style="width: 56px;" class="col-unit">Unit</th>
+                                      <th style="width: 56px;" class="num col-length">Length</th>
                                       <th style="width: 56px;" class="num">Qty</th>
                                       <th style="width: 96px;" class="num">Rate (Rs.)</th>
                                       <th style="width: 110px;" class="num">Amount (Rs.)</th>
@@ -405,10 +413,11 @@
                                 </div>
                               </div>
 
-                              <div class="signatures" style="display: flex; justify-content: flex-end; border: none; padding-top: 20px;">
-                                <div style="text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
-                                  <img src="signature.png" alt="E-Signature" style="max-height: 60px; margin-bottom: 5px;" onerror="this.style.display='none'">
-                                  <div style="font-size: 0.8rem; color: #64748b; font-weight: 500;">System Generated Invoice</div>
+                              <div class="signatures sig-right">
+                                <div class="sig-sign">
+                                  <img src="signature.png" alt="E-Signature" onerror="this.style.display='none'">
+                                  <div class="sig-line"></div>
+                                  <div class="sig-label">System Generated Invoice</div>
                                 </div>
                               </div>
 

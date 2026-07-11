@@ -8,6 +8,7 @@ let nextItemId = 1;
 let isInvoiceEditable = true;
 let currentInvoiceId = null; // set when editing/viewing a saved invoice
 let currentLoadedInvoice = null; // the full stored invoice row when viewing a saved (locked) invoice
+let billType = 'inside'; // 'inside' (full internal copy) | 'outside' (simplified customer copy) — DISPLAY ONLY, never saved
 let authToken = localStorage.getItem('billing_token') || '';
 let authEnabled = true;
 let currentRole = 'admin'; // 'admin' | 'cashier' | 'viewer' (admin when auth is off)
