@@ -6,13 +6,21 @@
  *
  * This is the "smart update" for a system that is already in use: it upserts
  * every item from data/shipment-HS25E1112W1.json onto the existing Inventory
- * WITHOUT deleting invoices or their line items. For each shipment item it:
+ * WITHOUT deleting invoices or their line items, and WITHOUT overwriting live
+ * stock counts. For each shipment item it:
  *   - finds the matching legacy row (by clean UniqueID, else by normalised spec
- *     code, else by hose grade+bore) and UPDATES it in place — correcting Qty,
- *     Cost (landed) and Price (sell), and normalising UniqueID / description; or
- *   - INSERTS it when the system has never had that part (the missing items); and
- *   - zeroes the stock of items that were ordered but NOT received (they stay in
- *     the catalogue at Qty 0, ready to receive when the supplier ships them).
+ *     code, else by hose grade+bore) and refreshes Cost (landed), Price (sell),
+ *     description, size and unit — but PRESERVES its Qty, because a live row's
+ *     quantity reflects real sales since the shipment; or
+ *   - INSERTS it when the system has never had that part (the missing items),
+ *     seeding Qty with the received quantity; and
+ *   - zeroes the stock of items that were ordered but NOT received (phantom
+ *     stock), leaving them in the catalogue at Qty 0.
+ *
+ * Because stock is preserved, the script is idempotent — safe to re-run. The six
+ * one-time OPENING-quantity corrections (an item received 50 but entered 25,
+ * etc.) are listed in SHIPMENT_RECONCILIATION.md and were applied to the DB once;
+ * they are deliberately NOT re-applied here (that would double-count).
  *
  * Every change is logged, and a summary is printed, so the correction is
  * auditable. Run on the Windows machine that hosts the Access DB:
@@ -66,7 +74,7 @@ async function run() {
     if (grade && bore) addKey(hoseKey(grade, bore), row);
   }
 
-  const log = { added: [], qtyFixed: [], priceChanged: [], zeroed: [], updated: [], failed: [] };
+  const log = { added: [], priceChanged: [], zeroed: [], updated: [], failed: [] };
 
   for (const it of MASTER.items) {
     // Locate the legacy row for this shipment item.
@@ -85,25 +93,26 @@ async function run() {
       if (match) {
         const oldQty = Number(match.Qty) || 0;
         const oldPrice = Number(match.Price) || 0;
-        const oldCost = Number(match.Cost) || 0;
-        if (oldQty !== it.stockQty) {
-          (it.received ? log.qtyFixed : log.zeroed).push(
-            `${it.specificationCode || it.uniqueId}: qty ${oldQty} -> ${it.stockQty}`);
-        }
+        // Stock quantity is PRESERVED: a live row's Qty reflects real sales since
+        // the shipment, so we never overwrite it. The only exception is a
+        // not-received item that is showing phantom stock — zero it. (The six
+        // one-time opening-quantity corrections are documented in
+        // SHIPMENT_RECONCILIATION.md and are applied once, not on every run.)
+        const setQty = it.received ? oldQty : 0;
+        if (!it.received && oldQty !== 0) log.zeroed.push(
+          `${it.specificationCode || it.uniqueId}: qty ${oldQty} -> 0 (never received)`);
         if (oldPrice !== it.price) log.priceChanged.push(
           `${it.specificationCode || it.uniqueId}: sell ${oldPrice} -> ${it.price}`);
         if (!DRY_RUN) {
           await connection.execute(
             `UPDATE Inventory SET
-               UniqueID = ${q(it.uniqueId)}, ProductName = ${q(it.productName)},
+               ProductName = ${q(it.productName)},
                SpecificationCode = ${q(it.specificationCode)}, [Size] = ${q(it.size)},
-               Description = ${q(desc)}, Qty = ${n(it.stockQty)}, Unit = ${q(it.unit)},
+               Description = ${q(desc)}, Qty = ${n(setQty)}, Unit = ${q(it.unit)},
                Price = ${n(it.price)}, Cost = ${n(it.cost)}, UpdatedAt = Now()
              WHERE InventoryID = ${n(match.InventoryID)}`);
         }
-        if (oldQty === it.stockQty && oldPrice === it.price && oldCost === it.cost) {
-          log.updated.push(it.uniqueId);
-        }
+        log.updated.push(it.uniqueId);
       } else {
         log.added.push(`${it.no} ${it.specificationCode || it.uniqueId} (${it.description})`);
         if (!DRY_RUN) {
@@ -121,12 +130,10 @@ async function run() {
   console.log(`\n${line}\nRECONCILIATION SUMMARY  (invoice ${MASTER.shipment.invoice})${DRY_RUN ? '  [DRY RUN - nothing written]' : ''}\n${line}`);
   console.log(`Missing items ADDED           : ${log.added.length}`);
   log.added.forEach((s) => console.log(`   + ${s}`));
-  console.log(`Quantity ERRORS corrected     : ${log.qtyFixed.length}`);
-  log.qtyFixed.forEach((s) => console.log(`   ~ ${s}`));
   console.log(`Not-received stock zeroed     : ${log.zeroed.length}`);
   log.zeroed.forEach((s) => console.log(`   0 ${s}`));
   console.log(`Sell prices updated           : ${log.priceChanged.length}`);
-  console.log(`Rows already correct          : ${log.updated.length}`);
+  console.log(`Rows refreshed (cost/price/…)  : ${log.updated.length}  (stock qty preserved)`);
   if (log.failed.length) {
     console.log(`FAILED                        : ${log.failed.length}`);
     log.failed.forEach((s) => console.log(`   ! ${s}`));
