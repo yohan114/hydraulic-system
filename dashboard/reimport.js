@@ -21,7 +21,7 @@
  *  quantities. It has been replaced by the datasheet-driven master.)
  */
 
-const connection = require('./lib/db');
+const connection = require('./db');
 const { q, n } = require('./lib/sql');
 
 const MASTER = require('./data/shipment-HS25E1112W1.json');

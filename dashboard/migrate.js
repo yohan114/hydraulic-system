@@ -11,7 +11,7 @@
  *  SQLite `CREATE TABLE IF NOT EXISTS`.)
  */
 
-const connection = require('./lib/db');
+const connection = require('./db');
 const { RATECARD_SEED } = require('./lib/ratecardSeed');
 
 const TABLES = {

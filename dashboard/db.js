@@ -25,7 +25,7 @@ const Database = require('better-sqlite3');
 
 // Absolute path (independent of the process cwd) — the DB lives at the repo root,
 // two levels up from dashboard/lib/. Override with HYDRAULIC_DB if needed.
-const DB_PATH = process.env.HYDRAULIC_DB || path.join(__dirname, '..', '..', 'hydraulic.db');
+const DB_PATH = process.env.HYDRAULIC_DB || path.join(__dirname, '..', 'hydraulic.db');
 
 const db = new Database(DB_PATH);
 db.pragma('foreign_keys = ON');

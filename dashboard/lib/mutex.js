@@ -36,4 +36,8 @@ class Mutex {
   }
 }
 
-module.exports = { Mutex };
+// Shared singleton guarding the invoice/stock critical sections. All routers
+// that create/finalize/cancel invoices or record payments import THIS instance.
+const invoiceMutex = new Mutex();
+
+module.exports = { Mutex, invoiceMutex };
