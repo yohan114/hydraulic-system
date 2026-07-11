@@ -19,6 +19,7 @@ const { RATECARD_SEED } = require('./lib/ratecardSeed');
 const COLUMN_UPGRADES = [
     ['Inventory.Price', 'ALTER TABLE Inventory ADD COLUMN Price DOUBLE'],
     ['Inventory.Cost', 'ALTER TABLE Inventory ADD COLUMN Cost DOUBLE'],
+    ['Inventory.MarketMid', 'ALTER TABLE Inventory ADD COLUMN MarketMid DOUBLE'],
     ['RateCard.Category', 'ALTER TABLE RateCard ADD COLUMN Category VARCHAR(20)'],
     ['RateCard.OutsideLow', 'ALTER TABLE RateCard ADD COLUMN OutsideLow CURRENCY'],
     ['RateCard.OutsideMid', 'ALTER TABLE RateCard ADD COLUMN OutsideMid CURRENCY'],
@@ -150,6 +151,7 @@ async function ensureSchema(connection) {
         "UPDATE Invoices SET Discount = 0 WHERE Discount IS NULL",
         "UPDATE Invoices SET RoundOff = 0 WHERE RoundOff IS NULL",
         "UPDATE Inventory SET Cost = 0 WHERE Cost IS NULL",
+        "UPDATE Inventory SET MarketMid = 0 WHERE MarketMid IS NULL",
     ];
     for (const stmt of backfills) {
         try { await connection.execute(stmt); } catch (_) { /* column may still be missing */ }

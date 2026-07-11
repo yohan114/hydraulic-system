@@ -51,8 +51,8 @@ async function run() {
       : `${it.description}  [ON ORDER - not yet received, shipment ${MASTER.shipment.invoice}]`;
     try {
       await connection.execute(
-        `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, CreatedAt, UpdatedAt)
-         VALUES (${q(it.uniqueId)}, ${q(it.productName)}, ${q(it.specificationCode)}, ${q(it.size)}, ${q(desc)}, 0, ${n(it.stockQty)}, ${q(it.unit)}, ${n(it.price)}, ${n(it.cost)}, Now(), Now())`);
+        `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, MarketMid, CreatedAt, UpdatedAt)
+         VALUES (${q(it.uniqueId)}, ${q(it.productName)}, ${q(it.specificationCode)}, ${q(it.size)}, ${q(desc)}, 0, ${n(it.stockQty)}, ${q(it.unit)}, ${n(it.price)}, ${n(it.cost)}, ${n(it.marketMid, 0)}, Now(), Now())`);
       inserted++;
     } catch (e) {
       console.error(`  Failed ${it.uniqueId}:`, e.message);

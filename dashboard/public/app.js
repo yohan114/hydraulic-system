@@ -1816,17 +1816,17 @@ async function compareInvoice(id) {
         const itemsTbody = document.getElementById('compare-items-tbody');
         itemsTbody.innerHTML = '';
         data.items.forEach((it) => {
-            const savings = it.outsideAmount - it.ourAmount;
+            const vsMarket = (Number(it.outsideAmount) || 0) - (Number(it.ourAmount) || 0);
             const profit = (Number(it.ourAmount) || 0) - (Number(it.ourCost) || 0);
             itemsTbody.innerHTML += `
                 <tr>
                     <td><strong>${it.description}</strong></td>
                     <td class="num">${it.qty} ${it.unit}</td>
-                    <td class="num">${formatCurrency(it.ourAmount)}</td>
                     <td class="num">${formatCurrency(it.ourCost)}</td>
+                    <td class="num">${formatCurrency(it.ourAmount)}</td>
                     <td class="num" style="color: ${profit >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">${formatCurrency(profit)}</td>
                     <td class="num">${it.matched ? formatCurrency(it.outsideAmount) : '<span style="color:var(--text-muted)">—</span>'}</td>
-                    <td class="num" style="color: ${savings >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">${it.matched ? formatCurrency(savings) : '—'}</td>
+                    <td class="num" style="color: ${vsMarket >= 0 ? '#10b981' : '#ef4444'}; font-weight: 600;">${it.matched ? formatCurrency(vsMarket) : '—'}</td>
                 </tr>
             `;
         });
