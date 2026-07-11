@@ -33,7 +33,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 144,
-      "price": 770,
+      "price": 693,
       "marketMid": 770
     },
     {
@@ -50,7 +50,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 170,
-      "price": 910,
+      "price": 819,
       "marketMid": 910
     },
     {
@@ -67,7 +67,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 196,
-      "price": 1050,
+      "price": 945,
       "marketMid": 1050
     },
     {
@@ -84,7 +84,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 206,
-      "price": 1100,
+      "price": 990,
       "marketMid": 1100
     },
     {
@@ -101,7 +101,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 243,
-      "price": 1300,
+      "price": 1170,
       "marketMid": 1300
     },
     {
@@ -118,7 +118,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 280,
-      "price": 1500,
+      "price": 1350,
       "marketMid": 1500
     },
     {
@@ -135,7 +135,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 355,
-      "price": 1900,
+      "price": 1710,
       "marketMid": 1900
     },
     {
@@ -152,7 +152,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 458,
-      "price": 2450,
+      "price": 2205,
       "marketMid": 2450
     },
     {
@@ -169,7 +169,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 561,
-      "price": 3000,
+      "price": 2700,
       "marketMid": 3000
     },
     {
@@ -186,7 +186,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 804,
-      "price": 4300,
+      "price": 3870,
       "marketMid": 4300
     },
     {
@@ -203,7 +203,7 @@
       "received": true,
       "stockQty": 120,
       "cost": 1122,
-      "price": 6000,
+      "price": 5400,
       "marketMid": 6000
     },
     {
@@ -220,7 +220,7 @@
       "received": true,
       "stockQty": 120,
       "cost": 1146,
-      "price": 6130,
+      "price": 5517,
       "marketMid": 6130
     },
     {
@@ -237,7 +237,7 @@
       "received": true,
       "stockQty": 120,
       "cost": 1599,
-      "price": 8550,
+      "price": 7695,
       "marketMid": 8550
     },
     {
@@ -254,7 +254,7 @@
       "received": true,
       "stockQty": 120,
       "cost": 2292,
-      "price": 12260,
+      "price": 11034,
       "marketMid": 12260
     },
     {
@@ -271,7 +271,7 @@
       "received": true,
       "stockQty": 120,
       "cost": 3197,
-      "price": 17100,
+      "price": 15390,
       "marketMid": 17100
     },
     {
@@ -288,7 +288,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 219,
-      "price": 351,
+      "price": 316,
       "marketMid": 351
     },
     {
@@ -305,7 +305,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 243,
-      "price": 389,
+      "price": 350,
       "marketMid": 389
     },
     {
@@ -322,7 +322,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 268,
-      "price": 428,
+      "price": 385,
       "marketMid": 428
     },
     {
@@ -339,7 +339,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 258,
-      "price": 412,
+      "price": 371,
       "marketMid": 412
     },
     {
@@ -356,7 +356,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 286,
-      "price": 458,
+      "price": 412,
       "marketMid": 458
     },
     {
@@ -373,7 +373,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 315,
-      "price": 504,
+      "price": 454,
       "marketMid": 504
     },
     {
@@ -390,7 +390,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 415,
-      "price": 664,
+      "price": 598,
       "marketMid": 664
     },
     {
@@ -407,7 +407,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 659,
-      "price": 1054,
+      "price": 949,
       "marketMid": 1054
     },
     {
@@ -424,7 +424,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 931,
-      "price": 1489,
+      "price": 1340,
       "marketMid": 1489
     },
     {
@@ -441,7 +441,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 1432,
-      "price": 2291,
+      "price": 2062,
       "marketMid": 2291
     },
     {
@@ -458,7 +458,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 2148,
-      "price": 3437,
+      "price": 3093,
       "marketMid": 3437
     },
     {
@@ -475,7 +475,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 988,
-      "price": 1581,
+      "price": 1423,
       "marketMid": 1581
     },
     {
@@ -492,7 +492,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 1396,
-      "price": 2234,
+      "price": 2011,
       "marketMid": 2234
     },
     {
@@ -509,7 +509,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 2148,
-      "price": 3437,
+      "price": 3093,
       "marketMid": 3437
     },
     {
@@ -526,7 +526,7 @@
       "received": true,
       "stockQty": 30,
       "cost": 3222,
-      "price": 5155,
+      "price": 4640,
       "marketMid": 5155
     },
     {
@@ -543,7 +543,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 138,
-      "price": 620,
+      "price": 558,
       "marketMid": 620
     },
     {
@@ -560,7 +560,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 161,
-      "price": 720,
+      "price": 648,
       "marketMid": 720
     },
     {
@@ -577,7 +577,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 161,
-      "price": 720,
+      "price": 648,
       "marketMid": 720
     },
     {
@@ -594,7 +594,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 161,
-      "price": 720,
+      "price": 648,
       "marketMid": 720
     },
     {
@@ -611,7 +611,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 212,
-      "price": 950,
+      "price": 855,
       "marketMid": 950
     },
     {
@@ -628,7 +628,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 212,
-      "price": 950,
+      "price": 855,
       "marketMid": 950
     },
     {
@@ -645,7 +645,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 279,
-      "price": 1250,
+      "price": 1125,
       "marketMid": 1250
     },
     {
@@ -662,7 +662,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 357,
-      "price": 1600,
+      "price": 1440,
       "marketMid": 1600
     },
     {
@@ -679,7 +679,7 @@
       "received": false,
       "stockQty": 0,
       "cost": 581,
-      "price": 2600,
+      "price": 2340,
       "marketMid": 2600
     },
     {
@@ -696,7 +696,7 @@
       "received": false,
       "stockQty": 0,
       "cost": 871,
-      "price": 3900,
+      "price": 3510,
       "marketMid": 3900
     },
     {
@@ -713,7 +713,7 @@
       "received": false,
       "stockQty": 0,
       "cost": 270,
-      "price": 1209,
+      "price": 1088,
       "marketMid": 1209
     },
     {
@@ -730,7 +730,7 @@
       "received": false,
       "stockQty": 0,
       "cost": 314,
-      "price": 1404,
+      "price": 1264,
       "marketMid": 1404
     },
     {
@@ -747,7 +747,7 @@
       "received": false,
       "stockQty": 0,
       "cost": 414,
-      "price": 1852,
+      "price": 1667,
       "marketMid": 1852
     },
     {
@@ -764,7 +764,7 @@
       "received": false,
       "stockQty": 0,
       "cost": 159,
-      "price": 713,
+      "price": 642,
       "marketMid": 713
     },
     {
@@ -781,7 +781,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 185,
-      "price": 828,
+      "price": 745,
       "marketMid": 828
     },
     {
@@ -798,7 +798,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 244,
-      "price": 1092,
+      "price": 983,
       "marketMid": 1092
     },
     {
@@ -815,7 +815,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 411,
-      "price": 1840,
+      "price": 1656,
       "marketMid": 1840
     },
     {
@@ -832,7 +832,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 668,
-      "price": 2990,
+      "price": 2691,
       "marketMid": 2990
     },
     {
@@ -849,7 +849,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 1002,
-      "price": 4485,
+      "price": 4037,
       "marketMid": 4485
     },
     {
@@ -866,7 +866,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 315,
-      "price": 1250,
+      "price": 1125,
       "marketMid": 1250
     },
     {
@@ -883,7 +883,7 @@
       "received": true,
       "stockQty": 100,
       "cost": 404,
-      "price": 1600,
+      "price": 1440,
       "marketMid": 1600
     },
     {
@@ -900,7 +900,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 656,
-      "price": 2600,
+      "price": 2340,
       "marketMid": 2600
     },
     {
@@ -917,7 +917,7 @@
       "received": true,
       "stockQty": 25,
       "cost": 984,
-      "price": 3900,
+      "price": 3510,
       "marketMid": 3900
     },
     {
@@ -934,7 +934,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 305,
-      "price": 1209,
+      "price": 1088,
       "marketMid": 1209
     },
     {
@@ -951,7 +951,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 354,
-      "price": 1404,
+      "price": 1264,
       "marketMid": 1404
     },
     {
@@ -968,7 +968,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 467,
-      "price": 1852,
+      "price": 1667,
       "marketMid": 1852
     },
     {
@@ -985,7 +985,7 @@
       "received": true,
       "stockQty": 25,
       "cost": 615,
-      "price": 2438,
+      "price": 2194,
       "marketMid": 2438
     },
     {
@@ -1002,7 +1002,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 787,
-      "price": 3120,
+      "price": 2808,
       "marketMid": 3120
     },
     {
@@ -1019,7 +1019,7 @@
       "received": true,
       "stockQty": 25,
       "cost": 1279,
-      "price": 5070,
+      "price": 4563,
       "marketMid": 5070
     },
     {
@@ -1036,7 +1036,7 @@
       "received": true,
       "stockQty": 25,
       "cost": 1918,
-      "price": 7605,
+      "price": 6845,
       "marketMid": 7605
     },
     {
@@ -1053,7 +1053,7 @@
       "received": true,
       "stockQty": 200,
       "cost": 70,
-      "price": 372,
+      "price": 335,
       "marketMid": 372
     },
     {
@@ -1070,7 +1070,7 @@
       "received": true,
       "stockQty": 100,
       "cost": 76,
-      "price": 402,
+      "price": 362,
       "marketMid": 402
     },
     {
@@ -1087,7 +1087,7 @@
       "received": true,
       "stockQty": 100,
       "cost": 82,
-      "price": 432,
+      "price": 389,
       "marketMid": 432
     },
     {
@@ -1104,7 +1104,7 @@
       "received": true,
       "stockQty": 100,
       "cost": 108,
-      "price": 570,
+      "price": 513,
       "marketMid": 570
     },
     {
@@ -1121,7 +1121,7 @@
       "received": true,
       "stockQty": 100,
       "cost": 142,
-      "price": 750,
+      "price": 675,
       "marketMid": 750
     },
     {
@@ -1138,7 +1138,7 @@
       "received": true,
       "stockQty": 100,
       "cost": 182,
-      "price": 960,
+      "price": 864,
       "marketMid": 960
     },
     {
@@ -1155,7 +1155,7 @@
       "received": true,
       "stockQty": 50,
       "cost": 295,
-      "price": 1560,
+      "price": 1404,
       "marketMid": 1560
     },
     {
@@ -1172,7 +1172,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 443,
-      "price": 2340,
+      "price": 2106,
       "marketMid": 2340
     },
     {
@@ -1189,7 +1189,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 171,
-      "price": 558,
+      "price": 502,
       "marketMid": 558
     },
     {
@@ -1206,7 +1206,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 198,
-      "price": 648,
+      "price": 583,
       "marketMid": 648
     },
     {
@@ -1223,7 +1223,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 262,
-      "price": 855,
+      "price": 770,
       "marketMid": 855
     },
     {
@@ -1240,7 +1240,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 344,
-      "price": 1125,
+      "price": 1013,
       "marketMid": 1125
     },
     {
@@ -1257,7 +1257,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 289,
-      "price": 806,
+      "price": 725,
       "marketMid": 806
     },
     {
@@ -1274,7 +1274,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 289,
-      "price": 806,
+      "price": 725,
       "marketMid": 806
     },
     {
@@ -1291,7 +1291,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 335,
-      "price": 936,
+      "price": 842,
       "marketMid": 936
     },
     {
@@ -1308,7 +1308,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 442,
-      "price": 1235,
+      "price": 1112,
       "marketMid": 1235
     },
     {
@@ -1325,7 +1325,7 @@
       "received": true,
       "stockQty": 5,
       "cost": 362,
-      "price": 950,
+      "price": 855,
       "marketMid": 950
     },
     {
@@ -1342,7 +1342,7 @@
       "received": true,
       "stockQty": 5,
       "cost": 362,
-      "price": 950,
+      "price": 855,
       "marketMid": 950
     },
     {
@@ -1359,7 +1359,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 394,
-      "price": 1800,
+      "price": 1620,
       "marketMid": 1800
     },
     {
@@ -1376,7 +1376,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 552,
-      "price": 2520,
+      "price": 2268,
       "marketMid": 2520
     },
     {
@@ -1393,7 +1393,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 709,
-      "price": 3240,
+      "price": 2916,
       "marketMid": 3240
     },
     {
@@ -1410,7 +1410,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 1182,
-      "price": 4350,
+      "price": 3915,
       "marketMid": 4350
     },
     {
@@ -1427,7 +1427,7 @@
       "received": true,
       "stockQty": 10,
       "cost": 1774,
-      "price": 6525,
+      "price": 5873,
       "marketMid": 6525
     }
   ]
