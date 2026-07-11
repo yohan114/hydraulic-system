@@ -507,6 +507,39 @@ async function viewInvoice(id) {
     } catch (e) { toast('Error loading invoice', 'error'); }
 }
 
+// Download a server-rendered PDF of the current invoice (headless Chromium).
+// Only available for a saved invoice; falls back to the Print button with a
+// clear message if the server has no PDF engine installed.
+async function downloadInvoicePdf() {
+    if (!currentInvoiceId) { toast('Save the invoice first, then download its PDF.', 'info'); return; }
+    const btn = document.getElementById('btnDownloadPdf');
+    const original = btn ? btn.innerHTML : '';
+    try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line"></i> Generating...'; }
+        const res = await authFetch(`${API_URL}/invoices/${currentInvoiceId}/pdf`);
+        if (!res.ok) {
+            let msg = 'Could not generate PDF.';
+            try { const e = await res.json(); if (e.error) msg = e.error; } catch (_) {}
+            toast(msg + (res.status === 501 ? ' You can still use Print.' : ''), 'error');
+            return;
+        }
+        const blob = await res.blob();
+        const cd = res.headers.get('Content-Disposition') || '';
+        const m = /filename="?([^"]+)"?/.exec(cd);
+        const filename = (m && m[1]) || 'invoice.pdf';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        toast('PDF downloaded', 'success');
+    } catch (err) {
+        toast('Could not generate PDF. You can use Print instead.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+    }
+}
+
 // ----------------------------------------------------
 // Payments
 // ----------------------------------------------------

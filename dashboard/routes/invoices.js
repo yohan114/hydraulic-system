@@ -10,6 +10,8 @@ const invoiceNoLib = require('../lib/invoiceNo');
 const { invoiceMutex } = require('../lib/mutex');
 const { loadRateCardSafe, matchLineRate, lineMarketMid } = require('../services/ratecard');
 const ledger = require('../services/stockLedger');
+const pdf = require('../services/pdf');
+const { buildInvoiceHtml } = require('../services/invoicePdf');
 const router = express.Router();
 
 async function getNextInvoiceNo(dateStr) {
@@ -441,6 +443,35 @@ function readTier(req) {
 }
 
 // Match an invoice line to a hose rate first, then a fitting rate.
+
+// Server-rendered PDF of the invoice via headless Chromium. Falls back with a
+// 501 (not a crash) when puppeteer isn't installed, so the client can use the
+// browser print dialog instead.
+router.get('/api/invoices/:id/pdf', async (req, res) => {
+    try {
+        if (!pdf.isAvailable()) {
+            return res.status(501).json({ error: 'PDF export is not available on the server (puppeteer is not installed). Use Print instead.', code: 'PDF_UNAVAILABLE' });
+        }
+        const id = sql.n(req.params.id);
+        const invoice = await connection.query(`SELECT * FROM Invoices WHERE InvoiceID = ${id}`);
+        if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found' });
+        const items = await connection.query(`
+            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode
+            FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
+            WHERE InvoiceItems.InvoiceID = ${id}`);
+
+        const html = buildInvoiceHtml(invoice[0], items);
+        const buffer = await pdf.htmlToPdf(html);
+        const safeNo = String(invoice[0].InvoiceNo || `invoice-${id}`).replace(/[^\w.-]+/g, '_');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeNo}.pdf"`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('PDF generation failed:', err.message);
+        res.status(500).json({ error: 'Could not generate PDF. ' + err.message });
+    }
+});
+
 
 router.get('/api/invoices/:id/compare', async (req, res) => {
     try {
