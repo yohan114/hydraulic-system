@@ -502,3 +502,7 @@ html.role-viewer .hide-from-viewer { display: none !important; }
   padding: 1px 8px;
   margin-left: 6px;
 }
+
+/* Bill Comparison — warning chips */
+.bc-warn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.bc-warn { display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; }

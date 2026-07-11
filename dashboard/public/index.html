@@ -96,6 +96,9 @@
                 <a href="#" class="nav-item" data-target="price-analysis">
                     <i class="ri-bar-chart-box-line"></i> Price Analysis
                 </a>
+                <a href="#" class="nav-item" data-target="bill-comparison">
+                    <i class="ri-scan-2-line"></i> Cost vs Bill vs Market
+                </a>
                 <a href="#" class="nav-item" data-target="labour">
                     <i class="ri-team-line"></i> Labour
                 </a>
@@ -678,6 +681,68 @@
                             <table class="table">
                                 <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
                                 <tbody id="users-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Cost vs Our Bill vs Market Bill Section -->
+                <section id="bill-comparison" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Cost vs Our Bill vs Market Bill</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="exportBillComparison('csv')"><i class="ri-file-text-line"></i> CSV</button>
+                            <button class="btn btn-secondary" onclick="exportBillComparison('xlsx')"><i class="ri-file-excel-line"></i> Excel</button>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:14px 18px;margin-bottom:16px;">
+                        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+                            <div><label style="font-size:12px;color:var(--text-muted);">From</label><input type="date" id="bc-from" class="form-control" onchange="bcApplyFilters()"></div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">To</label><input type="date" id="bc-to" class="form-control" onchange="bcApplyFilters()"></div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">Flag</label>
+                                <select id="bc-flag" class="form-control" onchange="bcApplyFilters()">
+                                    <option value="all">All lines</option>
+                                    <option value="below-cost">Below cost</option>
+                                    <option value="low-margin">Low margin</option>
+                                    <option value="over-market">Over market</option>
+                                    <option value="ok">OK</option>
+                                </select>
+                            </div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">Low-margin &lt; %</label><input type="number" id="bc-threshold" class="form-control" value="15" step="1" min="0" style="width:110px" onchange="bcApplyFilters()"></div>
+                            <div style="flex:1;min-width:180px;"><label style="font-size:12px;color:var(--text-muted);">Search</label><input type="text" id="bc-search" class="form-control" placeholder="Invoice # or product..." oninput="bcSearchDebounced()"></div>
+                        </div>
+                    </div>
+
+                    <div id="bc-warnings"></div>
+
+                    <div class="stats-grid" style="margin:16px 0;">
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,0.1);color:var(--primary);"><i class="ri-bill-line"></i></div><div class="stat-details"><h3>Our Bill</h3><p id="bc-stat-ourbill" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,0.1);color:#f59e0b;"><i class="ri-price-tag-3-line"></i></div><div class="stat-details"><h3>Our Cost</h3><p id="bc-stat-cost" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,0.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Profit</h3><p id="bc-stat-profit" style="font-size:20px;">Rs. 0.00</p><span id="bc-stat-margin" style="font-size:12px;color:var(--text-muted);">0% overall margin</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(139,92,246,0.1);color:#8b5cf6;"><i class="ri-scales-3-line"></i></div><div class="stat-details"><h3>Gap vs Market</h3><p id="bc-stat-marketgap" style="font-size:20px;">Rs. 0.00</p><span id="bc-stat-marketgap-sub" style="font-size:12px;color:var(--text-muted);">vs market</span></div></div>
+                    </div>
+
+                    <div class="dashboard-widgets" style="margin-bottom:16px;">
+                        <div class="widget" style="grid-column: span 2;">
+                            <div class="widget-header"><h2 style="font-size:15px;">Monthly — Cost vs Our Bill vs Market Bill</h2></div>
+                            <div id="bc-chart-months" style="padding:16px 20px;overflow-x:auto;"></div>
+                        </div>
+                        <div class="widget">
+                            <div class="widget-header"><h2 style="font-size:15px;">Line Flag Distribution</h2></div>
+                            <div id="bc-chart-flags" style="padding:16px 20px;"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr>
+                                    <th>Invoice</th><th>Customer</th><th>Product</th><th class="num">Qty</th>
+                                    <th class="num">Our Cost</th><th class="num">Our Bill</th><th class="num">Market Bill</th>
+                                    <th class="num">Profit</th><th class="num">Margin</th><th class="num">Gap vs Market</th><th>Flag</th>
+                                </tr></thead>
+                                <tbody id="bill-comparison-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -1362,5 +1427,6 @@
     <script src="modules/inventory.js"></script>
     <script src="modules/invoice.js"></script>
     <script src="modules/dashboard.js"></script>
+    <script src="modules/bill-comparison.js"></script>
 </body>
 </html>

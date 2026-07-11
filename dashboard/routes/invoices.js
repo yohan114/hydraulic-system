@@ -12,6 +12,7 @@ const { loadRateCardSafe, matchLineRate, lineMarketMid } = require('../services/
 const ledger = require('../services/stockLedger');
 const pdf = require('../services/pdf');
 const { buildInvoiceHtml } = require('../services/invoicePdf');
+const priceAnalysis = require('../services/priceAnalysis');
 const router = express.Router();
 
 async function getNextInvoiceNo(dateStr) {
@@ -201,12 +202,20 @@ async function loadStock(items) {
 // Insert the line items for an invoice using engine-computed amounts.
 
 async function insertItems(invoiceId, items, lineAmounts) {
+    // Snapshot cost + market benchmark for each line AT BILLING TIME so a bill's
+    // profitability is frozen (cost/market prices drift later). Purely additive —
+    // does not affect the billed amounts or the stock logic.
+    const costMarket = await priceAnalysis.loadCostMarket(items.map((it) => it.inventoryId));
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const invIdVal = item.inventoryId != null ? sql.n(item.inventoryId) : 'NULL';
+        const cm = costMarket.get(item.inventoryId) || { unitCost: 0, marketRate: 0 };
+        const s = priceAnalysis.lineSnapshot({ unitCost: cm.unitCost, ourRate: item.rate, marketRate: cm.marketRate, qty: item.qty });
         await connection.execute(
-            `INSERT INTO InvoiceItems (InvoiceID, InventoryID, ItemDescription, Unit, [Length], Qty, Rate, Amount)
-             VALUES (${invoiceId}, ${invIdVal}, ${sql.q(item.description)}, ${sql.q(item.unit)}, ${sql.n(item.length, 0)}, ${sql.n(item.qty, 0)}, ${sql.n(item.rate, 0)}, ${lineAmounts[i]})`
+            `INSERT INTO InvoiceItems (InvoiceID, InventoryID, ItemDescription, Unit, [Length], Qty, Rate, Amount,
+                UnitCostAtBilling, OurBillRate, MarketBillRate, ProfitAmount, MarginPercent, MarketGap, PriceFlag)
+             VALUES (${invoiceId}, ${invIdVal}, ${sql.q(item.description)}, ${sql.q(item.unit)}, ${sql.n(item.length, 0)}, ${sql.n(item.qty, 0)}, ${sql.n(item.rate, 0)}, ${lineAmounts[i]},
+                ${s.unitCostAtBilling}, ${s.ourBillRate}, ${s.marketBillRate}, ${s.profitAmount}, ${s.marginPercent}, ${s.marketGap}, ${sql.q(s.priceFlag)})`
         );
     }
 }

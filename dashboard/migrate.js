@@ -13,6 +13,7 @@
 
 const connection = require('./db');
 const { RATECARD_SEED } = require('./lib/ratecardSeed');
+const { lineSnapshot } = require('./services/priceAnalysis');
 
 const TABLES = {
   Inventory: `CREATE TABLE IF NOT EXISTS Inventory (
@@ -28,7 +29,9 @@ const TABLES = {
     PaymentStatus TEXT, CancelledAt TEXT, CancelReason TEXT)`,
   InvoiceItems: `CREATE TABLE IF NOT EXISTS InvoiceItems (
     InvoiceItemID INTEGER PRIMARY KEY, InvoiceID INTEGER, InventoryID INTEGER, ItemDescription TEXT,
-    Unit TEXT, Length REAL, Qty REAL, Rate REAL, Amount REAL)`,
+    Unit TEXT, Length REAL, Qty REAL, Rate REAL, Amount REAL,
+    UnitCostAtBilling REAL, OurBillRate REAL, MarketBillRate REAL,
+    ProfitAmount REAL, MarginPercent REAL, MarketGap REAL, PriceFlag TEXT)`,
   StockMovements: `CREATE TABLE IF NOT EXISTS StockMovements (
     MovementID INTEGER PRIMARY KEY, InventoryID INTEGER, InvoiceID INTEGER, MovementType TEXT,
     QtyChange REAL, PreviousQty REAL, NewQty REAL, MovementDate TEXT, Notes TEXT)`,
@@ -65,6 +68,11 @@ const COLUMN_ENSURES = {
   Invoices: { Discount: 'REAL', RoundOff: 'REAL', AmountPaid: 'REAL', PaymentStatus: 'TEXT', CancelledAt: 'TEXT', CancelReason: 'TEXT' },
   RateCard: { Category: 'TEXT', OutsideLow: 'REAL', OutsideMid: 'REAL', OutsideHigh: 'REAL' },
   Users: { Role: 'TEXT' },
+  // Cost-vs-bill-vs-market snapshot captured per line at billing time.
+  InvoiceItems: {
+    UnitCostAtBilling: 'REAL', OurBillRate: 'REAL', MarketBillRate: 'REAL',
+    ProfitAmount: 'REAL', MarginPercent: 'REAL', MarketGap: 'REAL', PriceFlag: 'TEXT',
+  },
 };
 
 const INDEXES = [
@@ -141,6 +149,33 @@ async function ensureSchema(conn) {
       applied.push(`RateCard seed (${RATECARD_SEED.length} rows)`);
     }
   } catch (e) { failed.push({ name: 'RateCard seed', error: e.message }); }
+
+  // Backfill the bill-comparison snapshot for lines written before it existed.
+  // Best effort: no historical prices are kept, so the item's CURRENT cost/market
+  // is used. New invoices snapshot the real values at billing time.
+  try {
+    const legacy = db.prepare(`
+      SELECT ii.InvoiceItemID, ii.Qty, ii.Rate, inv.Cost, inv.MarketMid
+      FROM InvoiceItems ii LEFT JOIN Inventory inv ON ii.InventoryID = inv.InventoryID
+      WHERE ii.UnitCostAtBilling IS NULL`).all();
+    if (legacy.length) {
+      const upd = db.prepare(`UPDATE InvoiceItems SET
+        UnitCostAtBilling=@unitCost, OurBillRate=@ourRate, MarketBillRate=@market,
+        ProfitAmount=@profit, MarginPercent=@margin, MarketGap=@gap, PriceFlag=@flag
+        WHERE InvoiceItemID=@id`);
+      const tx = db.transaction((rowsIn) => {
+        for (const r of rowsIn) {
+          const s = lineSnapshot({ unitCost: r.Cost, ourRate: r.Rate, marketRate: r.MarketMid, qty: r.Qty });
+          upd.run({
+            id: r.InvoiceItemID, unitCost: s.unitCostAtBilling, ourRate: s.ourBillRate, market: s.marketBillRate,
+            profit: s.profitAmount, margin: s.marginPercent, gap: s.marketGap, flag: s.priceFlag,
+          });
+        }
+      });
+      tx(legacy);
+      applied.push(`bill snapshot backfill (${legacy.length} lines)`);
+    }
+  } catch (e) { failed.push({ name: 'bill snapshot backfill', error: e.message }); }
 
   return { applied, skipped, failed };
 }

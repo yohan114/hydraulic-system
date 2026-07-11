@@ -6,6 +6,7 @@ const money = require('../lib/money');
 const sql = require('../lib/sql');
 const billing = require('../services/billing');
 const finance = require('../lib/finance');
+const billComparisonSvc = require('../services/priceAnalysis');
 const router = express.Router();
 
 router.get('/api/dashboard', async (req, res) => {
@@ -331,6 +332,74 @@ router.get('/api/reports/pl', async (req, res) => {
         res.json({ months, totals: { ...totals, paymentsIn: totalCash.inflow, cashOut: totalCash.outflow, cashNet: totalCash.net } });
     } catch (err) {
         res.status(500).json({ error: 'Could not compute P&L. Ensure the database is migrated. ' + err.message });
+    }
+});
+
+
+// Cost vs Our Bill vs Market Bill — per-line, from billing-time snapshots.
+function billComparisonOpts(q) {
+    return {
+        from: q.from || null,
+        to: q.to || null,
+        flag: q.flag || 'all',
+        search: q.search || '',
+        lowMarginThreshold: q.lowMargin != null && q.lowMargin !== '' ? Number(q.lowMargin) : undefined,
+    };
+}
+
+router.get('/api/reports/bill-comparison', async (req, res) => {
+    try {
+        res.json(await billComparisonSvc.billComparison(billComparisonOpts(req.query)));
+    } catch (err) {
+        res.status(500).json({ error: 'Could not build bill comparison. Ensure the database is migrated. ' + err.message });
+    }
+});
+
+const BILL_EXPORT_COLUMNS = [
+    ['Invoice No', 'invoiceNo'], ['Date', 'invoiceDate'], ['Customer', 'customer'],
+    ['Product', 'description'], ['Unique ID', 'uniqueId'], ['Unit', 'unit'], ['Qty', 'qty'],
+    ['Our Cost (unit)', 'unitCost'], ['Our Bill (unit)', 'ourBillRate'], ['Market Bill (unit)', 'marketBillRate'],
+    ['Our Bill', 'ourBill'], ['Cost', 'cost'], ['Market Bill Total', 'marketBill'],
+    ['Profit', 'profit'], ['Margin %', 'marginPercent'], ['Gap vs Market', 'marketGap'], ['Flag', 'priceFlag'],
+];
+
+router.get('/api/reports/bill-comparison/export', async (req, res) => {
+    try {
+        const { rows } = await billComparisonSvc.billComparison(billComparisonOpts(req.query));
+        const format = String(req.query.format || 'xlsx').toLowerCase();
+
+        if (format === 'csv') {
+            const esc = (v) => {
+                const s = v == null ? '' : String(v);
+                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+            };
+            const header = BILL_EXPORT_COLUMNS.map(([label]) => esc(label)).join(',');
+            const body = rows.map((r) => BILL_EXPORT_COLUMNS.map(([, key]) => esc(r[key])).join(',')).join('\n');
+            res.setHeader('Content-Disposition', 'attachment; filename="Bill_Comparison.csv"');
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            return res.send('﻿' + header + '\n' + body); // BOM so Excel reads UTF-8
+        }
+
+        const excelData = rows.map((r) => {
+            const o = {};
+            BILL_EXPORT_COLUMNS.forEach(([label, key]) => { o[label] = r[key]; });
+            return o;
+        });
+        const ws = xlsx.utils.json_to_sheet(excelData, { header: BILL_EXPORT_COLUMNS.map(([label]) => label) });
+        const maxLens = {};
+        excelData.forEach((row) => Object.keys(row).forEach((k) => {
+            maxLens[k] = Math.max(maxLens[k] || k.length, String(row[k] == null ? '' : row[k]).length);
+        }));
+        ws['!cols'] = Object.keys(maxLens).map((k) => ({ wch: maxLens[k] + 3 }));
+        const wb = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(wb, ws, 'Bill Comparison');
+        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        res.setHeader('Content-Disposition', 'attachment; filename="Bill_Comparison.xlsx"');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.send(buffer);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error generating export');
     }
 });
 
