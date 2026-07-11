@@ -642,7 +642,8 @@ async function downloadInvoicePdf() {
     const original = btn ? btn.innerHTML : '';
     try {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line"></i> Generating...'; }
-        const res = await authFetch(`${API_URL}/invoices/${currentInvoiceId}/pdf`);
+        // Pass the current bill-type so the PDF matches the on-screen view.
+        const res = await authFetch(`${API_URL}/invoices/${currentInvoiceId}/pdf?billType=${billType}`);
         if (!res.ok) {
             let msg = 'Could not generate PDF.';
             try { const e = await res.json(); if (e.error) msg = e.error; } catch (_) {}

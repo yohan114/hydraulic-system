@@ -472,11 +472,14 @@ router.get('/api/invoices/:id/pdf', async (req, res) => {
             FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}`);
 
-        const html = buildInvoiceHtml(invoice[0], items);
+        // billType is a display-only print preference (never stored).
+        const billType = req.query.billType === 'outside' ? 'outside' : 'inside';
+        const html = buildInvoiceHtml(invoice[0], items, { billType });
         const buffer = await pdf.htmlToPdf(html);
         const safeNo = String(invoice[0].InvoiceNo || `invoice-${id}`).replace(/[^\w.-]+/g, '_');
+        const suffix = billType === 'outside' ? '_customer' : '';
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeNo}.pdf"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeNo}${suffix}.pdf"`);
         res.send(buffer);
     } catch (err) {
         console.error('PDF generation failed:', err.message);
