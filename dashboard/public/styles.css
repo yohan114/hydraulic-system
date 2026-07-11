@@ -484,3 +484,21 @@ select.form-control option { color: initial; }
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
 }
+
+/* ----------------------------------------------------
+   Role-based visibility (Admin / Cashier / Viewer).
+   A `role-*` class on <html> hides controls the current role may not use.
+   Server-side checks are authoritative; this is only to declutter the UI.
+   ---------------------------------------------------- */
+html:not(.role-admin) .admin-only { display: none !important; }
+html.role-viewer .hide-from-viewer { display: none !important; }
+.account-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #a0aec0;
+  border: 1px solid rgba(160,174,192,0.4);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 6px;
+}

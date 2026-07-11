@@ -9,10 +9,19 @@ const money = require('../lib/money');
 const sql = require('../lib/sql');
 const ledger = require('../services/stockLedger');
 const { invoiceMutex } = require('../lib/mutex');
+const { requireRole, roleOf } = require('./auth');
 const { loadRateCard, getCostComparison, rateCardSet } = require('../services/ratecard');
+
+const adminOnly = requireRole('admin');
 
 // SupplierID is nullable, so it needs NULL rather than sql.n()'s throw-on-blank.
 function supplierRef(v) { return v == null || v === '' ? 'NULL' : sql.n(v); }
+
+// Only admins may set cost/price/market fields. A cashier can still add or
+// correct a product (name, spec, qty, unit, supplier, reorder level) but their
+// pricing edits are ignored — on edit the stored values are preserved, on
+// create they default to 0.
+function canEditPricing(req) { return roleOf(req) === 'admin'; }
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (_) {}
 const upload = multer({ dest: UPLOAD_DIR });
@@ -71,8 +80,11 @@ router.post('/api/inventory', async (req, res) => {
         const check = await connection.query(`SELECT UniqueID FROM Inventory WHERE UniqueID = ${sql.q(uniqueId)}`);
         if (check.length > 0) return res.status(400).json({ error: 'UniqueID already exists' });
 
+        // Non-admins cannot set pricing; those fields default to 0.
+        const priceVal = canEditPricing(req) ? sql.n(price, 0) : 0;
+        const costVal = canEditPricing(req) ? sql.n(cost, 0) : 0;
         const sqlStr = `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, SupplierID, ReorderLevel, CreatedAt, UpdatedAt)
-            VALUES (${sql.q(uniqueId)}, ${sql.q(productName)}, ${sql.q(specificationCode)}, ${sql.q(size)}, ${sql.q(description)}, ${sql.n(length, 0)}, ${sql.n(qty, 0)}, ${sql.q(unit)}, ${sql.n(price, 0)}, ${sql.n(cost, 0)}, ${supplierRef(supplierId)}, ${sql.n(reorderLevel, 5)}, Now(), Now())`;
+            VALUES (${sql.q(uniqueId)}, ${sql.q(productName)}, ${sql.q(specificationCode)}, ${sql.q(size)}, ${sql.q(description)}, ${sql.n(length, 0)}, ${sql.n(qty, 0)}, ${sql.q(unit)}, ${priceVal}, ${costVal}, ${supplierRef(supplierId)}, ${sql.n(reorderLevel, 5)}, Now(), Now())`;
 
         await connection.execute(sqlStr);
         res.json({ success: true });
@@ -86,6 +98,17 @@ router.put('/api/inventory/:id', async (req, res) => {
     try {
         const id = sql.n(req.params.id);
         const { productName, specificationCode, size, description, length, qty, unit, price, cost, supplierId, reorderLevel } = req.body;
+
+        // A cashier may edit the product but not its pricing: keep the stored
+        // Cost/Price untouched for non-admins.
+        let priceSet, costSet;
+        if (canEditPricing(req)) {
+            priceSet = `Price = ${sql.n(price, 0)}`;
+            costSet = `Cost = ${sql.n(cost, 0)}`;
+        } else {
+            priceSet = 'Price = Price';
+            costSet = 'Cost = Cost';
+        }
         const sqlStr = `UPDATE Inventory SET
             ProductName = ${sql.q(productName)},
             SpecificationCode = ${sql.q(specificationCode)},
@@ -94,8 +117,8 @@ router.put('/api/inventory/:id', async (req, res) => {
             [Length] = ${sql.n(length, 0)},
             Qty = ${sql.n(qty, 0)},
             Unit = ${sql.q(unit)},
-            Price = ${sql.n(price, 0)},
-            Cost = ${sql.n(cost, 0)},
+            ${priceSet},
+            ${costSet},
             SupplierID = ${supplierRef(supplierId)},
             ReorderLevel = ${sql.n(reorderLevel, 5)},
             UpdatedAt = Now()
@@ -109,7 +132,7 @@ router.put('/api/inventory/:id', async (req, res) => {
 });
 
 
-router.delete('/api/inventory/:id', async (req, res) => {
+router.delete('/api/inventory/:id', adminOnly, async (req, res) => {
     try {
         const id = sql.n(req.params.id);
         const check = await connection.query(`SELECT InvoiceItemID FROM InvoiceItems WHERE InventoryID = ${id}`);
@@ -128,7 +151,7 @@ router.delete('/api/inventory/:id', async (req, res) => {
 // price, and (when qty > 0) books a stock-IN movement so quantity goes up.
 // Wrapped in the invoice mutex so the Qty read-modify-write can't race a
 // concurrent invoice finalize.
-router.post('/api/inventory/:id/purchase', async (req, res) => {
+router.post('/api/inventory/:id/purchase', adminOnly, async (req, res) => {
     try {
         const id = sql.n(req.params.id);
         const b = req.body || {};
@@ -187,7 +210,7 @@ router.get('/api/ratecard', async (req, res) => {
 
 // Column list + value tuple shared by Rate Card insert/update.
 
-router.post('/api/ratecard', async (req, res) => {
+router.post('/api/ratecard', adminOnly, async (req, res) => {
     try {
         const b = req.body || {};
         if (!String(b.label || '').trim()) return res.status(400).json({ error: 'Label is required' });
@@ -202,7 +225,7 @@ router.post('/api/ratecard', async (req, res) => {
 });
 
 
-router.put('/api/ratecard/:id', async (req, res) => {
+router.put('/api/ratecard/:id', adminOnly, async (req, res) => {
     try {
         const id = sql.n(req.params.id);
         await connection.execute(`UPDATE RateCard SET ${rateCardSet(req.body || {})} WHERE RateID = ${id}`);
@@ -213,7 +236,7 @@ router.put('/api/ratecard/:id', async (req, res) => {
 });
 
 
-router.delete('/api/ratecard/:id', async (req, res) => {
+router.delete('/api/ratecard/:id', adminOnly, async (req, res) => {
     try {
         await connection.execute(`DELETE FROM RateCard WHERE RateID = ${sql.n(req.params.id)}`);
         res.json({ success: true });

@@ -13,7 +13,7 @@ const path = require('path');
 const { ensureSchema } = require('./migrate');
 const connection = require('./db');
 const { runStartupBackup } = require('./lib/backup');
-const { router: authRouter, requireAuth } = require('./routes/auth');
+const { router: authRouter, requireAuth, viewerReadOnlyGuard } = require('./routes/auth');
 
 const PORT = process.env.PORT || 9999;
 const AUTH_ENABLED = process.env.BILLING_AUTH !== 'off';
@@ -31,6 +31,10 @@ app.use((req, res, next) => {
   return requireAuth(req, res, next);
 });
 
+// Role gate: viewers are read-only (writes are refused). requireAuth above has
+// already populated req.user, so this can see the caller's role.
+app.use(viewerReadOnlyGuard);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Feature routers — each owns its own /api/... paths.
@@ -42,6 +46,7 @@ app.use(require('./routes/customers'));
 app.use(require('./routes/payments'));
 app.use(require('./routes/reports'));
 app.use(require('./routes/finance'));
+app.use(require('./routes/users'));
 
 async function start() {
   try {

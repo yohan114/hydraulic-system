@@ -415,6 +415,93 @@ function renderInvoiceProfit(ip) {
 }
 
 // ----------------------------------------------------
+// Users & Roles (admin only)
+// ----------------------------------------------------
+async function loadUsers() {
+    showSkeleton('users-tbody', 4, 4);
+    try {
+        const res = await authFetch(`${API_URL}/users`);
+        const data = await res.json();
+        if (!res.ok) { toast(data.error || 'Could not load users', 'error'); return; }
+        renderUsers(data);
+    } catch (e) { console.error('Error loading users', e); }
+}
+
+function renderUsers(users) {
+    const tb = document.getElementById('users-tbody');
+    tb.innerHTML = '';
+    if (!users.length) { emptyRow('users-tbody', 4, '👤', 'No users yet', 'Add a user to grant access.'); return; }
+    users.forEach((u) => {
+        tb.innerHTML += `
+            <tr>
+                <td><strong>${escAttr(u.Username)}</strong></td>
+                <td><span class="badge ${u.Role === 'admin' ? 'badge-finalized' : 'badge-ok'}">${escAttr(u.Role)}</span></td>
+                <td>${formatDate(u.CreatedAt)}</td>
+                <td>
+                    <button class="btn btn-text" onclick="editUser(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}', '${escAttr(u.Role)}')">Edit</button>
+                    <button class="btn btn-text text-danger" style="color:red" onclick="deleteUser(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}')">Del</button>
+                </td>
+            </tr>`;
+    });
+}
+
+function openUserModal() {
+    document.getElementById('userForm').reset();
+    document.getElementById('user-id').value = '';
+    document.getElementById('user-name').disabled = false;
+    document.getElementById('userModalTitle').textContent = 'Add User';
+    document.getElementById('user-pw-label').textContent = 'Password';
+    document.getElementById('user-pw-hint').textContent = 'At least 4 characters.';
+    document.getElementById('user-password').required = true;
+    openModal('userModal');
+}
+
+function editUser(id, username, role) {
+    document.getElementById('userForm').reset();
+    document.getElementById('user-id').value = id;
+    document.getElementById('user-name').value = username;
+    document.getElementById('user-name').disabled = true; // rename not supported
+    document.getElementById('user-role').value = role;
+    document.getElementById('userModalTitle').textContent = 'Edit User';
+    document.getElementById('user-pw-label').textContent = 'New Password (optional)';
+    document.getElementById('user-pw-hint').textContent = 'Leave blank to keep the current password.';
+    document.getElementById('user-password').required = false;
+    openModal('userModal');
+}
+
+async function submitUser(e) {
+    e.preventDefault();
+    const id = document.getElementById('user-id').value;
+    const role = document.getElementById('user-role').value;
+    const password = document.getElementById('user-password').value;
+    try {
+        let res;
+        if (id) {
+            res = await authFetch(`${API_URL}/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, newPassword: password || undefined }) });
+        } else {
+            res = await authFetch(`${API_URL}/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('user-name').value, password, role }) });
+        }
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        closeModal('userModal');
+        loadUsers();
+        toast(id ? 'User updated' : 'User added', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+async function deleteUser(id, username) {
+    const ok = await confirmDialog({ title: 'Delete user?', message: `Remove ${username}'s access?`, confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try {
+        const res = await authFetch(`${API_URL}/users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        loadUsers();
+        toast('User deleted', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+// ----------------------------------------------------
 // Price Analysis: per-item our-price vs market, margin %, monthly trend
 // ----------------------------------------------------
 async function loadPriceAnalysis() {

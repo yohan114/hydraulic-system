@@ -13,7 +13,11 @@ const express = require('express');
 const connection = require('../db');
 const money = require('../lib/money');
 const sql = require('../lib/sql');
+const { requireRole } = require('./auth');
 const router = express.Router();
+
+// Managing suppliers (procurement) is an admin task; everyone may read the list.
+const adminOnly = requireRole('admin');
 
 // List suppliers with a live count of how many inventory items each supplies.
 router.get('/api/suppliers', async (req, res) => {
@@ -27,7 +31,7 @@ router.get('/api/suppliers', async (req, res) => {
   }
 });
 
-router.post('/api/suppliers', async (req, res) => {
+router.post('/api/suppliers', adminOnly, async (req, res) => {
   try {
     const b = req.body || {};
     if (!String(b.name || '').trim()) return res.status(400).json({ error: 'Supplier name is required' });
@@ -41,7 +45,7 @@ router.post('/api/suppliers', async (req, res) => {
   }
 });
 
-router.put('/api/suppliers/:id', async (req, res) => {
+router.put('/api/suppliers/:id', adminOnly, async (req, res) => {
   try {
     const id = sql.n(req.params.id);
     const b = req.body || {};
@@ -60,7 +64,7 @@ router.put('/api/suppliers/:id', async (req, res) => {
 
 // Delete a supplier only when nothing references it; otherwise the link would
 // dangle. The UI can reassign the items first.
-router.delete('/api/suppliers/:id', async (req, res) => {
+router.delete('/api/suppliers/:id', adminOnly, async (req, res) => {
   try {
     const id = sql.n(req.params.id);
     const used = await connection.query(`SELECT COUNT(*) AS c FROM Inventory WHERE SupplierID = ${id}`);

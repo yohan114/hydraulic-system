@@ -9,6 +9,7 @@ let isInvoiceEditable = true;
 let currentInvoiceId = null; // set when editing/viewing a saved invoice
 let authToken = localStorage.getItem('billing_token') || '';
 let authEnabled = true;
+let currentRole = 'admin'; // 'admin' | 'cashier' | 'viewer' (admin when auth is off)
 let savingInvoice = false; // guards against double-submit of an invoice
 let modalSearchResults = []; // cached inventory search rows for the picker
 
@@ -279,16 +280,33 @@ async function initAuth() {
 }
 
 function setupAccountUI(status) {
+    applyRolePermissions((status && status.role) || 'admin');
     const footer = document.getElementById('sidebarFooter');
     if (!footer) return;
     if (authEnabled) {
         footer.style.display = 'flex';
         document.getElementById('accountName').textContent = (status && status.username) || 'admin';
+        const roleEl = document.getElementById('accountRole');
+        if (roleEl) roleEl.textContent = currentRole;
         const warn = document.getElementById('defaultPwWarning');
         if (warn) warn.classList.toggle('show', !!(status && status.usingDefaultPassword));
     } else {
         footer.style.display = 'none';
     }
+}
+
+// Role-aware UI: a class on <html> drives CSS visibility of static controls, and
+// render functions consult isAdmin()/canWrite() for dynamically-built buttons.
+// This is convenience only — the server independently enforces every rule.
+function isAdmin() { return currentRole === 'admin'; }
+function canWrite() { return currentRole !== 'viewer'; }
+function applyRolePermissions(role) {
+    currentRole = role || 'admin';
+    const el = document.documentElement;
+    el.classList.remove('role-admin', 'role-cashier', 'role-viewer');
+    el.classList.add('role-' + currentRole);
+    // Pricing inputs are admin-only; disable (not hide) them for cashiers.
+    ['prod-cost', 'prod-price'].forEach((id) => { const e = document.getElementById(id); if (e) e.disabled = !isAdmin(); });
 }
 
 function showLogin() { document.getElementById('loginOverlay').classList.add('active'); }
@@ -409,6 +427,7 @@ function showSection(sectionId) {
         'cost-analysis': 'Rate Card',
         'invoice-comparison': 'Invoice Comparison',
         'price-analysis': 'Price Analysis',
+        'users': 'Users & Roles',
         'labour': 'Labour',
         'expenses': 'Expenses',
         'reports': 'Profit & Loss',
@@ -427,6 +446,7 @@ function showSection(sectionId) {
     else if (sectionId === 'labour') loadLabour();
     else if (sectionId === 'expenses') loadExpenses();
     else if (sectionId === 'reports') loadReports();
+    else if (sectionId === 'users') loadUsers();
 }
 
 // Helpers
