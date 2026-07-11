@@ -21,6 +21,11 @@
  * (undercut the market but stay profitable). Crimping uses true internal cost.
  * Edit all of these from your real supplier quotes — that is what makes the
  * comparison exact. Basis: USD≈LKR335, INR≈LKR3.8, July 2026.
+ *
+ * ourCost on the hose rows below is no longer a 60%-of-Mid estimate: it is the
+ * REAL landed cost (CIF × duty) from shipment HS25E1112W1 (Henan Spark, Nov
+ * 2025) — the datasheet's own advice was "your landed cost is now the ground
+ * truth." See dashboard/data/shipment-HS25E1112W1.json for the per-item source.
  */
 
 function row(category, spec, sizeInch, sizeCode, label, unit, low, mid, high, opts = {}) {
@@ -35,21 +40,25 @@ function row(category, spec, sizeInch, sizeCode, label, unit, low, mid, high, op
 
 const RATECARD_SEED = [
   // ---- Hose: 2-wire braid (SAE 100 R2AT / EN 853 2SN), per metre ----
-  row('hose', 'R2', 0.25, '6', '1/4" R2 (2-wire)', 'm', 575, 1125, 2300),
-  row('hose', 'R2', 0.375, '10', '3/8" R2 (2-wire)', 'm', 800, 1525, 2950),
-  row('hose', 'R2', 0.5, '13', '1/2" R2 (2-wire)', 'm', 1075, 1950, 3900),
-  row('hose', 'R2', 0.625, '16', '5/8" R2 (2-wire)', 'm', 1400, 2450, 4900),
-  row('hose', 'R2', 0.75, '19', '3/4" R2 (2-wire)', 'm', 1750, 3100, 6150),
-  row('hose', 'R2', 1.0, '25', '1" R2 (2-wire)', 'm', 2500, 4400, 8900),
+  // ourCost = real landed cost from shipment HS25E1112W1.
+  row('hose', 'R2', 0.25, '6', '1/4" R2 (2-wire)', 'm', 575, 1125, 2300, { ourCost: 206 }),
+  row('hose', 'R2', 0.375, '10', '3/8" R2 (2-wire)', 'm', 800, 1525, 2950, { ourCost: 280 }),
+  row('hose', 'R2', 0.5, '13', '1/2" R2 (2-wire)', 'm', 1075, 1950, 3900, { ourCost: 355 }),
+  row('hose', 'R2', 0.625, '16', '5/8" R2 (2-wire)', 'm', 1400, 2450, 4900, { ourCost: 458 }),
+  row('hose', 'R2', 0.75, '19', '3/4" R2 (2-wire)', 'm', 1750, 3100, 6150, { ourCost: 561 }),
+  row('hose', 'R2', 1.0, '25', '1" R2 (2-wire)', 'm', 2500, 4400, 8900, { ourCost: 804 }),
 
   // ---- Hose: 1-wire braid (R1 ≈ 0.70 × R2) ----
-  row('hose', 'R1', 0.25, '6', '1/4" R1 (1-wire)', 'm', 403, 788, 1610),
-  row('hose', 'R1', 0.375, '10', '3/8" R1 (1-wire)', 'm', 560, 1068, 2065),
-  row('hose', 'R1', 0.5, '13', '1/2" R1 (1-wire)', 'm', 753, 1365, 2730),
+  row('hose', 'R1', 0.25, '6', '1/4" R1 (1-wire)', 'm', 403, 788, 1610, { ourCost: 144 }),
+  row('hose', 'R1', 0.375, '10', '3/8" R1 (1-wire)', 'm', 560, 1068, 2065, { ourCost: 196 }),
+  row('hose', 'R1', 0.5, '13', '1/2" R1 (1-wire)', 'm', 753, 1365, 2730), // 13mm R1 not in shipment — modelled
 
   // ---- Hose: 4-wire spiral (4SP / 4SH), per metre ----
-  row('hose', '4SH', 1.0, '25', '1" 4SH (spiral)', 'm', 4350, 7400, 14000),
-  row('hose', '4SH', 1.25, '32', '1-1/4" 4SH (spiral)', 'm', 5650, 9500, 18000),
+  // 4SH 25mm/32mm ourCost from shipment; the spiral market Mid there (12,260 /
+  // 17,100) runs well above these researched benchmarks — review outsideMid if
+  // you sell spiral at the higher local rate.
+  row('hose', '4SH', 1.0, '25', '1" 4SH (spiral)', 'm', 4350, 7400, 14000, { ourCost: 2292 }),
+  row('hose', '4SH', 1.25, '32', '1-1/4" 4SH (spiral)', 'm', 5650, 9500, 18000, { ourCost: 3197 }),
   row('hose', '4SH', 1.5, '38', '1-1/2" 4SH (spiral)', 'm', 7500, 12750, 24500),
   row('hose', '4SH', 2.0, '51', '2" 4SH (spiral)', 'm', 10750, 18000, 35000),
 
