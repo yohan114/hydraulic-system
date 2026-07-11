@@ -1362,16 +1362,20 @@ app.post('/api/inventory/import', upload.single('file'), async (req, res) => {
             const qty = money.num(row.Qty);
             const price = money.num(row.Price);
             const cost = money.num(row.Cost);
+            // MarketMid is optional in the sheet: only write it when the column is
+            // present, so importing an older file never zeroes an existing benchmark.
+            const hasMarketMid = row.MarketMid != null && row.MarketMid !== '';
+            const marketMid = money.num(row.MarketMid);
 
             const existing = await connection.query(`SELECT InventoryID FROM Inventory WHERE UniqueID = ${sql.q(uniqueId)}`);
             if (existing.length > 0) {
                 await connection.execute(`UPDATE Inventory SET
                     ProductName = ${sql.q(row.ProductName)}, SpecificationCode = ${sql.q(row.SpecificationCode)}, [Size] = ${sql.q(row.Size)}, Description = ${sql.q(row.Description)},
-                    [Length] = ${length}, Qty = ${qty}, Unit = ${sql.q(row.Unit || 'Nos')}, Price = ${price}, Cost = ${cost}, UpdatedAt = Now()
+                    [Length] = ${length}, Qty = ${qty}, Unit = ${sql.q(row.Unit || 'Nos')}, Price = ${price}, Cost = ${cost}${hasMarketMid ? `, MarketMid = ${marketMid}` : ''}, UpdatedAt = Now()
                     WHERE UniqueID = ${sql.q(uniqueId)}`);
             } else {
-                await connection.execute(`INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, CreatedAt, UpdatedAt)
-                    VALUES (${sql.q(uniqueId)}, ${sql.q(row.ProductName)}, ${sql.q(row.SpecificationCode)}, ${sql.q(row.Size)}, ${sql.q(row.Description)}, ${length}, ${qty}, ${sql.q(row.Unit || 'Nos')}, ${price}, ${cost}, Now(), Now())`);
+                await connection.execute(`INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, MarketMid, CreatedAt, UpdatedAt)
+                    VALUES (${sql.q(uniqueId)}, ${sql.q(row.ProductName)}, ${sql.q(row.SpecificationCode)}, ${sql.q(row.Size)}, ${sql.q(row.Description)}, ${length}, ${qty}, ${sql.q(row.Unit || 'Nos')}, ${price}, ${cost}, ${hasMarketMid ? marketMid : 0}, Now(), Now())`);
             }
             processed++;
         }
@@ -1400,6 +1404,17 @@ function matchLineRate(rates, item) {
         finance.matchRate(rates, { productName: item.ProductName, specCode: item.SpecificationCode }) ||
         finance.matchFitting(rates, { productName: item.ProductName, description: item.ItemDescription, specCode: item.SpecificationCode })
     );
+}
+
+// Per-unit MARKET MID for an invoice line. Every stocked item now carries its own
+// market-mid benchmark (Inventory.MarketMid, from the shipment datasheet); use it
+// first so every parts line has a market figure. Manual lines with no stock item
+// (e.g. a hose or crimping technical charge) fall back to a Rate Card match by size.
+function lineMarketMid(rates, item) {
+    const mm = money.num(item.MarketMid);
+    if (mm > 0) return mm;
+    const rate = matchLineRate(rates, item);
+    return rate ? money.num(rate.outsideMid) : 0;
 }
 
 // Rate Card as a comparison table (per unit) with savings vs mid + margin.
@@ -1435,43 +1450,41 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
         if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found' });
 
         const items = await connection.query(`
-            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
+            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost, Inventory.MarketMid
             FROM InvoiceItems
             LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
         const rates = await loadRateCardSafe();
-        const tier = readTier(req);
-        let ourSubtotal = 0;
-        let outsideSubtotal = 0;
-        let ourCostSubtotal = 0;
+        let ourSubtotal = 0;      // what we billed (our price)
+        let outsideSubtotal = 0;  // market mid
+        let ourCostSubtotal = 0;  // our landed cost
 
         const comparedItems = items.map((item) => {
-            const ourAmt = money.num(item.Amount);
+            const qty = money.num(item.Qty);
+            const ourAmt = money.num(item.Amount);                    // Our Price (billed)
+            const ourCostAmt = money.round2(qty * money.num(item.Cost)); // Our Cost
+            const marketUnit = lineMarketMid(rates, item);            // Market Mid, per unit
+            const marketAmt = money.round2(qty * marketUnit);         // Market Mid, line total
+
             ourSubtotal += ourAmt;
-
-            const rate = matchLineRate(rates, item);
-            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt, unit: item.Unit }, rate, tier);
-            // Our cost: from the rate card when matched, otherwise fall back to
-            // the stocked item's unit cost × qty.
-            const ourCostAmt = cmp.matched ? cmp.ourCost : money.round2(money.num(item.Qty) * money.num(item.Cost));
-
-            outsideSubtotal += cmp.outsidePrice;
             ourCostSubtotal += ourCostAmt;
+            outsideSubtotal += marketAmt;
 
             return {
                 description: item.ItemDescription,
                 unit: item.Unit,
                 qty: item.Qty,
                 ourRate: item.Rate,
-                ourAmount: ourAmt,
-                ourCost: ourCostAmt,
-                outsideRate: rate ? finance.tierValueOf(rate, tier) : 0,
-                outsideAmount: cmp.outsidePrice,
-                matched: cmp.matched,
-                outsideUnit: cmp.matched ? cmp.unit : item.Unit,
-                outsideQty: cmp.matched ? cmp.qty : item.Qty,
+                ourAmount: ourAmt,        // Our Price
+                ourCost: ourCostAmt,      // Our Cost
+                marketRate: marketUnit,   // Market Mid, per unit
+                outsideRate: marketUnit,  // (kept for backward compatibility)
+                outsideAmount: marketAmt, // Market Mid, line total
+                matched: marketAmt > 0,
+                outsideUnit: item.Unit,
+                outsideQty: item.Qty,
             };
         });
 
@@ -1495,7 +1508,7 @@ app.get('/api/invoices/:id/compare', async (req, res) => {
             invoiceNo: invoice[0].InvoiceNo,
             invoiceDate: invoice[0].InvoiceDate,
             billedToName: invoice[0].BilledToName,
-            tier,
+            tier: 'mid',
             taxes: {
                 ssclRate,
                 vatRate,
@@ -1530,42 +1543,38 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
         if (invoice.length === 0) return res.status(404).send('Invoice not found');
 
         const items = await connection.query(`
-            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
+            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost, Inventory.MarketMid
             FROM InvoiceItems
             LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
         const rates = await loadRateCardSafe();
-        const tier = readTier(req);
         let ourSubtotal = 0;
         let outsideSubtotal = 0;
         let ourCostSubtotal = 0;
 
         const excelRows = items.map((item, idx) => {
+            const qty = money.num(item.Qty);
             const ourAmt = money.num(item.Amount);
+            const ourCostAmt = money.round2(qty * money.num(item.Cost));
+            const marketUnit = lineMarketMid(rates, item);
+            const marketAmt = money.round2(qty * marketUnit);
             ourSubtotal += ourAmt;
-
-            const rate = matchLineRate(rates, item);
-            const cmp = finance.compareLine({ qty: item.Qty, ourAmount: ourAmt, unit: item.Unit }, rate, tier);
-            const ourCostAmt = cmp.matched ? cmp.ourCost : money.round2(money.num(item.Qty) * money.num(item.Cost));
-            outsideSubtotal += cmp.outsidePrice;
             ourCostSubtotal += ourCostAmt;
+            outsideSubtotal += marketAmt;
 
             return {
                 '#': String(idx + 1).padStart(2, '0'),
                 'Description': item.ItemDescription,
-                'Our Qty': item.Qty,
-                'Our Unit': item.Unit,
-                'Our Rate (Rs.)': item.Rate,
-                'Our Amount (Rs.)': ourAmt,
+                'Qty': item.Qty,
+                'Unit': item.Unit,
                 'Our Cost (Rs.)': ourCostAmt,
+                'Our Price (Rs.)': ourAmt,
                 'Job Profit (Rs.)': money.round2(ourAmt - ourCostAmt),
-                'Outside Qty': cmp.matched ? cmp.qty : item.Qty,
-                'Outside Unit': cmp.matched ? cmp.unit : item.Unit,
-                [`Outside Rate ${tier.toUpperCase()} (Rs.)`]: rate ? finance.tierValueOf(rate, tier) : 0,
-                'Outside Amount (Rs.)': cmp.outsidePrice,
-                'Savings (Rs.)': money.round2(cmp.outsidePrice - ourAmt),
+                'Market Mid Rate (Rs.)': marketUnit,
+                'Market Mid Amount (Rs.)': marketAmt,
+                'Vs Market (Rs.)': money.round2(marketAmt - ourAmt),
             };
         });
 
@@ -1588,10 +1597,10 @@ app.get('/api/invoices/:id/compare-export', async (req, res) => {
 
         excelRows.push({});
         excelRows.push({ 'Description': 'OUR COST', 'Our Cost (Rs.)': ourCostSubtotal, 'Job Profit (Rs.)': money.round2(ourSubtotal - ourCostSubtotal) });
-        excelRows.push({ 'Description': 'SUBTOTAL', 'Our Amount (Rs.)': ourSubtotal, 'Outside Amount (Rs.)': outsideSubtotal, 'Savings (Rs.)': money.round2(outsideSubtotal - ourSubtotal) });
-        excelRows.push({ 'Description': `SSCL (${ssclRate}%)`, 'Our Amount (Rs.)': ourSscl, 'Outside Amount (Rs.)': outsideSscl, 'Savings (Rs.)': outsideSscl - ourSscl });
-        excelRows.push({ 'Description': `VAT (${vatRate}%)`, 'Our Amount (Rs.)': ourVat, 'Outside Amount (Rs.)': outsideVat, 'Savings (Rs.)': outsideVat - ourVat });
-        excelRows.push({ 'Description': 'GRAND TOTAL', 'Our Amount (Rs.)': ourGrand, 'Outside Amount (Rs.)': outsideGrand, 'Savings (Rs.)': netSavings });
+        excelRows.push({ 'Description': 'SUBTOTAL', 'Our Price (Rs.)': ourSubtotal, 'Market Mid Amount (Rs.)': outsideSubtotal, 'Vs Market (Rs.)': money.round2(outsideSubtotal - ourSubtotal) });
+        excelRows.push({ 'Description': `SSCL (${ssclRate}%)`, 'Our Price (Rs.)': ourSscl, 'Market Mid Amount (Rs.)': outsideSscl, 'Vs Market (Rs.)': outsideSscl - ourSscl });
+        excelRows.push({ 'Description': `VAT (${vatRate}%)`, 'Our Price (Rs.)': ourVat, 'Market Mid Amount (Rs.)': outsideVat, 'Vs Market (Rs.)': outsideVat - ourVat });
+        excelRows.push({ 'Description': 'GRAND TOTAL', 'Our Price (Rs.)': ourGrand, 'Market Mid Amount (Rs.)': outsideGrand, 'Vs Market (Rs.)': netSavings });
 
         const ws = xlsx.utils.json_to_sheet(excelRows);
 

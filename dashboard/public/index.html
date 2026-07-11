@@ -629,13 +629,7 @@
                                     <p id="compare-inv-meta" style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">...</p>
                                 </div>
                                 <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                                    <label style="font-size:13px; color:var(--text-muted);">Compare vs
-                                        <select id="compare-tier" class="form-control" style="display:inline-block; width:auto; padding:6px 10px; margin-left:6px;" onchange="reloadComparison()">
-                                            <option value="low">Low (import)</option>
-                                            <option value="mid" selected>Mid (brand)</option>
-                                            <option value="high">High (OEM)</option>
-                                        </select>
-                                    </label>
+                                    <span style="font-size:13px; color:var(--text-muted);">Our Cost · Our Price · Market (Mid)</span>
                                     <button class="btn btn-primary" id="btnExportSingleCompare" onclick="">
                                         <i class="ri-file-excel-line"></i> Export
                                     </button>
@@ -658,7 +652,7 @@
                                         <i class="ri-money-dollar-circle-fill"></i>
                                     </div>
                                     <div class="stat-details">
-                                        <h3 style="font-size: 12px;">Outside Grand Total</h3>
+                                        <h3 style="font-size: 12px;">Market (Mid) Grand Total</h3>
                                         <p id="compare-stat-outside" style="font-size: 20px; font-weight: 700;">Rs. 0.00</p>
                                     </div>
                                 </div>
@@ -667,7 +661,7 @@
                                         <i class="ri-wallet-line"></i>
                                     </div>
                                     <div class="stat-details">
-                                        <h3 style="font-size: 12px;">Customer Savings vs Outside</h3>
+                                        <h3 style="font-size: 12px;">Customer Savings vs Market</h3>
                                         <p id="compare-stat-savings" style="font-size: 20px; font-weight: 700; color: #10b981;">Rs. 0.00</p>
                                     </div>
                                 </div>
@@ -692,8 +686,8 @@
                                     <thead>
                                         <tr>
                                             <th>Cost Component</th>
-                                            <th class="num">Billed Amount (Our System)</th>
-                                            <th class="num">Outside Market Amount</th>
+                                            <th class="num">Our Price</th>
+                                            <th class="num">Market (Mid)</th>
                                             <th class="num">Your LKR Savings</th>
                                         </tr>
                                     </thead>
@@ -736,12 +730,12 @@
                                         <thead>
                                             <tr>
                                                 <th>Description</th>
-                                                <th class="num">Billed Qty</th>
-                                                <th class="num">Our Total</th>
+                                                <th class="num">Qty</th>
                                                 <th class="num">Our Cost</th>
+                                                <th class="num">Our Price</th>
                                                 <th class="num">Profit</th>
-                                                <th class="num">Outside Total</th>
-                                                <th class="num">Savings</th>
+                                                <th class="num">Market (Mid)</th>
+                                                <th class="num">Vs Market</th>
                                             </tr>
                                         </thead>
                                         <tbody id="compare-items-tbody"></tbody>

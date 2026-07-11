@@ -109,7 +109,7 @@ async function run() {
                ProductName = ${q(it.productName)},
                SpecificationCode = ${q(it.specificationCode)}, [Size] = ${q(it.size)},
                Description = ${q(desc)}, Qty = ${n(setQty)}, Unit = ${q(it.unit)},
-               Price = ${n(it.price)}, Cost = ${n(it.cost)}, UpdatedAt = Now()
+               Price = ${n(it.price)}, Cost = ${n(it.cost)}, MarketMid = ${n(it.marketMid, 0)}, UpdatedAt = Now()
              WHERE InventoryID = ${n(match.InventoryID)}`);
         }
         log.updated.push(it.uniqueId);
@@ -117,8 +117,8 @@ async function run() {
         log.added.push(`${it.no} ${it.specificationCode || it.uniqueId} (${it.description})`);
         if (!DRY_RUN) {
           await connection.execute(
-            `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, CreatedAt, UpdatedAt)
-             VALUES (${q(it.uniqueId)}, ${q(it.productName)}, ${q(it.specificationCode)}, ${q(it.size)}, ${q(desc)}, 0, ${n(it.stockQty)}, ${q(it.unit)}, ${n(it.price)}, ${n(it.cost)}, Now(), Now())`);
+            `INSERT INTO Inventory (UniqueID, ProductName, SpecificationCode, [Size], Description, [Length], Qty, Unit, Price, Cost, MarketMid, CreatedAt, UpdatedAt)
+             VALUES (${q(it.uniqueId)}, ${q(it.productName)}, ${q(it.specificationCode)}, ${q(it.size)}, ${q(desc)}, 0, ${n(it.stockQty)}, ${q(it.unit)}, ${n(it.price)}, ${n(it.cost)}, ${n(it.marketMid, 0)}, Now(), Now())`);
         }
       }
     } catch (e) {
