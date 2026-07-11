@@ -6,7 +6,8 @@
 This is the analysis behind the inventory update. The uploaded datasheet is the
 **authoritative record** of the shipment — 84 line items with the correct received
 quantity, our **landed cost** (CIF × duty) and the **market / sell price** for each
-item. The system's old inventory came from a rough material-issue sheet
+item. Of those, **83 are sellable stock** loaded into the catalogue; the 84th line,
+the tube swaging machine, is the workshop's own crimping equipment and is excluded. The system's old inventory came from a rough material-issue sheet
 (`Hydraulic Items.xlsx`, 71 lines) that had **no cost data, flat placeholder prices,
 several wrong quantities, missing items, and stock that never actually arrived.**
 
@@ -19,7 +20,7 @@ datasheet — all findings confirmed, zero discrepancies.
 
 | | Old system | Now |
 |---|---|---|
-| Items in catalogue | 71 rough lines | **84 authoritative items** |
+| Items in catalogue | 71 rough lines | **83 authoritative items** |
 | Unit **cost** tracked | none (0) | **every item** (landed LKR) |
 | Sell price | flat 400 / 450 / 1,125 | **per-item market price** |
 | Quantity errors | 6 | **fixed** |
@@ -81,13 +82,17 @@ are flagged *ON ORDER*.
 
 ## 4. On-order items (short-shipped) — kept at Qty 0
 
-Seven line items were ordered but not received; they stay in the catalogue at
+Six connector line items were ordered but not received; they stay in the catalogue at
 **Qty 0** so they are ready to receive when the supplier ships them, and so
 received items are not over-costed. Follow up with the supplier (see the datasheet's
-*Not received* sheet — estimated value **USD 1,946 / LKR 747,910**).
+*Not received* sheet — estimated value **USD 246 / LKR 94,600**).
 
 `22611-16-16` · `22611-20-20W` · `22691-04-04` · `22691-06-06` · `22691-08-08` ·
-`22611D-04-04` · `R32ELD-380V` (tube swaging machine)
+`22611D-04-04`
+
+*(The tube swaging machine `R32ELD-380V` was also short-shipped, but it is the
+workshop's own crimping equipment — not stock for sale — so it is excluded from the
+inventory. Its supplier claim of USD 1,700 is tracked separately.)*
 
 ## 5. Price corrections — including items sold below cost
 
@@ -110,7 +115,7 @@ in the dashboard — override any line with your own quoted price.
 
 ## How to apply this to your system
 
-All 84 corrected items live in `dashboard/data/shipment-HS25E1112W1.json` (the source
+All 83 corrected items live in `dashboard/data/shipment-HS25E1112W1.json` (the source
 of truth). Pick whichever path fits your situation:
 
 - **One-click, through the dashboard** — Inventory → **Import**, choose

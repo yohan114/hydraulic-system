@@ -12,8 +12,7 @@
       41,
       42,
       43,
-      44,
-      84
+      44
     ],
     "currency": "LKR",
     "priceBasis": "VAT-exclusive. Cost = landed (CIF x duty). Price = sell (market Mid for hoses/unions/flanges; cost+60% floor for ferrules).",
@@ -1430,23 +1429,6 @@
       "cost": 1774,
       "price": 6525,
       "marketMid": 6525
-    },
-    {
-      "no": 84,
-      "uniqueId": "R32ELD-380V",
-      "category": "Machine",
-      "subtype": "Swaging m/c",
-      "productName": "Tube swaging machine",
-      "specificationCode": "R32ELD-380V",
-      "size": "1/4\"-2\"",
-      "description": "Tube swaging machine, crimp 1/4\"-2\" 6-51mm 4SH, 12 die sets, 4kW, 380V 3ph, 310kg",
-      "unit": "Unit",
-      "orderedQty": 1,
-      "received": false,
-      "stockQty": 0,
-      "cost": 653310,
-      "price": 1045296,
-      "marketMid": null
     }
   ]
 }
