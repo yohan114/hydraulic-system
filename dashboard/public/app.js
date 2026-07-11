@@ -154,8 +154,14 @@ function invalidateCache(...keys) {
 function round2(value) {
     const n = Number(value);
     if (!isFinite(n)) return 0;
-    const shifted = Number(`${n}e2`);
-    if (!isFinite(shifted)) return Math.round(n * 100) / 100;
+    // Snap floating-point noise to 15 significant digits BEFORE scaling, exactly
+    // like server lib/money.js. Without this, a product such as 0.025 * 1.4 lands
+    // one ULP below the 0.035 tie and the preview/print rounds DOWN to 0.03 while
+    // the server stores 0.04 — making the printed bill disagree with the DB.
+    const snapped = Number(n.toPrecision(15));
+    const base = isFinite(snapped) ? snapped : n;
+    const shifted = Number(`${base}e2`);
+    if (!isFinite(shifted)) return Math.round(base * 100) / 100;
     const rounded = Math.sign(shifted) * Math.round(Math.abs(shifted));
     const out = Number(`${rounded}e-2`);
     return Object.is(out, -0) ? 0 : out;
