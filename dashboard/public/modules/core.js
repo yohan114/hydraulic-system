@@ -430,6 +430,7 @@ function showSection(sectionId) {
         'invoice-comparison': 'Invoice Comparison',
         'price-analysis': 'Price Analysis',
         'bill-comparison': 'Cost vs Our Bill vs Market Bill',
+        'job-profit': 'Job Profit Analysis',
         'users': 'Users & Roles',
         'labour': 'Labour',
         'expenses': 'Expenses',
@@ -447,6 +448,7 @@ function showSection(sectionId) {
     else if (sectionId === 'invoice-comparison') loadInvoiceComparisonList();
     else if (sectionId === 'price-analysis') loadPriceAnalysis();
     else if (sectionId === 'bill-comparison') loadBillComparison();
+    else if (sectionId === 'job-profit') loadJobProfit();
     else if (sectionId === 'labour') loadLabour();
     else if (sectionId === 'expenses') loadExpenses();
     else if (sectionId === 'reports') loadReports();

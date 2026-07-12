@@ -71,6 +71,7 @@ async function loadDashboard(opts = {}) {
         showSkeleton('recent-invoices-tbody', 4, 4);
         showSkeleton('recent-movements-tbody', 5, 4);
     }
+    if (typeof loadUnpaidLabour === 'function') loadUnpaidLabour(); // dashboard card + nav badge
     try {
         const res = await authFetch(`${API_URL}/dashboard`);
         const data = await res.json();

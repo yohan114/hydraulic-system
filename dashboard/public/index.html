@@ -99,6 +99,10 @@
                 <a href="#" class="nav-item" data-target="bill-comparison">
                     <i class="ri-scan-2-line"></i> Cost vs Bill vs Market
                 </a>
+                <a href="#" class="nav-item" data-target="job-profit">
+                    <i class="ri-bar-chart-grouped-line"></i> Job Profit Analysis
+                    <span class="nav-badge" id="jobProfitNavBadge" style="display:none;"></span>
+                </a>
                 <a href="#" class="nav-item" data-target="labour">
                     <i class="ri-team-line"></i> Labour
                 </a>
@@ -176,6 +180,16 @@
                                 <h3>Outstanding Receivables</h3>
                                 <p id="stat-outstanding" style="font-size: 22px;">Rs. 0.00</p>
                                 <span id="stat-outstanding-count" style="font-size:12px;color:var(--text-muted);">0 invoices unpaid</span>
+                            </div>
+                        </div>
+                        <div class="stat-card" style="border-left: 4px solid #dc2626; cursor:pointer;" onclick="document.querySelector('.nav-item[data-target=job-profit]')?.click();" title="Open Job Profit Analysis">
+                            <div class="stat-icon" style="background: rgba(220,38,38,0.1); color: #dc2626;">
+                                <i class="ri-tools-line"></i>
+                            </div>
+                            <div class="stat-details">
+                                <h3>Unpaid Labour (Technical/Crimping)</h3>
+                                <p id="stat-unpaid-labour" style="font-size: 22px;">Rs. 0.00</p>
+                                <span id="stat-unpaid-labour-count" style="font-size:12px; color:var(--text-muted);">0 jobs unpaid</span>
                             </div>
                         </div>
                     </div>
@@ -694,6 +708,61 @@
                                 <tbody id="users-tbody"></tbody>
                             </table>
                         </div>
+                    </div>
+                </section>
+
+                <!-- Job Profit Analysis Section -->
+                <section id="job-profit" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Job Profit Analysis</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" onclick="exportJobProfitPdf()"><i class="ri-file-pdf-2-line"></i> Export PDF</button>
+                            <button class="btn btn-secondary" onclick="exportJobProfitExcel()"><i class="ri-file-excel-line"></i> Export Excel</button>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:14px 18px;margin-bottom:16px;">
+                        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+                            <div><label style="font-size:12px;color:var(--text-muted);">Month</label><input type="month" id="jp-month" class="form-control" onchange="jpOnMonth()"></div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">From</label><input type="date" id="jp-from" class="form-control"></div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">To</label><input type="date" id="jp-to" class="form-control"></div>
+                            <div>
+                                <label style="font-size:12px;color:var(--text-muted);">Invoices</label>
+                                <input type="text" id="jp-invoice-search" class="form-control" placeholder="Search #..." style="width:150px;margin-bottom:4px;" oninput="jpFilterInvoiceOptions()">
+                                <select id="jp-invoices" class="form-control" multiple size="3" style="width:150px;"></select>
+                            </div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">Labour status</label>
+                                <select id="jp-status" class="form-control">
+                                    <option value="all">All</option>
+                                    <option value="unpaid">Unpaid Technical Charges</option>
+                                    <option value="paid">Paid</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-primary" onclick="generateJobProfit()"><i class="ri-refresh-line"></i> Generate Report</button>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid" style="margin-bottom:16px;">
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-bill-line"></i></div><div class="stat-details"><h3>Our Total Bill</h3><p id="jp-kpi-bill" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,.1);color:#f59e0b;"><i class="ri-price-tag-3-line"></i></div><div class="stat-details"><h3>Our Material Cost</h3><p id="jp-kpi-cost" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="ri-store-2-line"></i></div><div class="stat-details"><h3>Outside Market Cost</h3><p id="jp-kpi-outside" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Gross Profit</h3><p id="jp-kpi-profit" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
+                        <div class="stat-card" style="border-left:4px solid #dc2626;"><div class="stat-icon" style="background:rgba(220,38,38,.1);color:#dc2626;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Unpaid Technical Charges</h3><p id="jp-kpi-unpaid" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-unpaid-count" style="font-size:12px;color:var(--text-muted);">0 jobs</span></div></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr>
+                                    <th>Invoice #</th><th>Date</th><th>Customer</th>
+                                    <th class="num">Our Cost (Billed)</th><th class="num">Outside Cost</th>
+                                    <th class="num">Profit/Loss</th><th class="num">Margin %</th><th class="num">Technical Charges</th>
+                                    <th>Labour Status</th><th>Actions</th>
+                                </tr></thead>
+                                <tbody id="job-profit-tbody"></tbody>
+                            </table>
+                        </div>
+                        <div id="jp-footer" class="jp-footer"></div>
                     </div>
                 </section>
 
@@ -1469,5 +1538,6 @@
     <script src="modules/invoice.js"></script>
     <script src="modules/dashboard.js"></script>
     <script src="modules/bill-comparison.js"></script>
+    <script src="modules/job-profit.js"></script>
 </body>
 </html>

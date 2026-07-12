@@ -539,3 +539,13 @@ html.role-viewer .hide-from-viewer { display: none !important; }
 /* Bill Comparison — warning chips */
 .bc-warn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
 .bc-warn { display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; }
+
+/* Job Profit Analysis — summary footer + nav badge */
+.jp-footer { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 20px; border-top: 2px solid var(--ink); background: var(--bg-color, #f8fafc); }
+.jp-foot-cell { flex: 1; min-width: 130px; display: flex; flex-direction: column; }
+.jp-foot-cell .k { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); }
+.jp-foot-cell .v { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.jp-foot-cell.jp-unpaid { min-width: 220px; }
+.jp-foot-cell.jp-unpaid .k { color: #dc2626; font-weight: 700; }
+.jp-foot-cell.jp-unpaid .v { font-size: 22px; font-weight: 800; color: #dc2626; }
+.nav-badge { background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 7px; margin-left: 6px; }
