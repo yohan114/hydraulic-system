@@ -65,7 +65,9 @@ const COLUMN_ENSURES = {
     // Supplier link + last-purchase tracking (cost accuracy) + per-item reorder threshold.
     SupplierID: 'INTEGER', LastPurchasePrice: 'REAL', LastPurchaseDate: 'TEXT', ReorderLevel: 'REAL',
   },
-  Invoices: { Discount: 'REAL', RoundOff: 'REAL', AmountPaid: 'REAL', PaymentStatus: 'TEXT', CancelledAt: 'TEXT', CancelReason: 'TEXT' },
+  Invoices: { Discount: 'REAL', RoundOff: 'REAL', AmountPaid: 'REAL', PaymentStatus: 'TEXT', CancelledAt: 'TEXT', CancelReason: 'TEXT',
+    // Whether this job's technical/crimping (labour) charge has been paid out to the worker.
+    TechChargePaid: 'INTEGER' },
   RateCard: { Category: 'TEXT', OutsideLow: 'REAL', OutsideMid: 'REAL', OutsideHigh: 'REAL' },
   Users: { Role: 'TEXT' },
   // Cost-vs-bill-vs-market snapshot captured per line at billing time.
@@ -128,6 +130,7 @@ async function ensureSchema(conn) {
     'UPDATE Inventory SET ReorderLevel = 5 WHERE ReorderLevel IS NULL',
     // Any pre-roles user rows are administrators (there was only ever one admin).
     "UPDATE Users SET Role = 'admin' WHERE Role IS NULL OR Role = ''",
+    'UPDATE Invoices SET TechChargePaid = 0 WHERE TechChargePaid IS NULL',
   ];
   for (const s of backfills) { try { db.exec(s); } catch (_) {} }
 
