@@ -3,6 +3,7 @@ const connection = require('../db');
 const money = require('../lib/money');
 const finance = require('../lib/finance');
 const sql = require('../lib/sql');
+const pricingEngine = require('./pricingEngine');
 
 async function loadRateCard() {
     // No ORDER BY on Category — an un-migrated DB may not have that column yet,
@@ -65,6 +66,14 @@ function matchLineRate(rates, item) {
 // (e.g. a hose or crimping technical charge) fall back to a Rate Card match by size.
 
 function lineMarketMid(rates, item) {
+    // Priority-1: an exact outside-company benchmark (what the customer pays
+    // elsewhere) overrides the stored datasheet mid for the comparison.
+    const outside = pricingEngine.outsideMarketForItem({
+        specCode: item.SpecificationCode,
+        description: item.ProductName || item.ItemDescription,
+        hoseSize: item.Size,
+    });
+    if (outside && outside.price > 0) return outside.price;
     const mm = money.num(item.MarketMid);
     if (mm > 0) return mm;
     const rate = matchLineRate(rates, item);

@@ -1,54 +1,62 @@
 'use strict';
 
 /**
- * Bulk reprice — set each inventory item's selling Price to a fixed discount
- * below its market-mid benchmark, floored at cost (never below cost):
+ * Bulk reprice — bring every inventory item in line with the current pricing
+ * model, so all price-showing screens (Inventory, Price Analysis, Invoice
+ * Comparison, Cost vs Bill vs Market) display the same figures the invoice
+ * editor now bills at:
  *
- *     Price = max( round2(MarketMid × (1 − pct/100)), Cost )
+ *   MarketMid = resolved market  (outside-company benchmark → datasheet mid)
+ *   Price     = suggested bill   = max(Cost, Market × 0.80)   [ferrules: max(Cost × 1.25, Market × 0.80)]
  *
- * Only the default Price used for FUTURE invoices changes. Finalized invoices
- * store their own rates and are unaffected; items with no market-mid benchmark
- * are left as-is.
+ * Only the item catalogue is touched (Price / MarketMid / UpdatedAt). Finalized
+ * invoices keep their own billing-time snapshots and are unaffected; stock,
+ * customers, and payments are untouched.
  *
  * Usage:
- *   node reprice.js               # dry run at 40% below mid (no writes)
- *   node reprice.js 40 --apply    # apply 40% below market mid
- *   node reprice.js 30 --apply    # apply 30% below market mid
+ *   node reprice.js            # dry run (shows what would change, no writes)
+ *   node reprice.js --apply    # apply
  */
 
 const connection = require('./db');
 const money = require('./lib/money');
 const sql = require('./lib/sql');
+const engine = require('./services/pricingEngine');
 
 async function main() {
-  const pct = Number.isFinite(Number(process.argv[2])) ? Number(process.argv[2]) : 40;
   const apply = process.argv.includes('--apply');
-  const factor = 1 - pct / 100;
 
-  const items = await connection.query('SELECT InventoryID, ProductName, Price, Cost, MarketMid FROM Inventory');
-  let repriced = 0;
-  let floored = 0;
-  let skippedNoMid = 0;
+  const items = await connection.query('SELECT InventoryID, ProductName, SpecificationCode, Size, Price, Cost, MarketMid FROM Inventory');
+  let priceChanged = 0, marketChanged = 0, outside = 0;
+  const preview = [];
 
   for (const it of items) {
-    const mid = money.num(it.MarketMid);
-    const cost = money.num(it.Cost);
-    if (mid <= 0) { skippedNoMid++; continue; }
+    const grade = String(it.ProductName || '').trim().split(/\s+/)[0];
+    const mk = engine.resolveMarket({
+      specCode: it.SpecificationCode, hoseGrade: grade, hoseSize: it.Size,
+      description: it.ProductName, fallbackMarket: it.MarketMid,
+    });
+    const ferrule = engine.isFerrule(it.SpecificationCode);
+    const s = engine.suggestFromCostMarket(it.Cost, mk.marketPrice, { ferrule });
 
-    let newPrice = money.round2(mid * factor);
-    if (newPrice < cost) { newPrice = money.round2(cost); floored++; }
-    if (money.round2(money.num(it.Price)) !== newPrice) repriced++;
+    const newMarket = money.round2(mk.marketPrice);
+    const newPrice = money.round2(s.suggestedUnit);
+    if (mk.marketSource === 'outside-benchmark') outside++;
+    if (money.round2(money.num(it.MarketMid)) !== newMarket) marketChanged++;
+    if (money.round2(money.num(it.Price)) !== newPrice) priceChanged++;
+    if (preview.length < 12) preview.push(`${it.SpecificationCode}: Price ${money.num(it.Price)}→${newPrice} · Mkt ${money.num(it.MarketMid)}→${newMarket} (${mk.marketSource})`);
 
     if (apply) {
       await connection.execute(
-        `UPDATE Inventory SET Price = ${newPrice}, UpdatedAt = Now() WHERE InventoryID = ${sql.n(it.InventoryID)}`
+        `UPDATE Inventory SET Price = ${newPrice}, MarketMid = ${newMarket}, UpdatedAt = Now() WHERE InventoryID = ${sql.n(it.InventoryID)}`
       );
     }
   }
 
-  console.log(`${apply ? 'APPLIED' : 'DRY RUN'} — Price = MarketMid × ${factor.toFixed(2)} (${pct}% below mid), floored at cost`);
-  console.log(`items: ${items.length} | changed: ${repriced} | floored at cost: ${floored} | no market mid (left as-is): ${skippedNoMid}`);
-  if (!apply) console.log('No changes written. Re-run with --apply to persist.');
+  console.log(`${apply ? 'APPLIED' : 'DRY RUN'} — Price = 80% of resolved market (floored at cost; ferrules at cost×1.25); MarketMid = outside benchmark where available.`);
+  console.log(`items: ${items.length} | price changes: ${priceChanged} | market changes: ${marketChanged} | outside-benchmark matches: ${outside}`);
+  console.log('sample:'); preview.forEach((p) => console.log('  ' + p));
+  if (!apply) console.log('\nNo changes written. Re-run with --apply to persist.');
 }
 
 main().catch((e) => { console.error('Reprice failed:', e.message); process.exit(1); });

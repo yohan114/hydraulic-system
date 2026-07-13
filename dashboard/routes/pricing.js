@@ -86,10 +86,15 @@ async function reconcileInventory(master, { write } = {}) {
     let hit = engine.lookupFitting(r.SpecificationCode, master);
     if (!hit) hit = engine.lookupHose({ grade, size: r.Size, description: r.ProductName }, master);
     if (!hit) { unmatched.push({ id: r.InventoryID, name: r.ProductName, spec: r.SpecificationCode }); continue; }
-    matched.push({ id: r.InventoryID, cost: money.round2(hit.costUnit), market: money.round2(hit.marketUnit), source: hit.source });
+    // Market by priority (outside benchmark → datasheet), and the suggested sell
+    // (80% of market, floored at cost; ferrules at cost×1.25) so every screen
+    // that reads Inventory shows the same figures the invoice editor bills at.
+    const mk = engine.resolveMarket({ specCode: r.SpecificationCode, hoseGrade: grade, hoseSize: r.Size, description: r.ProductName, fallbackMarket: hit.marketUnit });
+    const sug = engine.suggestFromCostMarket(hit.costUnit, mk.marketPrice, { ferrule: engine.isFerrule(r.SpecificationCode) });
+    matched.push({ id: r.InventoryID, cost: money.round2(hit.costUnit), market: mk.marketPrice, price: sug.suggestedUnit, source: mk.marketSource });
     if (write) {
       await connection.execute(
-        `UPDATE Inventory SET Cost = ${money.round2(hit.costUnit)}, MarketMid = ${money.round2(hit.marketUnit)}, UpdatedAt = Now() WHERE InventoryID = ${sql.n(r.InventoryID)}`
+        `UPDATE Inventory SET Cost = ${money.round2(hit.costUnit)}, MarketMid = ${mk.marketPrice}, Price = ${sug.suggestedUnit}, UpdatedAt = Now() WHERE InventoryID = ${sql.n(r.InventoryID)}`
       );
     }
   }
