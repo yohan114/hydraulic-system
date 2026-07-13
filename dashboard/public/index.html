@@ -395,6 +395,7 @@
                                   <button type="button" onclick="addCustomRow()">+ Add Custom Row</button>
                                   <button type="button" onclick="addStandardCharges()">+ Add Technical Charges</button>
                                   <button type="button" onclick="openCrimpingModal()">+ Add Crimping</button>
+                                  <button type="button" onclick="openWeldingModal()">+ Add Welding Extra</button>
                                 </div>
                               </div>
 
@@ -1328,6 +1329,45 @@
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('crimpingModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add to Invoice</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Welding Extra Modal (optional per-hose welding labour, by size + wire type) -->
+    <div id="weldingModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>Add Welding Extra</h2>
+                <button class="close-btn" onclick="closeModal('weldingModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="weldingForm" onsubmit="addWeldingLine(event)">
+                    <div style="display:flex;gap:12px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>Hose Size</label>
+                            <select id="weld-size" class="form-control" onchange="updateWeldingPreview()"></select>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>Wire Type</label>
+                            <select id="weld-wire" class="form-control" onchange="updateWeldingPreview()">
+                                <option value="2-wire">2-wire (R2 / 2SN / 1SN)</option>
+                                <option value="4-wire">4-wire (4SP / 4SH)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Welded ends</label>
+                        <input type="number" id="weld-ends" class="form-control" value="1" min="1" max="2" step="1" oninput="updateWeldingPreview()">
+                    </div>
+                    <small style="color:var(--text-muted);display:block;margin-top:-6px;margin-bottom:10px;">Optional welding labour, billed as its own line — never merged into crimping or technical charges. One flat welding-extra charge per job by default.</small>
+                    <div class="form-group" style="background:var(--bg-color,#f8fafc);border:1px solid var(--border-color,#e5e7eb);border-radius:8px;padding:12px 14px;">
+                        <span id="weld-preview" style="font-size:14px;"></span>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('weldingModal')">Cancel</button>
                         <button type="submit" class="btn btn-primary">Add to Invoice</button>
                     </div>
                 </form>

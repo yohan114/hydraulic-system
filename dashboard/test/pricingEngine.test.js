@@ -182,6 +182,36 @@ test('getCrimpingPricing flags a manual billed rate below internal cost', () => 
   assert.match(r.warning, /below internal cost/);
 });
 
+// ---- welding extra: wire-type optional labour charge ----
+test('getWeldingExtraPricing returns the 2-wire welding-extra rate (flat per job)', () => {
+  const r = eng.getWeldingExtraPricing({ hoseWireType: '2-wire', hoseSize: '1/2"', weldedEnds: 2 });
+  assert.equal(r.hoseWireType, '2-wire');
+  assert.equal(r.assemblyRate, 1200);
+  assert.equal(r.weldingExtraRate, 600);
+  assert.equal(r.weldedEnds, 2);
+  assert.equal(r.mode, 'flat-per-job');
+  assert.equal(r.weldingExtraTotal, 600); // flat: not multiplied by ends
+  assert.equal(r.note, null);
+});
+
+test('getWeldingExtraPricing uses the 4-wire table when selected', () => {
+  const r = eng.getWeldingExtraPricing({ hoseWireType: '4SH', hoseSize: '3/4"' });
+  assert.equal(r.hoseWireType, '4-wire');
+  assert.equal(r.assemblyRate, 2000);
+  assert.equal(r.weldingExtraRate, 1000);
+});
+
+test('getWeldingExtraPricing 4-wire 1-1/4" = 2000 (photo, not the 1800 typo)', () => {
+  const r = eng.getWeldingExtraPricing({ hoseWireType: '4-wire', hoseSize: '1-1/4"' });
+  assert.equal(r.weldingExtraRate, 2000);
+});
+
+test('getWeldingExtraPricing notes an undefined size', () => {
+  const r = eng.getWeldingExtraPricing({ hoseWireType: '4-wire', hoseSize: '1/4"' });
+  assert.equal(r.weldingExtraRate, 0);
+  assert.match(r.note, /No 4-wire welding-extra rate/);
+});
+
 // ---- import parses the bundled workbook ----
 test('importWorkbook parses the datasheet into keyed maps', () => {
   const parsed = imp.parseWorkbook(imp.DEFAULT_WORKBOOK_PATH);

@@ -36,6 +36,11 @@ const FERRULE_COST_MULTIPLIER = 1.25;
 const DEFAULT_MASTER_PATH = path.join(__dirname, '..', 'data', 'pricing-master.json');
 const DEFAULT_BENCHMARK_PATH = path.join(__dirname, '..', 'data', 'outside-benchmark.json');
 const DEFAULT_CRIMPING_PATH = path.join(__dirname, '..', 'data', 'crimping-rates.json');
+const DEFAULT_WELDING_PATH = path.join(__dirname, '..', 'data', 'welding-extra.json');
+
+// How the welding-extra charge scales with welded ends. The shop sheet pairs ONE
+// extra amount with each assembly line, so the default is a flat per-job charge.
+const WELDING_EXTRA_MODE = 'flat-per-job'; // 'flat-per-job' | 'per-end'
 
 // Where a line's MARKET price came from, in priority order (Task 4).
 const MARKET_SOURCE = {
@@ -216,7 +221,53 @@ function loadMaster(masterPath = DEFAULT_MASTER_PATH) {
 }
 
 // Drop the cache so the next lookup re-reads the file (call after an import).
-function clearCache() { _cache = null; _cachePath = null; _benchCache = null; _crimpCache = null; }
+function clearCache() { _cache = null; _cachePath = null; _benchCache = null; _crimpCache = null; _weldCache = null; }
+
+// ---------------------------------------------------------------------------
+// Welding Extra — optional additional labour charge for hose jobs that need
+// welding, by hose size + wire type. Self-contained: this section drives ONLY
+// the welding-extra line and does not touch hose / fitting / crimping pricing.
+// ---------------------------------------------------------------------------
+
+let _weldCache = null;
+function loadWeldingExtra(weldPath = DEFAULT_WELDING_PATH) {
+  if (_weldCache) return _weldCache;
+  try { _weldCache = JSON.parse(fs.readFileSync(weldPath, 'utf8')); }
+  catch (_) { _weldCache = { sizes2Wire: [], sizes4Wire: [], twoWire: {}, fourWire: {} }; }
+  return _weldCache;
+}
+
+/**
+ * Welding-extra pricing for one hose job, by wire type + size + welded ends.
+ * Default billed = the sheet's welding-extra rate (flat per job); the assembly
+ * rate is returned for reference only (assembly is billed on its own crimping line).
+ *
+ * @param {{hoseWireType?:string, hoseSize:string, weldedEnds?:number}} p
+ * @returns {{hoseWireType,hoseSize,assemblyRate,weldingExtraRate,weldedEnds,weldingExtraTotal,mode,note}}
+ */
+function getWeldingExtraPricing(p = {}) {
+  const data = loadWeldingExtra();
+  const wire = wireTypeOf(p.hoseWireType);
+  const size = normSize(p.hoseSize);
+  const ends = Math.max(1, money.num(p.weldedEnds) || 1);
+  const table = wire === '4-wire' ? data.fourWire : data.twoWire;
+  const row = table[size];
+
+  let note = null;
+  let assemblyRate = 0, weldingExtraRate = 0;
+  if (!row) {
+    note = `No ${wire} welding-extra rate for ${size}" — enter it manually.`;
+  } else {
+    assemblyRate = money.round2(row.assembly);
+    weldingExtraRate = money.round2(row.weldingExtra);
+  }
+  // flat-per-job: one welding-extra charge; per-end: rate × welded ends.
+  const weldingExtraTotal = WELDING_EXTRA_MODE === 'per-end'
+    ? money.round2(weldingExtraRate * ends)
+    : money.round2(weldingExtraRate);
+
+  return { hoseWireType: wire, hoseSize: size, assemblyRate, weldingExtraRate, weldedEnds: ends, weldingExtraTotal, mode: WELDING_EXTRA_MODE, note };
+}
 
 // ---------------------------------------------------------------------------
 // Crimping — wire-type (2-wire vs 4-wire) shop rates. Self-contained: this
@@ -450,10 +501,12 @@ function suggestFromCostMarket(costUnit, marketUnit, opts = {}) {
 
 module.exports = {
   MARKET_FACTOR, FERRULE_COST_MULTIPLIER, STATUS, STATUS_LABEL, RULE, RULE_LABEL,
-  MARKET_SOURCE, DEFAULT_MASTER_PATH, DEFAULT_BENCHMARK_PATH, DEFAULT_CRIMPING_PATH,
+  MARKET_SOURCE, DEFAULT_MASTER_PATH, DEFAULT_BENCHMARK_PATH, DEFAULT_CRIMPING_PATH, DEFAULT_WELDING_PATH,
+  WELDING_EXTRA_MODE,
   normSize, normSpecCode, hoseKey, parseHose, MM_TO_INCH, isFerrule,
   suggestUnit, priceStatus, suggestFromCostMarket, ruleWarning,
   loadMaster, clearCache, loadBenchmark, outsideMarketForItem, resolveMarket,
   loadCrimpingRates, wireTypeOf, getCrimpingPricing,
+  loadWeldingExtra, getWeldingExtraPricing,
   lookupFitting, lookupHose, lookupCrimping, getPricingForItem,
 };

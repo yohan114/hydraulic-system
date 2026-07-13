@@ -147,6 +147,30 @@ router.get('/api/pricing/crimping', async (req, res) => {
   }
 });
 
+// Welding-extra options — WIRE-TYPE aware. Each size carries the assembly + the
+// welding-extra charge for 2-wire and 4-wire (null where undefined). Optional
+// per-hose labour charge; the UI switches wire type client-side.
+router.get('/api/pricing/welding-extra', async (req, res) => {
+  try {
+    const data = engine.loadWeldingExtra();
+    const sizes = (data.sizes2Wire && data.sizes2Wire.length) ? data.sizes2Wire : Object.keys(data.twoWire || {});
+    const rows = sizes.map((size) => {
+      const t2 = (data.twoWire || {})[size];
+      const t4 = (data.fourWire || {})[size];
+      return {
+        size,
+        assembly2Wire: t2 ? money.round2(t2.assembly) : null,
+        weldingExtra2Wire: t2 ? money.round2(t2.weldingExtra) : null,
+        assembly4Wire: t4 ? money.round2(t4.assembly) : null,
+        weldingExtra4Wire: t4 ? money.round2(t4.weldingExtra) : null,
+      };
+    });
+    res.json({ mode: engine.WELDING_EXTRA_MODE, rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Ad-hoc suggestion for a set of pricing params (see engine.getPricingForItem).
 router.get('/api/pricing/suggest', async (req, res) => {
   try {

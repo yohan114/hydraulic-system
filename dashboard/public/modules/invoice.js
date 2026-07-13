@@ -252,6 +252,104 @@ function addCrimpingLine(e) {
     renderInvoiceItems();
 }
 
+// ----------------------------------------------------
+// Welding Extra — optional per-hose welding labour, by size + wire type. Added as
+// its OWN clearly-labelled line ("Welding Extra — 2-wire 1/2\""); never merged
+// into crimping or technical charges. (Scoped to welding-extra only.)
+// ----------------------------------------------------
+let weldingRates = null; // { mode, rows: [{size, assembly2Wire, weldingExtra2Wire, assembly4Wire, weldingExtra4Wire}] }
+
+async function loadWeldingRates() {
+    if (weldingRates) return weldingRates;
+    try {
+        const res = await authFetch(`${API_URL}/pricing/welding-extra`);
+        const data = await res.json();
+        if (data && Array.isArray(data.rows)) weldingRates = data;
+    } catch (e) { console.error('Error loading welding-extra rates', e); }
+    return weldingRates;
+}
+
+async function openWeldingModal() {
+    await loadWeldingRates();
+    const sel = document.getElementById('weld-size');
+    if (!weldingRates || !weldingRates.rows.length) {
+        toast('No welding-extra rates found.', 'error');
+        return;
+    }
+    sel.innerHTML = weldingRates.rows.map((r) => `<option value="${escAttr(r.size)}">${escAttr(r.size)}"</option>`).join('');
+    document.getElementById('weld-wire').value = '2-wire';
+    document.getElementById('weld-ends').value = 1;
+    updateWeldingPreview();
+    openModal('weldingModal');
+}
+
+function selectedWeld() {
+    const size = document.getElementById('weld-size').value;
+    return weldingRates ? weldingRates.rows.find((r) => r.size === size) || null : null;
+}
+function weldWire() { return document.getElementById('weld-wire').value === '4-wire' ? '4-wire' : '2-wire'; }
+function weldEnds() { return Math.max(1, parseInt(document.getElementById('weld-ends').value, 10) || 1); }
+
+function weldRatesFor(r, wire) {
+    if (!r) return { assembly: null, extra: null };
+    if (wire === '4-wire') return { assembly: r.assembly4Wire, extra: r.weldingExtra4Wire };
+    return { assembly: r.assembly2Wire, extra: r.weldingExtra2Wire };
+}
+
+function updateWeldingPreview() {
+    const r = selectedWeld();
+    const el = document.getElementById('weld-preview');
+    if (!r) { el.textContent = ''; return; }
+    const wire = weldWire();
+    const ends = weldEnds();
+    const { assembly, extra } = weldRatesFor(r, wire);
+    const perEnd = (weldingRates && weldingRates.mode) === 'per-end';
+    const total = extra == null ? 0 : round2(perEnd ? extra * ends : extra);
+    let warn = '';
+    if (extra == null) {
+        warn = `<div style="color:#c2410c;font-weight:600;margin-top:6px;">⚠ No ${wire} welding-extra rate for ${escAttr(r.size)}".</div>`;
+    }
+    el.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;">
+            <span style="color:var(--text-muted);">Assembly (ref)</span><strong class="num" style="text-align:right;">${assembly != null ? formatCurrency(assembly) : '—'}</strong>
+            <span style="color:var(--text-muted);">Welding extra/${perEnd ? 'end' : 'job'} (${wire})</span><strong class="num" style="text-align:right;">${extra != null ? formatCurrency(extra) : '—'}</strong>
+            <span style="color:var(--text-muted);">Welded ends</span><strong class="num" style="text-align:right;">${ends}</strong>
+        </div>
+        <div style="border-top:1px solid var(--border-color,#e5e7eb);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;">
+            <span style="font-weight:600;">Welding extra total</span><strong class="num" style="font-size:16px;color:#047857;">${formatCurrency(total)}</strong>
+        </div>${warn}`;
+}
+
+function addWeldingLine(e) {
+    if (e) e.preventDefault();
+    const r = selectedWeld();
+    if (!r) return;
+    const wire = weldWire();
+    const ends = weldEnds();
+    const { extra } = weldRatesFor(r, wire);
+    if (extra == null) { toast(`No ${wire} welding-extra rate for ${r.size}".`, 'error'); return; }
+    const perEnd = (weldingRates && weldingRates.mode) === 'per-end';
+    // flat-per-job -> one line at the extra rate; per-end -> qty = welded ends.
+    const qty = perEnd ? ends : 1;
+    const rate = round2(extra);
+    invoiceItems.push({
+        id: nextItemId++,
+        inventoryId: null,
+        desc: `Welding Extra — ${wire} ${r.size}"${perEnd ? '' : ` (${ends} end${ends === 1 ? '' : 's'})`}`,
+        unit: perEnd ? 'end' : 'job',
+        length: 0,
+        qty,
+        rate,
+        cost: 0,                 // labour charge — no material cost in the sheet
+        marketMid: rate,         // benchmark = the shop welding-extra rate
+        suggested: rate,
+        source: 'welding-extra', // own category — kept separate from technical/crimping
+        maxQty: null,
+    });
+    closeModal('weldingModal');
+    renderInvoiceItems();
+}
+
 function removeInvoiceItem(id) {
     invoiceItems = invoiceItems.filter((i) => i.id !== id);
     renderInvoiceItems();
@@ -301,6 +399,7 @@ function getOutsideDesc(item) {
     const dl = d.toLowerCase();
     const unit = String(item.unit || '').toLowerCase();
     if (dl.includes('crimping')) return d;                       // already customer-friendly
+    if (dl.includes('welding')) return 'Welding charge';
     if (dl.includes('technical charge')) return 'Service charge';
     if (unit === 'm' || unit === 'ft') return 'Hydraulic hose supply & fitting';
     if (dl.includes('bsp straight') || d.includes('22611')) return 'Union fitting (BSP Straight)';
