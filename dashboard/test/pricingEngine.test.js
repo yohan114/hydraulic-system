@@ -75,13 +75,14 @@ test('getPricingForItem prices crimping per end (default 2 ends)', () => {
   assert.equal(r.rule, 'marketMinus20');
 });
 
-test('getPricingForItem prices a fitting by spec code', () => {
+test('getPricingForItem prices a fitting by spec code (outside benchmark wins)', () => {
   const r = eng.getPricingForItem({ type: 'fitting', specCode: '22611-04-04', qty: 3 });
   assert.equal(r.source, 'unit-prices');
+  assert.equal(r.marketSource, 'outside-benchmark');
   assert.equal(r.costUnit, 138.48);
-  assert.equal(r.marketUnit, 620);
-  assert.equal(r.suggestedUnit, 496); // 620 x 0.80
-  assert.equal(r.suggestedBill, 1488); // 496 x 3
+  assert.equal(r.marketUnit, 300); // outside 300 overrides the datasheet 620
+  assert.equal(r.suggestedUnit, 240); // 300 x 0.80, still above cost
+  assert.equal(r.suggestedBill, 720); // 240 x 3
   assert.equal(r.rule, 'marketMinus20');
 });
 
@@ -93,12 +94,13 @@ test('getPricingForItem applies the ferrule floor for a ferrule spec code', () =
   assert.equal(r.rule, 'marketMinus20');
 });
 
-test('getPricingForItem prices hose per metre from a description', () => {
+test('getPricingForItem prices hose per metre (outside benchmark wins)', () => {
   const r = eng.getPricingForItem({ type: 'hose', description: 'R2 hydraulic hose 1/2"', length: 4 });
   assert.equal(r.source, 'hose-cost-market');
-  assert.equal(r.marketUnit, 1900);
-  assert.equal(r.suggestedUnit, 1520); // 1900 x 0.80
-  assert.equal(r.suggestedBill, 6080); // 1520 x 4m
+  assert.equal(r.marketSource, 'outside-benchmark');
+  assert.equal(r.marketUnit, 2400); // outside 2400/m overrides the datasheet 1900
+  assert.equal(r.suggestedUnit, 1920); // 2400 x 0.80
+  assert.equal(r.suggestedBill, 7680); // 1920 x 4m
 });
 
 test('getPricingForItem returns a manual warning when nothing matches', () => {
@@ -106,6 +108,37 @@ test('getPricingForItem returns a manual warning when nothing matches', () => {
   assert.equal(r.source, 'manual');
   assert.equal(r.rule, 'manual');
   assert.match(r.warning, /No market benchmark/);
+});
+
+// ---- outside-company benchmark = priority-1 market source ----
+test('outsideMarketForItem matches a union spec code from the benchmark list', () => {
+  const r = eng.outsideMarketForItem({ specCode: '22611-04-04' });
+  assert.equal(r.source, 'outside-benchmark');
+  assert.equal(r.price, 300); // competitor counter price (datasheet mid was 620)
+});
+
+test('outsideMarketForItem matches hose by grade + size (2SN = R2)', () => {
+  const r = eng.outsideMarketForItem({ hoseGrade: 'R2', hoseSize: '1/2"' });
+  assert.equal(r.price, 2400); // outside per-metre (datasheet mid was 1900)
+});
+
+test('resolveMarket prefers the outside benchmark over the datasheet fallback', () => {
+  const r = eng.resolveMarket({ specCode: '22611-04-04', fallbackMarket: 620 });
+  assert.equal(r.marketPrice, 300);
+  assert.equal(r.marketSource, 'outside-benchmark');
+});
+
+test('resolveMarket falls back to the datasheet when no outside match', () => {
+  const r = eng.resolveMarket({ specCode: 'NOPE-1', fallbackMarket: 620 });
+  assert.equal(r.marketPrice, 620);
+  assert.equal(r.marketSource, 'datasheet-mid');
+});
+
+test('getPricingForItem uses the outside benchmark and suggests 80% of it', () => {
+  const r = eng.getPricingForItem({ type: 'fitting', specCode: '22611-04-04', qty: 1 });
+  assert.equal(r.marketSource, 'outside-benchmark');
+  assert.equal(r.marketUnit, 300);
+  assert.equal(r.suggestedUnit, 240); // 300 × 0.80, still above cost 138.48
 });
 
 // ---- import parses the bundled workbook ----

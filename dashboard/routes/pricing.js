@@ -38,18 +38,20 @@ function previewRows(master) {
   const rows = [];
   for (const [code, f] of Object.entries(master.fittings || {})) {
     const ferrule = engine.isFerrule(code) || engine.isFerrule(f.type);
-    const s = engine.suggestUnit(f.costLKR, f.sellLKR, { ferrule });
+    const mk = engine.resolveMarket({ specCode: code, fallbackMarket: f.sellLKR });
+    const s = engine.suggestUnit(f.costLKR, mk.marketPrice, { ferrule });
     rows.push({
       group: 'Fitting', key: code, label: `${f.type || ''} ${code}`.trim(), size: f.size || '',
-      unit: 'pc', ourCost: money.round2(f.costLKR), marketMid: money.round2(f.sellLKR),
+      unit: 'pc', ourCost: money.round2(f.costLKR), marketMid: mk.marketPrice, marketSource: mk.marketSource,
       suggested: s.suggested, marginPct: marginPct(f.costLKR, s.suggested), floored: s.floored, rule: s.rule, source: 'unit-prices',
     });
   }
   for (const [key, h] of Object.entries(master.hose || {})) {
-    const s = engine.suggestUnit(h.landedPerM, h.marketMidPerM);
+    const mk = engine.resolveMarket({ hoseGrade: h.grade, hoseSize: h.size, fallbackMarket: h.marketMidPerM });
+    const s = engine.suggestUnit(h.landedPerM, mk.marketPrice);
     rows.push({
       group: 'Hose', key, label: `${h.grade} ${h.size}"`, size: h.size,
-      unit: 'm', ourCost: money.round2(h.landedPerM), marketMid: money.round2(h.marketMidPerM),
+      unit: 'm', ourCost: money.round2(h.landedPerM), marketMid: mk.marketPrice, marketSource: mk.marketSource,
       suggested: s.suggested, marginPct: marginPct(h.landedPerM, s.suggested), floored: s.floored, rule: s.rule, source: 'hose-cost-market',
     });
   }
@@ -57,7 +59,7 @@ function previewRows(master) {
     const s = engine.suggestUnit(c.internalCostPerEnd, c.marketMid);
     rows.push({
       group: 'Crimping', key: size, label: `Crimp ${size}" (per end)`, size,
-      unit: 'end', ourCost: money.round2(c.internalCostPerEnd), marketMid: money.round2(c.marketMid),
+      unit: 'end', ourCost: money.round2(c.internalCostPerEnd), marketMid: money.round2(c.marketMid), marketSource: 'datasheet-mid',
       suggested: s.suggested, marginPct: marginPct(c.internalCostPerEnd, s.suggested), floored: s.floored, rule: s.rule, source: 'crimping-charges',
     });
   }
@@ -69,12 +71,12 @@ async function reconcileInventory(master, { write } = {}) {
   const inv = await connection.query('SELECT InventoryID, ProductName, SpecificationCode, Size, Unit, Cost, MarketMid FROM Inventory');
   const matched = [];
   const unmatched = [];
+  let outsideMatched = 0;
   for (const r of inv) {
+    const grade = String(r.ProductName || '').trim().split(/\s+/)[0];
+    if (engine.outsideMarketForItem({ specCode: r.SpecificationCode, hoseGrade: grade, hoseSize: r.Size, description: r.ProductName })) outsideMatched++;
     let hit = engine.lookupFitting(r.SpecificationCode, master);
-    if (!hit) {
-      const grade = String(r.ProductName || '').trim().split(/\s+/)[0];
-      hit = engine.lookupHose({ grade, size: r.Size, description: r.ProductName }, master);
-    }
+    if (!hit) hit = engine.lookupHose({ grade, size: r.Size, description: r.ProductName }, master);
     if (!hit) { unmatched.push({ id: r.InventoryID, name: r.ProductName, spec: r.SpecificationCode }); continue; }
     matched.push({ id: r.InventoryID, cost: money.round2(hit.costUnit), market: money.round2(hit.marketUnit), source: hit.source });
     if (write) {
@@ -83,7 +85,7 @@ async function reconcileInventory(master, { write } = {}) {
       );
     }
   }
-  return { matched, unmatched, total: inv.length };
+  return { matched, unmatched, total: inv.length, outsideMatched };
 }
 
 router.get('/api/pricing/status', async (req, res) => {
@@ -97,7 +99,8 @@ router.get('/api/pricing/status', async (req, res) => {
         fittings: Object.keys(master.fittings || {}).length,
         crimping: Object.keys(master.crimping || {}).length,
       },
-      inventory: { total: recon.total, matched: recon.matched.length, unmatched: recon.unmatched.length, unmatchedItems: recon.unmatched.slice(0, 50) },
+      inventory: { total: recon.total, matched: recon.matched.length, unmatched: recon.unmatched.length, unmatchedItems: recon.unmatched.slice(0, 50), outsideMatched: recon.outsideMatched },
+      benchmark: (() => { const b = engine.loadBenchmark(); return { source: (b.meta && b.meta.source) || null, hose: Object.keys(b.hose || {}).length, fittings: Object.keys(b.fittings || {}).length }; })(),
       marketFactor: engine.MARKET_FACTOR,
     });
   } catch (err) {

@@ -102,6 +102,9 @@ function addInventoryFromModal(invId) {
     // cost). The operator can still edit it before saving. Carry cost + market so
     // the rate cell can show the three-way comparison badges.
     const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
+    // Market price is the resolved priority-1 value (outside benchmark first, then
+    // the datasheet mid). Fall back to MarketMid for older responses.
+    const market = item.MarketPrice != null ? item.MarketPrice : (item.MarketMid || 0);
     invoiceItems.push({
         id: nextItemId++,
         inventoryId: item.InventoryID,
@@ -111,9 +114,9 @@ function addInventoryFromModal(invId) {
         qty: 1,
         rate: suggested,
         cost: item.Cost || 0,
-        marketMid: item.MarketMid || 0,
+        marketMid: market,
         suggested,
-        source: 'inventory',
+        source: item.MarketSource || 'inventory',
         maxQty: item.Qty,
     });
     closeModal('selectInventoryModal');
@@ -233,9 +236,10 @@ function marginHintHtml(it) {
     if (cost <= 0 && market <= 0) return '<div class="margin-hint muted"></div>'; // nothing to compare
 
     const badges = [];
+    const mktTitle = it.source === 'outside-benchmark' ? 'Market — outside-company benchmark' : 'Market benchmark';
     if (cost > 0) badges.push(`<span class="pbadge pbadge-cost" title="Our landed cost">Cost ${formatCurrency(cost)}</span>`);
-    if (market > 0) badges.push(`<span class="pbadge pbadge-market" title="Market mid benchmark">Mid ${formatCurrency(market)}</span>`);
-    if (suggested > 0) badges.push(`<span class="pbadge pbadge-suggested" title="Suggested = 80% of market mid, floored at cost (ferrules cost x 1.25)">80% ${formatCurrency(suggested)}</span>`);
+    if (market > 0) badges.push(`<span class="pbadge pbadge-market" title="${mktTitle}">Mkt ${formatCurrency(market)}${it.source === 'outside-benchmark' ? '*' : ''}</span>`);
+    if (suggested > 0) badges.push(`<span class="pbadge pbadge-suggested" title="Suggested = 80% of market, floored at cost (ferrules cost x 1.25)">80% ${formatCurrency(suggested)}</span>`);
 
     let warn = '';
     if (cost > 0 && rate < cost) {

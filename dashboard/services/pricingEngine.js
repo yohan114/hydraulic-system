@@ -34,6 +34,14 @@ const MARKET_FACTOR = 0.80;
 const FERRULE_COST_MULTIPLIER = 1.25;
 
 const DEFAULT_MASTER_PATH = path.join(__dirname, '..', 'data', 'pricing-master.json');
+const DEFAULT_BENCHMARK_PATH = path.join(__dirname, '..', 'data', 'outside-benchmark.json');
+
+// Where a line's MARKET price came from, in priority order (Task 4).
+const MARKET_SOURCE = {
+  OUTSIDE: 'outside-benchmark', // competitor counter price list (photos) — highest priority
+  DATASHEET: 'datasheet-mid',   // shipment datasheet Market Mid / Sell LKR
+  MANUAL: 'manual',             // admin fallback / no benchmark
+};
 
 // Which pricing rule set the default bill for a line.
 const RULE = {
@@ -207,7 +215,53 @@ function loadMaster(masterPath = DEFAULT_MASTER_PATH) {
 }
 
 // Drop the cache so the next lookup re-reads the file (call after an import).
-function clearCache() { _cache = null; _cachePath = null; }
+function clearCache() { _cache = null; _cachePath = null; _benchCache = null; }
+
+// ---------------------------------------------------------------------------
+// Outside-company benchmark (competitor price list) — the PRIORITY-1 market src.
+// ---------------------------------------------------------------------------
+
+let _benchCache = null;
+function loadBenchmark(benchPath = DEFAULT_BENCHMARK_PATH) {
+  if (_benchCache) return _benchCache;
+  try { _benchCache = JSON.parse(fs.readFileSync(benchPath, 'utf8')); }
+  catch (_) { _benchCache = { meta: { missing: true }, hose: {}, fittings: {} }; }
+  return _benchCache;
+}
+
+/**
+ * Resolve the outside-company market price for an item, if the list has an exact
+ * match. Fittings match by spec code; hose by grade + size (or parsed from the
+ * description). Returns { price, source } or null when there is no match.
+ */
+function outsideMarketForItem({ specCode, description, hoseGrade, hoseSize } = {}, bench = loadBenchmark()) {
+  const code = normSpecCode(specCode);
+  if (code && bench.fittings && bench.fittings[code] != null) {
+    return { price: money.num(bench.fittings[code]), source: MARKET_SOURCE.OUTSIDE };
+  }
+  let grade = hoseGrade, size = hoseSize;
+  if ((!grade || !size) && description) {
+    const p = parseHose(description, hoseSize);
+    if (p) { grade = grade || p.grade; size = size || p.size; }
+  }
+  const hk = hoseKey(grade, size);
+  if (hk && bench.hose && bench.hose[hk] != null) {
+    return { price: money.num(bench.hose[hk].marketPerM), source: MARKET_SOURCE.OUTSIDE };
+  }
+  return null;
+}
+
+/**
+ * Resolve the MARKET price by priority (Task 4): outside benchmark → datasheet
+ * (the caller's fallback) → manual. Returns { marketPrice, marketSource }.
+ */
+function resolveMarket({ specCode, description, hoseGrade, hoseSize, fallbackMarket } = {}) {
+  const outside = outsideMarketForItem({ specCode, description, hoseGrade, hoseSize });
+  if (outside && outside.price > 0) return { marketPrice: outside.price, marketSource: MARKET_SOURCE.OUTSIDE };
+  const fb = money.num(fallbackMarket);
+  if (fb > 0) return { marketPrice: money.round2(fb), marketSource: MARKET_SOURCE.DATASHEET };
+  return { marketPrice: 0, marketSource: MARKET_SOURCE.MANUAL };
+}
 
 // ---------------------------------------------------------------------------
 // The lookups.
@@ -284,18 +338,27 @@ function getPricingForItem(p = {}, master = loadMaster()) {
   }
 
   const ferrule = hit.source === 'unit-prices' && isFerrule((hit.meta && (hit.meta.specCode || hit.meta.type)) || '');
-  const { suggested, floored, rule } = suggestUnit(hit.costUnit, hit.marketUnit, { ferrule });
+  // Priority-1 market: an exact outside-company benchmark overrides the datasheet
+  // mid for fittings + hose (crimping keeps its per-end datasheet market).
+  let marketUnit = money.num(hit.marketUnit);
+  let marketSource = marketUnit > 0 ? MARKET_SOURCE.DATASHEET : MARKET_SOURCE.MANUAL;
+  if (hit.source !== 'crimping-charges') {
+    const outside = outsideMarketForItem({ specCode: p.specCode, description: p.description, hoseGrade: p.hoseGrade, hoseSize: p.hoseSize });
+    if (outside && outside.price > 0) { marketUnit = outside.price; marketSource = MARKET_SOURCE.OUTSIDE; }
+  }
+  const { suggested, floored, rule } = suggestUnit(hit.costUnit, marketUnit, { ferrule });
   const mult = multiplier > 0 ? multiplier : 1;
   return {
     costUnit: money.round2(hit.costUnit),
-    marketUnit: money.round2(hit.marketUnit),
+    marketUnit: money.round2(marketUnit),
     suggestedUnit: suggested,
     ourCost: money.round2(hit.costUnit * mult),
-    marketMid: money.round2(hit.marketUnit * mult),
+    marketMid: money.round2(marketUnit * mult),
     suggestedBill: money.round2(suggested * mult),
     source: hit.source,
+    marketSource,
     warning: ruleWarning(rule),
-    status: priceStatus({ cost: hit.costUnit, rate: suggested, marketMid: hit.marketUnit }),
+    status: priceStatus({ cost: hit.costUnit, rate: suggested, marketMid: marketUnit }),
     rule,
     floored,
   };
@@ -326,9 +389,10 @@ function suggestFromCostMarket(costUnit, marketUnit, opts = {}) {
 }
 
 module.exports = {
-  MARKET_FACTOR, FERRULE_COST_MULTIPLIER, STATUS, STATUS_LABEL, RULE, RULE_LABEL, DEFAULT_MASTER_PATH,
+  MARKET_FACTOR, FERRULE_COST_MULTIPLIER, STATUS, STATUS_LABEL, RULE, RULE_LABEL,
+  MARKET_SOURCE, DEFAULT_MASTER_PATH, DEFAULT_BENCHMARK_PATH,
   normSize, normSpecCode, hoseKey, parseHose, MM_TO_INCH, isFerrule,
   suggestUnit, priceStatus, suggestFromCostMarket, ruleWarning,
-  loadMaster, clearCache,
+  loadMaster, clearCache, loadBenchmark, outsideMarketForItem, resolveMarket,
   lookupFitting, lookupHose, lookupCrimping, getPricingForItem,
 };

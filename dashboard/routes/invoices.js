@@ -221,8 +221,17 @@ async function insertItems(invoiceId, items, lineAmounts) {
         // carries its own cost + the source the client resolved it from.
         const isManual = item.inventoryId == null;
         const unitCost = isManual ? money.num(item.cost) : cm.unitCost;
-        const marketRate = isManual ? money.num(item.marketMid) : cm.marketRate;
-        const source = item.pricingSource || (isManual ? (marketRate > 0 || unitCost > 0 ? 'manual-priced' : 'manual') : 'inventory');
+        // Market price by PRIORITY (Task 4): outside-company benchmark first, then
+        // the datasheet mid (Inventory / client-supplied), then manual. Resolved
+        // server-side so the snapshot is authoritative regardless of a stale client.
+        const fallbackMarket = isManual ? money.num(item.marketMid) : cm.marketRate;
+        const mk = pricingEngine.resolveMarket({ specCode: isManual ? null : cm.specCode, description: item.description, hoseSize: null, fallbackMarket });
+        const marketRate = mk.marketPrice;
+        let source;
+        if (mk.marketSource === pricingEngine.MARKET_SOURCE.OUTSIDE) source = 'outside-benchmark';
+        else if (item.pricingSource) source = item.pricingSource;            // e.g. crimping-charges
+        else if (isManual) source = (marketRate > 0 || unitCost > 0 ? 'manual-priced' : 'manual');
+        else source = mk.marketSource;                                       // datasheet-mid / manual
         // Ferrules get the stronger cost×1.25 floor — detect from the stock spec code.
         const ferrule = !isManual && pricingEngine.isFerrule(cm.specCode);
         const s = priceAnalysis.lineSnapshot({ unitCost, ourRate: item.rate, marketRate, qty: item.qty, source, ferrule });

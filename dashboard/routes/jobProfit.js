@@ -108,8 +108,8 @@ router.get('/api/job-profit/excel', async (req, res) => {
       'Invoice': inv.invoiceNo,
       'Date': inv.invoiceDate ? String(inv.invoiceDate).slice(0, 10) : '',
       'Customer': inv.customer || '',
-      'Our Cost (Billed)': inv.ourBill,
-      'Outside Cost': inv.outsideCost,
+      'Our Bill': inv.ourBill,
+      'Outside (Market)': inv.outsideCost,
       'Profit/Loss': inv.profit,
       'Margin %': inv.margin,
       'Technical Charges': inv.techCharges,
@@ -118,13 +118,13 @@ router.get('/api/job-profit/excel', async (req, res) => {
     summary.push({});
     summary.push({
       'Invoice': 'TOTAL',
-      'Our Cost (Billed)': totals.ourBill,
-      'Outside Cost': totals.outsideCost,
+      'Our Bill': totals.ourBill,
+      'Outside (Market)': totals.outsideCost,
       'Profit/Loss': totals.profit,
       'Margin %': totals.margin,
       'Technical Charges': totals.techCharges,
     });
-    summary.push({ 'Invoice': 'TOTAL UNPAID TECHNICAL CHARGES', 'Our Cost (Billed)': totals.unpaidTech });
+    summary.push({ 'Invoice': 'TOTAL UNPAID TECHNICAL CHARGES', 'Our Bill': totals.unpaidTech });
 
     const wb = xlsx.utils.book_new();
     const ws1 = xlsx.utils.json_to_sheet(detail.length ? detail : [{ 'Invoice Number': 'No data' }]);

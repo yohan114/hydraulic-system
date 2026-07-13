@@ -32,16 +32,28 @@ function renderPricingStatus(s) {
     setText('pm-imported', meta.importedAt ? formatDate(meta.importedAt) : 'never');
     setText('pm-invoice', meta.invoice || '—');
 
+    // Outside-company benchmark (priority-1 market source) coverage.
+    const bench = (s && s.benchmark) || {};
+    let benchLine = '';
+    if (bench.source) {
+        benchLine = `<div style="margin-top:8px;font-size:12.5px;">`
+            + `<span class="badge" style="background:rgba(29,78,216,.1);color:#1d4ed8;font-weight:700;">OUTSIDE BENCHMARK</span> `
+            + `priority-1 market source · ${bench.fittings || 0} fittings + ${bench.hose || 0} hose · `
+            + `<strong>${inv.outsideMatched || 0}</strong> of ${inv.total || 0} inventory items have an exact outside price.`
+            + `</div>`;
+    }
+
     const note = document.getElementById('pm-unmatched-note');
     if (note) {
         const items = inv.unmatchedItems || [];
         if (items.length) {
             note.style.display = '';
             note.innerHTML = `<strong style="color:#b45309;">⚠ ${inv.unmatched} inventory item(s) had no pricing-master match</strong> — they keep their existing cost/market. `
-                + items.slice(0, 12).map((u) => `<span class="badge" style="background:#fef3c7;color:#92400e;">${escAttr(u.spec || u.name || ('#' + u.id))}</span>`).join(' ');
+                + items.slice(0, 12).map((u) => `<span class="badge" style="background:#fef3c7;color:#92400e;">${escAttr(u.spec || u.name || ('#' + u.id))}</span>`)
+                    .join(' ') + benchLine;
         } else {
             note.style.display = '';
-            note.innerHTML = `<span style="color:#047857;">✓ Every inventory item matched the pricing master.</span>`;
+            note.innerHTML = `<span style="color:#047857;">✓ Every inventory item matched the pricing master.</span>` + benchLine;
         }
     }
 }
@@ -64,7 +76,7 @@ function renderPricingPreview() {
                 <td>${escAttr(r.size)}${r.unit === 'm' || r.group === 'Hose' ? '"' : ''}</td>
                 <td>${escAttr(r.unit)}</td>
                 <td class="num">${formatCurrency(r.ourCost)}</td>
-                <td class="num">${formatCurrency(r.marketMid)}</td>
+                <td class="num">${formatCurrency(r.marketMid)}${r.marketSource === 'outside-benchmark' ? ' <span title="Outside-company benchmark" style="color:#1d4ed8;font-size:10px;font-weight:700;">OUT</span>' : ''}</td>
                 <td class="num" style="color:#047857;font-weight:600;">${formatCurrency(r.suggested)}${r.floored ? ' <span style="color:#c2410c;font-size:10px;">(cost)</span>' : ''}</td>
                 <td class="num" style="color:${r.marginPct >= 20 ? '#10b981' : (r.marginPct >= 0 ? '#f59e0b' : '#ef4444')};font-weight:600;">${r.marginPct}%</td>
             </tr>`;
