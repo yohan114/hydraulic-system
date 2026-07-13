@@ -55,13 +55,21 @@ function previewRows(master) {
       suggested: s.suggested, marginPct: marginPct(h.landedPerM, s.suggested), floored: s.floored, rule: s.rule, source: 'hose-cost-market',
     });
   }
-  for (const [size, c] of Object.entries(master.crimping || {})) {
-    const s = engine.suggestUnit(c.internalCostPerEnd, c.marketMid);
-    rows.push({
-      group: 'Crimping', key: size, label: `Crimp ${size}" (per end)`, size,
-      unit: 'end', ourCost: money.round2(c.internalCostPerEnd), marketMid: money.round2(c.marketMid), marketSource: 'datasheet-mid',
-      suggested: s.suggested, marginPct: marginPct(c.internalCostPerEnd, s.suggested), floored: s.floored, rule: s.rule, source: 'crimping-charges',
-    });
+  // Crimping — one row per wire type (2-wire / 4-wire). Billed defaults to the
+  // shop market/end (not the 80% rule); margin = (market − internal cost) / market.
+  const crimp = engine.loadCrimpingRates();
+  const crimpSizes = (crimp.sizes && crimp.sizes.length) ? crimp.sizes : Object.keys(crimp.internalCostPerEnd || {});
+  for (const size of crimpSizes) {
+    const cost = money.round2(money.num(crimp.internalCostPerEnd[size]));
+    for (const [wire, table] of [['2-wire', crimp.market2Wire], ['4-wire', crimp.market4Wire]]) {
+      if (!table || table[size] == null) continue;
+      const market = money.round2(table[size]);
+      rows.push({
+        group: 'Crimping', key: `${size}-${wire}`, label: `Crimp ${size}" (${wire}, per end)`, size,
+        unit: 'end', ourCost: cost, marketMid: market, marketSource: `${wire}-shop`,
+        suggested: market, marginPct: marginPct(cost, market), floored: false, rule: 'crimp-market', source: 'crimping-charges',
+      });
+    }
   }
   return rows;
 }
@@ -119,24 +127,20 @@ router.get('/api/pricing/preview', async (req, res) => {
 });
 
 // Crimping options for the invoice picker — per END cost / mid / suggested.
+// Crimping options — WIRE-TYPE aware (2-wire vs 4-wire shop rates). Each size
+// carries its common internal cost/end plus the per-end market for each wire
+// type (market4Wire is null where the workbook does not define it). The UI can
+// switch wire type client-side without re-fetching.
 router.get('/api/pricing/crimping', async (req, res) => {
   try {
-    const master = importer.readMaster();
-    if (!master) return res.json([]);
-    const order = ['1/4', '5/16', '3/8', '1/2', '5/8', '3/4', '1', '1-1/4', '1-1/2', '2'];
-    const list = Object.values(master.crimping || {}).map((c) => {
-      const s = engine.suggestUnit(c.internalCostPerEnd, c.marketMid);
-      return {
-        size: c.size,
-        costPerEnd: money.round2(c.internalCostPerEnd),
-        marketLow: money.round2(c.marketLow),
-        marketMid: money.round2(c.marketMid),
-        marketHigh: money.round2(c.marketHigh),
-        suggestedPerEnd: s.suggested,
-        floored: s.floored,
-      };
-    });
-    list.sort((a, b) => order.indexOf(a.size) - order.indexOf(b.size));
+    const data = engine.loadCrimpingRates();
+    const sizes = data.sizes && data.sizes.length ? data.sizes : Object.keys(data.internalCostPerEnd || {});
+    const list = sizes.map((size) => ({
+      size,
+      internalCostPerEnd: money.round2(money.num(data.internalCostPerEnd[size])),
+      market2Wire: data.market2Wire && data.market2Wire[size] != null ? money.round2(data.market2Wire[size]) : null,
+      market4Wire: data.market4Wire && data.market4Wire[size] != null ? money.round2(data.market4Wire[size]) : null,
+    }));
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });

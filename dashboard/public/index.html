@@ -1299,17 +1299,32 @@
             </div>
             <div class="modal-body">
                 <form id="crimpingForm" onsubmit="addCrimpingLine(event)">
-                    <div class="form-group">
-                        <label>Hose Size</label>
-                        <select id="crimp-size" class="form-control" onchange="updateCrimpingPreview()"></select>
+                    <div style="display:flex;gap:12px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>Hose Size</label>
+                            <select id="crimp-size" class="form-control" onchange="updateCrimpingPreview()"></select>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>Wire Type</label>
+                            <select id="crimp-wire" class="form-control" onchange="updateCrimpingPreview()">
+                                <option value="2-wire">2-wire (R2 / 2SN / 1SN)</option>
+                                <option value="4-wire">4-wire (4SP / 4SH / spiral)</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>Number of ends</label>
-                        <input type="number" id="crimp-ends" class="form-control" value="2" min="1" step="1" oninput="updateCrimpingPreview()">
-                        <small style="color:var(--text-muted);">One assembly = 2 crimp ends. Charge is per end (billed at 80% of market mid, never below cost).</small>
+                    <div style="display:flex;gap:12px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>Number of ends</label>
+                            <input type="number" id="crimp-ends" class="form-control" value="2" min="1" step="1" oninput="updateCrimpingPreview()">
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>Billed rate / end</label>
+                            <input type="number" id="crimp-billed" class="form-control" min="0" step="0.01" oninput="updateCrimpingPreview(true)">
+                        </div>
                     </div>
+                    <small style="color:var(--text-muted);display:block;margin-top:-6px;margin-bottom:10px;">One assembly = 2 crimp ends. Billed defaults to the shop market rate per end for the chosen wire type; never bill below internal cost.</small>
                     <div class="form-group" style="background:var(--bg-color,#f8fafc);border:1px solid var(--border-color,#e5e7eb);border-radius:8px;padding:12px 14px;">
-                        <span id="crimp-preview" style="font-size:15px;"></span>
+                        <span id="crimp-preview" style="font-size:14px;"></span>
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('crimpingModal')">Cancel</button>

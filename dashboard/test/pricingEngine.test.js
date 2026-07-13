@@ -141,6 +141,47 @@ test('getPricingForItem uses the outside benchmark and suggests 80% of it', () =
   assert.equal(r.suggestedUnit, 240); // 300 × 0.80, still above cost 138.48
 });
 
+// ---- crimping: wire-type (2-wire vs 4-wire) shop rates ----
+test('wireTypeOf maps grades and literal wire strings', () => {
+  assert.equal(eng.wireTypeOf('R2'), '2-wire');
+  assert.equal(eng.wireTypeOf('2SN'), '2-wire');
+  assert.equal(eng.wireTypeOf('1SN'), '2-wire');
+  assert.equal(eng.wireTypeOf('4SH'), '4-wire');
+  assert.equal(eng.wireTypeOf('4SP'), '4-wire');
+  assert.equal(eng.wireTypeOf('spiral'), '4-wire');
+  assert.equal(eng.wireTypeOf('4-wire'), '4-wire');
+  assert.equal(eng.wireTypeOf('2-wire'), '2-wire');
+});
+
+test('getCrimpingPricing uses the 2-wire shop rate by default', () => {
+  const r = eng.getCrimpingPricing({ hoseSize: '1/2"', hoseWireType: '2-wire', ends: 2 });
+  assert.equal(r.internalCostPerEnd, 336.33);
+  assert.equal(r.marketPerEnd, 600);   // 2-wire 1/2"
+  assert.equal(r.billedPerEnd, 600);   // default = market
+  assert.equal(r.internalCostTotal, 672.66);
+  assert.equal(r.marketTotal, 1200);
+  assert.equal(r.billedTotal, 1200);
+  assert.equal(r.warning, null);
+});
+
+test('getCrimpingPricing uses the 4-wire shop rate when selected', () => {
+  const r = eng.getCrimpingPricing({ hoseSize: '1/2"', hoseWireType: '4-wire', ends: 2 });
+  assert.equal(r.marketPerEnd, 800);   // 4-wire 1/2" (2-wire was 600)
+  assert.equal(r.billedTotal, 1600);
+});
+
+test('getCrimpingPricing warns when a 4-wire size is undefined', () => {
+  const r = eng.getCrimpingPricing({ hoseSize: '1/4"', hoseWireType: '4-wire', ends: 2 });
+  assert.equal(r.marketPerEnd, 0);     // no 4-wire 1/4" rate
+  assert.match(r.warning, /No 4-wire shop rate/);
+});
+
+test('getCrimpingPricing flags a manual billed rate below internal cost', () => {
+  const r = eng.getCrimpingPricing({ hoseSize: '1', hoseWireType: '2-wire', ends: 2, billedPerEnd: 400 });
+  assert.equal(r.internalCostPerEnd, 453);
+  assert.match(r.warning, /below internal cost/);
+});
+
 // ---- import parses the bundled workbook ----
 test('importWorkbook parses the datasheet into keyed maps', () => {
   const parsed = imp.parseWorkbook(imp.DEFAULT_WORKBOOK_PATH);

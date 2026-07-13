@@ -35,6 +35,7 @@ const FERRULE_COST_MULTIPLIER = 1.25;
 
 const DEFAULT_MASTER_PATH = path.join(__dirname, '..', 'data', 'pricing-master.json');
 const DEFAULT_BENCHMARK_PATH = path.join(__dirname, '..', 'data', 'outside-benchmark.json');
+const DEFAULT_CRIMPING_PATH = path.join(__dirname, '..', 'data', 'crimping-rates.json');
 
 // Where a line's MARKET price came from, in priority order (Task 4).
 const MARKET_SOURCE = {
@@ -215,7 +216,66 @@ function loadMaster(masterPath = DEFAULT_MASTER_PATH) {
 }
 
 // Drop the cache so the next lookup re-reads the file (call after an import).
-function clearCache() { _cache = null; _cachePath = null; _benchCache = null; }
+function clearCache() { _cache = null; _cachePath = null; _benchCache = null; _crimpCache = null; }
+
+// ---------------------------------------------------------------------------
+// Crimping — wire-type (2-wire vs 4-wire) shop rates. Self-contained: this
+// section drives ONLY crimping charges and does not touch hose / fitting pricing.
+// ---------------------------------------------------------------------------
+
+let _crimpCache = null;
+function loadCrimpingRates(crimpPath = DEFAULT_CRIMPING_PATH) {
+  if (_crimpCache) return _crimpCache;
+  try { _crimpCache = JSON.parse(fs.readFileSync(crimpPath, 'utf8')); }
+  catch (_) { _crimpCache = { sizes: [], internalCostPerEnd: {}, market2Wire: {}, market4Wire: {} }; }
+  return _crimpCache;
+}
+
+// Map a hose grade / ferrule type (or a literal "4-wire"/"2-wire") to its
+// crimping wire-type group.
+//   R2 / 2SN / 1SN / R1 → 2-wire   ·   4SP / 4SH / spiral → 4-wire
+function wireTypeOf(gradeOrType) {
+  const s = String(gradeOrType == null ? '' : gradeOrType).toUpperCase();
+  if (/4-?WIRE|4SP|4SH|SPIRAL/.test(s)) return '4-wire';
+  return '2-wire';
+}
+
+/**
+ * Crimping price for one line, by hose size + wire type + ends.
+ * Internal cost/end is common; the market/end depends on the wire type.
+ * Default billed/end = market/end (floor = internal cost/end).
+ *
+ * @param {{hoseSize:string, hoseWireType?:string, ends?:number, billedPerEnd?:number}} p
+ * @returns {{size,hoseWireType,ends,internalCostPerEnd,marketPerEnd,billedPerEnd,
+ *            internalCostTotal,marketTotal,billedTotal,warning}}
+ */
+function getCrimpingPricing(p = {}) {
+  const data = loadCrimpingRates();
+  const size = normSize(p.hoseSize);
+  const wire = wireTypeOf(p.hoseWireType);
+  const ends = Math.max(1, money.num(p.ends) || 2);
+
+  const internalCostPerEnd = money.round2(money.num(data.internalCostPerEnd[size]));
+  const table = wire === '4-wire' ? data.market4Wire : data.market2Wire;
+  let warning = null;
+  let marketPerEnd = table[size] != null ? money.round2(table[size]) : 0;
+  if (table[size] == null) {
+    warning = `No ${wire} shop rate for ${size}" — set the rate manually.`;
+  }
+  // Default billed = market/end; an explicit override wins.
+  let billedPerEnd = p.billedPerEnd != null ? money.round2(money.num(p.billedPerEnd)) : marketPerEnd;
+  if (billedPerEnd > 0 && internalCostPerEnd > 0 && billedPerEnd < internalCostPerEnd) {
+    warning = `Billed rate ${billedPerEnd}/end is below internal cost ${internalCostPerEnd}/end.`;
+  }
+  return {
+    size, hoseWireType: wire, ends,
+    internalCostPerEnd, marketPerEnd, billedPerEnd,
+    internalCostTotal: money.round2(internalCostPerEnd * ends),
+    marketTotal: money.round2(marketPerEnd * ends),
+    billedTotal: money.round2(billedPerEnd * ends),
+    warning,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Outside-company benchmark (competitor price list) — the PRIORITY-1 market src.
@@ -390,9 +450,10 @@ function suggestFromCostMarket(costUnit, marketUnit, opts = {}) {
 
 module.exports = {
   MARKET_FACTOR, FERRULE_COST_MULTIPLIER, STATUS, STATUS_LABEL, RULE, RULE_LABEL,
-  MARKET_SOURCE, DEFAULT_MASTER_PATH, DEFAULT_BENCHMARK_PATH,
+  MARKET_SOURCE, DEFAULT_MASTER_PATH, DEFAULT_BENCHMARK_PATH, DEFAULT_CRIMPING_PATH,
   normSize, normSpecCode, hoseKey, parseHose, MM_TO_INCH, isFerrule,
   suggestUnit, priceStatus, suggestFromCostMarket, ruleWarning,
   loadMaster, clearCache, loadBenchmark, outsideMarketForItem, resolveMarket,
+  loadCrimpingRates, wireTypeOf, getCrimpingPricing,
   lookupFitting, lookupHose, lookupCrimping, getPricingForItem,
 };

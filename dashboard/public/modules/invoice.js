@@ -138,8 +138,10 @@ function addStandardCharges() {
 }
 
 // ----------------------------------------------------
-// Crimping charge — priced PER END from the shipment datasheet (Crimping Charges
-// sheet), billed at 80% of the market mid but never below our internal cost.
+// Crimping charge — priced PER END by hose size + WIRE TYPE (2-wire vs 4-wire).
+// Internal cost/end is common; the shop market/end differs by wire type. Billed
+// defaults to the market/end for the chosen wire type; never below internal cost.
+// (Scoped to crimping only — no other pricing section is affected.)
 // ----------------------------------------------------
 let crimpingRates = [];
 
@@ -160,11 +162,10 @@ async function openCrimpingModal() {
         toast('No crimping rates found. Import the pricing master under Pricing Master first.', 'error');
         return;
     }
-    // Each option shows the size and the suggested PER-END price.
-    sel.innerHTML = crimpingRates.map((r) =>
-        `<option value="${escAttr(r.size)}">${escAttr(r.size)}" — ${formatCurrency(r.suggestedPerEnd)}/end</option>`
-    ).join('');
+    sel.innerHTML = crimpingRates.map((r) => `<option value="${escAttr(r.size)}">${escAttr(r.size)}"</option>`).join('');
+    document.getElementById('crimp-wire').value = '2-wire';
     document.getElementById('crimp-ends').value = 2;
+    document.getElementById('crimp-billed').value = '';   // cleared -> auto-filled from market
     updateCrimpingPreview();
     openModal('crimpingModal');
 }
@@ -174,37 +175,76 @@ function selectedCrimp() {
     return crimpingRates.find((r) => r.size === size) || null;
 }
 
-function crimpEnds() {
-    return Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1);
+function crimpWire() { return document.getElementById('crimp-wire').value === '4-wire' ? '4-wire' : '2-wire'; }
+function crimpEnds() { return Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1); }
+
+// Market/end for the selected size + wire type (null when the workbook does not
+// define a 4-wire rate for that size).
+function crimpMarketPerEnd(r, wire) {
+    if (!r) return null;
+    const v = wire === '4-wire' ? r.market4Wire : r.market2Wire;
+    return v == null ? null : Number(v);
 }
 
-function updateCrimpingPreview() {
+// Re-render the crimping preview + totals. `fromBilled` = the user edited the
+// billed field, so we keep their value instead of re-filling from market.
+function updateCrimpingPreview(fromBilled) {
     const r = selectedCrimp();
-    const ends = crimpEnds();
     const el = document.getElementById('crimp-preview');
+    const billedInput = document.getElementById('crimp-billed');
     if (!r) { el.textContent = ''; return; }
-    const total = round2(r.suggestedPerEnd * ends);
-    const floorNote = r.floored ? ' <span style="color:#c2410c;">(cost floor)</span>' : '';
-    el.innerHTML = `${formatCurrency(r.suggestedPerEnd)}/end &times; ${ends} end${ends === 1 ? '' : 's'} = <strong>${formatCurrency(total)}</strong>${floorNote}`
-        + `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Cost ${formatCurrency(r.costPerEnd)}/end · Market mid ${formatCurrency(r.marketMid)}/end</div>`;
+    const wire = crimpWire();
+    const ends = crimpEnds();
+    const internal = Number(r.internalCostPerEnd) || 0;
+    const market = crimpMarketPerEnd(r, wire);
+
+    // Auto-fill billed with market when the user hasn't just typed in it.
+    if (!fromBilled) billedInput.value = market != null ? market : '';
+    let billed = parseFloat(billedInput.value);
+    if (!(billed >= 0)) billed = market != null ? market : 0;
+
+    const total = round2(billed * ends);
+    let warn = '';
+    if (market == null) {
+        warn = `<div style="color:#c2410c;font-weight:600;margin-top:6px;">⚠ No ${wire} shop rate for ${escAttr(r.size)}" — enter the billed rate manually.</div>`;
+    } else if (billed < internal) {
+        warn = `<div style="color:#dc2626;font-weight:600;margin-top:6px;">⚠ Billed ${formatCurrency(billed)}/end is below internal cost ${formatCurrency(internal)}/end.</div>`;
+    }
+    el.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;">
+            <span style="color:var(--text-muted);">Internal cost/end</span><strong class="num" style="text-align:right;">${formatCurrency(internal)}</strong>
+            <span style="color:var(--text-muted);">Market/end (${wire})</span><strong class="num" style="text-align:right;">${market != null ? formatCurrency(market) : '—'}</strong>
+            <span style="color:var(--text-muted);">Bill/end</span><strong class="num" style="text-align:right;color:#047857;">${formatCurrency(billed)}</strong>
+            <span style="color:var(--text-muted);">Ends</span><strong class="num" style="text-align:right;">${ends}</strong>
+        </div>
+        <div style="border-top:1px solid var(--border-color,#e5e7eb);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;">
+            <span style="font-weight:600;">Total bill</span><strong class="num" style="font-size:16px;">${formatCurrency(total)}</strong>
+        </div>${warn}`;
 }
 
 function addCrimpingLine(e) {
     if (e) e.preventDefault();
     const r = selectedCrimp();
     if (!r) return;
+    const wire = crimpWire();
     const ends = crimpEnds();
+    const internal = Number(r.internalCostPerEnd) || 0;
+    const market = crimpMarketPerEnd(r, wire);
+    let billed = parseFloat(document.getElementById('crimp-billed').value);
+    if (!(billed >= 0)) billed = market != null ? market : 0;
+    if (!(billed > 0)) { toast('Enter a billed rate per end.', 'error'); return; }
+
     invoiceItems.push({
         id: nextItemId++,
         inventoryId: null,
-        desc: `Crimping charge — ${r.size}"`,
+        desc: `Crimping charge — ${r.size}" (${wire}, ${ends} end${ends === 1 ? '' : 's'})`,
         unit: 'end',
         length: 0,
-        qty: ends,                       // billed per end
-        rate: r.suggestedPerEnd,         // 80% of market mid, floored at cost
-        cost: r.costPerEnd || 0,         // internal cost per end
-        marketMid: r.marketMid || 0,     // market mid per end
-        suggested: r.suggestedPerEnd,
+        qty: ends,                                   // billed per end
+        rate: round2(billed),                        // shop market/end by default (or manual)
+        cost: round2(internal),                      // internal cost per end
+        marketMid: market != null ? round2(market) : round2(billed), // wire-type market/end
+        suggested: market != null ? round2(market) : round2(billed),
         source: 'crimping-charges',
         maxQty: null,
     });
