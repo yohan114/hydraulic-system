@@ -140,7 +140,7 @@ function buildMaster(parsed, importedAt) {
       invoice: parsed.meta.invoice || 'HS25E1112W1',
       exchangeRate: parsed.meta.exchangeRate,
       dutyFactor: parsed.meta.dutyFactor,
-      marketFactor: 0.70,
+      marketFactor: 0.80,
       importedAt: importedAt || null,
       counts: { hose: parsed.hose.length, fittings: parsed.fittings.length, crimping: parsed.crimping.length },
     },

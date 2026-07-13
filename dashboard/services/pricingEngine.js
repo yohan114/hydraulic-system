@@ -28,17 +28,34 @@ const fs = require('fs');
 const path = require('path');
 const money = require('../lib/money');
 
-// Bill at 70% of the market mid by default. Floored at cost.
-const MARKET_FACTOR = 0.70;
+// Bill at 80% of the market mid by default (≈20% below market). Floored at cost.
+const MARKET_FACTOR = 0.80;
+// Ferrules get stronger margin protection: the floor is cost × 1.25, not cost.
+const FERRULE_COST_MULTIPLIER = 1.25;
 
 const DEFAULT_MASTER_PATH = path.join(__dirname, '..', 'data', 'pricing-master.json');
+
+// Which pricing rule set the default bill for a line.
+const RULE = {
+  MARKET_MINUS_20: 'marketMinus20', // default: market mid × 0.80 (above the floor)
+  COST_FLOOR: 'costFloor',          // 80% mid fell below cost — billed at cost
+  FERRULE_FLOOR: 'ferruleFloor',    // ferrule: billed at cost × 1.25 (stronger floor)
+  MANUAL: 'manual',                 // no market benchmark / no mapping
+};
+
+const RULE_LABEL = {
+  marketMinus20: 'Market −20%',
+  costFloor: 'Cost Floor',
+  ferruleFloor: 'Ferrule Floor',
+  manual: 'Manual',
+};
 
 // Line pricing status (richer than the legacy price flag — drives the reports).
 const STATUS = {
   BELOW_COST: 'below-cost',       // billed under our landed cost — we lose money
-  AT_COST_FLOOR: 'at-cost-floor', // 70%×mid fell below cost, so we bill at the cost floor
-  BELOW_70: 'below-70-market',    // billed under the 70% market floor (leaving money on the table)
-  HEALTHY: 'healthy',             // between the 70% floor and full market mid
+  AT_COST_FLOOR: 'at-cost-floor', // 80%×mid fell below cost, so we bill at the cost floor
+  BELOW_FLOOR: 'below-market-floor', // billed under the 80% market floor (leaving money on the table)
+  HEALTHY: 'healthy',             // between the 80% floor and full market mid
   AT_ABOVE_MARKET: 'at-above-market', // at/over the market mid (pricey vs the market)
   NO_MARKET: 'no-market',         // no market benchmark to judge against
 };
@@ -46,11 +63,18 @@ const STATUS = {
 const STATUS_LABEL = {
   'below-cost': 'Below Cost',
   'at-cost-floor': 'At Cost Floor',
-  'below-70-market': 'Below 70% Market',
+  'below-market-floor': 'Below 80% Market',
   healthy: 'Healthy Margin',
   'at-above-market': 'At/Above Market',
   'no-market': 'No Market Ref',
 };
+
+// A ferrule (sleeve) — spec codes in the datasheet ferrule groups start with 00
+// (00110 = 1SN, 00210 = 2SN, 00400 = spiral). Ferrules get the stronger floor.
+function isFerrule(specCodeOrType) {
+  const s = String(specCodeOrType == null ? '' : specCodeOrType).trim().toUpperCase();
+  return /^00\d/.test(s) || ['1SN', '2SN', 'SPIRAL'].includes(s);
+}
 
 // ---------------------------------------------------------------------------
 // Normalisation helpers (pure) — system descriptions and workbook labels differ.
@@ -115,20 +139,31 @@ const MM_TO_INCH = {
 // ---------------------------------------------------------------------------
 
 /**
- * Suggested unit bill = max(cost, marketMid × 0.70).
- * @returns {{ suggested:number, floored:boolean }} floored=true when the cost
- *          floor kicked in (i.e. 70%×mid was below cost).
+ * Suggested unit bill:
+ *   default  = max(cost,        marketMid × 0.80)
+ *   ferrule  = max(cost × 1.25, marketMid × 0.80)   (stronger margin protection)
+ * We price ~20% under market but never below the applicable floor.
+ *
+ * @param {number} costUnit
+ * @param {number} marketUnit
+ * @param {{ferrule?:boolean}} [opts]
+ * @returns {{ suggested:number, floored:boolean, rule:string }}
+ *          rule ∈ marketMinus20 | costFloor | ferruleFloor | manual
  */
-function suggestUnit(costUnit, marketUnit) {
+function suggestUnit(costUnit, marketUnit, opts = {}) {
   const cost = money.num(costUnit);
   const market = money.num(marketUnit);
-  const seventy = money.round2(market * MARKET_FACTOR);
+  const ferrule = !!opts.ferrule;
+  const floor = ferrule ? money.round2(cost * FERRULE_COST_MULTIPLIER) : money.round2(cost);
+  const floorRule = ferrule ? RULE.FERRULE_FLOOR : RULE.COST_FLOOR;
+  const marketTerm = money.round2(market * MARKET_FACTOR);
+
   if (market <= 0) {
-    // No market reference: fall back to cost (never below cost).
-    return { suggested: money.round2(Math.max(cost, 0)), floored: cost > 0 };
+    // No market reference: fall back to the floor (cost, or cost×1.25 for ferrules).
+    return { suggested: money.round2(Math.max(floor, 0)), floored: cost > 0, rule: cost > 0 ? floorRule : RULE.MANUAL };
   }
-  if (seventy < cost) return { suggested: money.round2(cost), floored: true };
-  return { suggested: seventy, floored: false };
+  if (marketTerm < floor) return { suggested: floor, floored: true, rule: floorRule };
+  return { suggested: marketTerm, floored: false, rule: RULE.MARKET_MINUS_20 };
 }
 
 /**
@@ -141,15 +176,15 @@ function priceStatus({ cost, rate, marketMid }) {
   const m = money.num(marketMid);
   if (c > 0 && r < c) return STATUS.BELOW_COST;
   if (m <= 0) return STATUS.NO_MARKET;
-  const floor70 = m * MARKET_FACTOR;
+  const floor80 = m * MARKET_FACTOR;
   if (r >= m) return STATUS.AT_ABOVE_MARKET;
   // Below the market mid:
-  if (floor70 < c) {
-    // The 70% floor is under cost, so billing at/above cost IS the floored case.
+  if (floor80 < c) {
+    // The 80% floor is under cost, so billing at/above cost IS the floored case.
     return STATUS.AT_COST_FLOOR;
   }
-  if (r < floor70) return STATUS.BELOW_70; // undercharging vs the 70% floor
-  return STATUS.HEALTHY;                    // between 70% floor and market mid
+  if (r < floor80) return STATUS.BELOW_FLOOR; // undercharging vs the 80% floor
+  return STATUS.HEALTHY;                       // between 80% floor and market mid
 }
 
 // ---------------------------------------------------------------------------
@@ -243,12 +278,13 @@ function getPricingForItem(p = {}, master = loadMaster()) {
     return {
       ourCost: 0, marketMid: 0, suggestedBill: 0,
       costUnit: 0, marketUnit: 0, suggestedUnit: 0,
-      source: 'manual', warning: 'No pricing-master match — enter the rate manually.',
-      status: STATUS.NO_MARKET, floored: false,
+      source: 'manual', warning: ruleWarning(RULE.MANUAL),
+      status: STATUS.NO_MARKET, rule: RULE.MANUAL, floored: false,
     };
   }
 
-  const { suggested, floored } = suggestUnit(hit.costUnit, hit.marketUnit);
+  const ferrule = hit.source === 'unit-prices' && isFerrule((hit.meta && (hit.meta.specCode || hit.meta.type)) || '');
+  const { suggested, floored, rule } = suggestUnit(hit.costUnit, hit.marketUnit, { ferrule });
   const mult = multiplier > 0 ? multiplier : 1;
   return {
     costUnit: money.round2(hit.costUnit),
@@ -258,29 +294,41 @@ function getPricingForItem(p = {}, master = loadMaster()) {
     marketMid: money.round2(hit.marketUnit * mult),
     suggestedBill: money.round2(suggested * mult),
     source: hit.source,
-    warning: floored ? 'Below 70% market floor — using cost floor' : null,
+    warning: ruleWarning(rule),
     status: priceStatus({ cost: hit.costUnit, rate: suggested, marketMid: hit.marketUnit }),
+    rule,
     floored,
   };
 }
 
+// Rule-specific badge/warning text.
+function ruleWarning(rule) {
+  if (rule === RULE.COST_FLOOR) return '80% market below cost — cost floor applied';
+  if (rule === RULE.FERRULE_FLOOR) return 'Ferrule floor — cost × 1.25 applied';
+  if (rule === RULE.MANUAL) return 'No market benchmark';
+  return null;
+}
+
 // Convenience: per-unit suggestion for an already-known cost + market mid
-// (used when the caller already has Inventory.Cost / Inventory.MarketMid).
-function suggestFromCostMarket(costUnit, marketUnit) {
-  const { suggested, floored } = suggestUnit(costUnit, marketUnit);
+// (used when the caller already has Inventory.Cost / Inventory.MarketMid). Pass
+// { ferrule:true } (or a spec code via ferrule detection at the call site) to
+// apply the stronger ferrule floor.
+function suggestFromCostMarket(costUnit, marketUnit, opts = {}) {
+  const { suggested, floored, rule } = suggestUnit(costUnit, marketUnit, opts);
   return {
     costUnit: money.round2(money.num(costUnit)),
     marketUnit: money.round2(money.num(marketUnit)),
     suggestedUnit: suggested,
     floored,
-    warning: floored ? 'Below 70% market floor — using cost floor' : null,
+    rule,
+    warning: ruleWarning(rule),
   };
 }
 
 module.exports = {
-  MARKET_FACTOR, STATUS, STATUS_LABEL, DEFAULT_MASTER_PATH,
-  normSize, normSpecCode, hoseKey, parseHose, MM_TO_INCH,
-  suggestUnit, priceStatus, suggestFromCostMarket,
+  MARKET_FACTOR, FERRULE_COST_MULTIPLIER, STATUS, STATUS_LABEL, RULE, RULE_LABEL, DEFAULT_MASTER_PATH,
+  normSize, normSpecCode, hoseKey, parseHose, MM_TO_INCH, isFerrule,
+  suggestUnit, priceStatus, suggestFromCostMarket, ruleWarning,
   loadMaster, clearCache,
   lookupFitting, lookupHose, lookupCrimping, getPricingForItem,
 };

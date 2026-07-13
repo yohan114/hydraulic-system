@@ -13,6 +13,7 @@ const ledger = require('../services/stockLedger');
 const pdf = require('../services/pdf');
 const { buildInvoiceHtml } = require('../services/invoicePdf');
 const priceAnalysis = require('../services/priceAnalysis');
+const pricingEngine = require('../services/pricingEngine');
 const router = express.Router();
 
 async function getNextInvoiceNo(dateStr) {
@@ -215,19 +216,21 @@ async function insertItems(invoiceId, items, lineAmounts) {
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const invIdVal = item.inventoryId != null ? sql.n(item.inventoryId) : 'NULL';
-        const cm = costMarket.get(item.inventoryId) || { unitCost: 0, marketRate: 0 };
+        const cm = costMarket.get(item.inventoryId) || { unitCost: 0, marketRate: 0, specCode: '' };
         // A parts line snapshots from Inventory; a manual line (crimping/technical)
         // carries its own cost + the source the client resolved it from.
         const isManual = item.inventoryId == null;
         const unitCost = isManual ? money.num(item.cost) : cm.unitCost;
         const marketRate = isManual ? money.num(item.marketMid) : cm.marketRate;
         const source = item.pricingSource || (isManual ? (marketRate > 0 || unitCost > 0 ? 'manual-priced' : 'manual') : 'inventory');
-        const s = priceAnalysis.lineSnapshot({ unitCost, ourRate: item.rate, marketRate, qty: item.qty, source });
+        // Ferrules get the stronger cost×1.25 floor — detect from the stock spec code.
+        const ferrule = !isManual && pricingEngine.isFerrule(cm.specCode);
+        const s = priceAnalysis.lineSnapshot({ unitCost, ourRate: item.rate, marketRate, qty: item.qty, source, ferrule });
         await connection.execute(
             `INSERT INTO InvoiceItems (InvoiceID, InventoryID, ItemDescription, Unit, [Length], Qty, Rate, Amount,
-                UnitCostAtBilling, OurBillRate, MarketBillRate, SuggestedBillRate, PricingSource, ProfitAmount, MarginPercent, MarketGap, PriceFlag)
+                UnitCostAtBilling, OurBillRate, MarketBillRate, SuggestedBillRate, PricingSource, PricingRuleApplied, ProfitAmount, MarginPercent, MarketGap, PriceFlag)
              VALUES (${invoiceId}, ${invIdVal}, ${sql.q(item.description)}, ${sql.q(item.unit)}, ${sql.n(item.length, 0)}, ${sql.n(item.qty, 0)}, ${sql.n(item.rate, 0)}, ${lineAmounts[i]},
-                ${s.unitCostAtBilling}, ${s.ourBillRate}, ${s.marketBillRate}, ${s.suggestedBillRate}, ${sql.q(s.pricingSource)}, ${s.profitAmount}, ${s.marginPercent}, ${s.marketGap}, ${sql.q(s.priceFlag)})`
+                ${s.unitCostAtBilling}, ${s.ourBillRate}, ${s.marketBillRate}, ${s.suggestedBillRate}, ${sql.q(s.pricingSource)}, ${sql.q(s.pricingRuleApplied)}, ${s.profitAmount}, ${s.marginPercent}, ${s.marketGap}, ${sql.q(s.priceFlag)})`
         );
     }
 }

@@ -37,11 +37,12 @@ function marginPct(cost, suggested) {
 function previewRows(master) {
   const rows = [];
   for (const [code, f] of Object.entries(master.fittings || {})) {
-    const s = engine.suggestUnit(f.costLKR, f.sellLKR);
+    const ferrule = engine.isFerrule(code) || engine.isFerrule(f.type);
+    const s = engine.suggestUnit(f.costLKR, f.sellLKR, { ferrule });
     rows.push({
       group: 'Fitting', key: code, label: `${f.type || ''} ${code}`.trim(), size: f.size || '',
       unit: 'pc', ourCost: money.round2(f.costLKR), marketMid: money.round2(f.sellLKR),
-      suggested70: s.suggested, marginPct: marginPct(f.costLKR, s.suggested), floored: s.floored, source: 'unit-prices',
+      suggested: s.suggested, marginPct: marginPct(f.costLKR, s.suggested), floored: s.floored, rule: s.rule, source: 'unit-prices',
     });
   }
   for (const [key, h] of Object.entries(master.hose || {})) {
@@ -49,7 +50,7 @@ function previewRows(master) {
     rows.push({
       group: 'Hose', key, label: `${h.grade} ${h.size}"`, size: h.size,
       unit: 'm', ourCost: money.round2(h.landedPerM), marketMid: money.round2(h.marketMidPerM),
-      suggested70: s.suggested, marginPct: marginPct(h.landedPerM, s.suggested), floored: s.floored, source: 'hose-cost-market',
+      suggested: s.suggested, marginPct: marginPct(h.landedPerM, s.suggested), floored: s.floored, rule: s.rule, source: 'hose-cost-market',
     });
   }
   for (const [size, c] of Object.entries(master.crimping || {})) {
@@ -57,7 +58,7 @@ function previewRows(master) {
     rows.push({
       group: 'Crimping', key: size, label: `Crimp ${size}" (per end)`, size,
       unit: 'end', ourCost: money.round2(c.internalCostPerEnd), marketMid: money.round2(c.marketMid),
-      suggested70: s.suggested, marginPct: marginPct(c.internalCostPerEnd, s.suggested), floored: s.floored, source: 'crimping-charges',
+      suggested: s.suggested, marginPct: marginPct(c.internalCostPerEnd, s.suggested), floored: s.floored, rule: s.rule, source: 'crimping-charges',
     });
   }
   return rows;

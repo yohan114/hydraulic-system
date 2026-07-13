@@ -359,10 +359,10 @@ const BILL_EXPORT_COLUMNS = [
     ['Invoice No', 'invoiceNo'], ['Date', 'invoiceDate'], ['Customer', 'customer'],
     ['Product', 'description'], ['Unique ID', 'uniqueId'], ['Unit', 'unit'], ['Qty', 'qty'],
     ['Our Cost (unit)', 'unitCost'], ['Our Bill (unit)', 'ourBillRate'],
-    ['Suggested 70% (unit)', 'suggestedBillRate'], ['Market Bill (unit)', 'marketBillRate'],
-    ['Our Bill', 'ourBill'], ['Cost', 'cost'], ['Suggested 70% Total', 'suggestedBill'], ['Market Bill Total', 'marketBill'],
+    ['Suggested 80% (unit)', 'suggestedBillRate'], ['Market Bill (unit)', 'marketBillRate'],
+    ['Our Bill', 'ourBill'], ['Cost', 'cost'], ['Suggested 80% Total', 'suggestedBill'], ['Market Bill Total', 'marketBill'],
     ['Profit', 'profit'], ['Margin %', 'marginPercent'], ['Gap vs Market', 'marketGap'],
-    ['Status', 'statusLabel'], ['Pricing Source', 'pricingSource'],
+    ['Rule Applied', 'ruleLabel'], ['Status', 'statusLabel'], ['Pricing Source', 'pricingSource'],
 ];
 
 router.get('/api/reports/bill-comparison/export', async (req, res) => {

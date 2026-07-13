@@ -79,7 +79,7 @@ async function searchModalInventory() {
         data.forEach((item) => {
             // Escape display cells; the Add button passes only the numeric id, so
             // product names containing " or ' can never break the markup.
-            // Show the SUGGESTED 70% bill (what the row will default to).
+            // Show the SUGGESTED 80% bill (what the row will default to).
             const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
             tbody.innerHTML += `
                 <tr>
@@ -98,7 +98,7 @@ async function searchModalInventory() {
 function addInventoryFromModal(invId) {
     const item = modalSearchResults.find((i) => i.InventoryID === invId);
     if (!item) return;
-    // Default the billed rate to the SUGGESTED 70%-of-market-mid figure (floored at
+    // Default the billed rate to the SUGGESTED 80%-of-market-mid figure (floored at
     // cost). The operator can still edit it before saving. Carry cost + market so
     // the rate cell can show the three-way comparison badges.
     const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
@@ -136,7 +136,7 @@ function addStandardCharges() {
 
 // ----------------------------------------------------
 // Crimping charge — priced PER END from the shipment datasheet (Crimping Charges
-// sheet), billed at 70% of the market mid but never below our internal cost.
+// sheet), billed at 80% of the market mid but never below our internal cost.
 // ----------------------------------------------------
 let crimpingRates = [];
 
@@ -198,7 +198,7 @@ function addCrimpingLine(e) {
         unit: 'end',
         length: 0,
         qty: ends,                       // billed per end
-        rate: r.suggestedPerEnd,         // 70% of market mid, floored at cost
+        rate: r.suggestedPerEnd,         // 80% of market mid, floored at cost
         cost: r.costPerEnd || 0,         // internal cost per end
         marketMid: r.marketMid || 0,     // market mid per end
         suggested: r.suggestedPerEnd,
@@ -223,7 +223,7 @@ function updateInvoiceItem(id, field, value) {
 }
 
 // Comparison badges shown under a rate cell: Our Cost (amber), Market Mid (blue),
-// Suggested 70% (green) + a red warning when the billed rate is below cost. Gives
+// Suggested 80% (green) + a red warning when the billed rate is below cost. Gives
 // the operator the full 3-way picture (cost / market / suggested) while editing.
 function marginHintHtml(it) {
     const cost = Number(it.cost) || 0;
@@ -235,13 +235,13 @@ function marginHintHtml(it) {
     const badges = [];
     if (cost > 0) badges.push(`<span class="pbadge pbadge-cost" title="Our landed cost">Cost ${formatCurrency(cost)}</span>`);
     if (market > 0) badges.push(`<span class="pbadge pbadge-market" title="Market mid benchmark">Mid ${formatCurrency(market)}</span>`);
-    if (suggested > 0) badges.push(`<span class="pbadge pbadge-suggested" title="Suggested = 70% of market mid, floored at cost">70% ${formatCurrency(suggested)}</span>`);
+    if (suggested > 0) badges.push(`<span class="pbadge pbadge-suggested" title="Suggested = 80% of market mid, floored at cost (ferrules cost x 1.25)">80% ${formatCurrency(suggested)}</span>`);
 
     let warn = '';
     if (cost > 0 && rate < cost) {
         warn = `<div class="margin-hint warn">⚠ below cost — losing ${formatCurrency(cost - rate)}/unit</div>`;
     } else if (suggested > 0 && rate < suggested - 0.5) {
-        warn = `<div class="margin-hint" style="color:#b45309;">↓ under the 70% floor</div>`;
+        warn = `<div class="margin-hint" style="color:#b45309;">↓ under the 80% floor</div>`;
     } else if (rate > 0 && cost > 0) {
         const pct = round2(((rate - cost) / rate) * 100);
         warn = `<div class="margin-hint ok">▲ ${pct}% margin</div>`;

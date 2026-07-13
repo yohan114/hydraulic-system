@@ -4,7 +4,7 @@
     "invoice": "HS25E1112W1",
     "exchangeRate": 305,
     "dutyFactor": 1.26,
-    "marketFactor": 0.7,
+    "marketFactor": 0.8,
     "importedAt": "2026-07-13T00:00:00Z",
     "counts": {
       "hose": 15,

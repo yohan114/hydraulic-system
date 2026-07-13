@@ -70,8 +70,8 @@ router.get('/api/inventory/search', async (req, res) => {
         // Attach the suggested 70%-of-market-mid unit bill (floored at cost) so the
         // invoice picker can default the rate to it. Never below cost.
         const withSuggested = data.map((r) => {
-            const s = pricingEngine.suggestFromCostMarket(r.Cost, r.MarketMid);
-            return { ...r, SuggestedBill: s.suggestedUnit, SuggestedFloored: s.floored };
+            const s = pricingEngine.suggestFromCostMarket(r.Cost, r.MarketMid, { ferrule: pricingEngine.isFerrule(r.SpecificationCode) });
+            return { ...r, SuggestedBill: s.suggestedUnit, SuggestedFloored: s.floored, PricingRuleApplied: s.rule };
         });
         res.json(withSuggested);
     } catch (err) {

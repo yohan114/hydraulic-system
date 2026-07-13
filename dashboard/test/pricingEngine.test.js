@@ -25,38 +25,54 @@ test('parseHose pulls grade + size from messy descriptions', () => {
   assert.equal(eng.parseHose('Technical charges'), null);
 });
 
-// ---- the 70% floored suggestion ----
-test('suggestUnit = 70% of market mid when that is above cost', () => {
-  assert.deepEqual(eng.suggestUnit(360, 850), { suggested: 595, floored: false });
-  assert.deepEqual(eng.suggestUnit(290, 650), { suggested: 455, floored: false });
+// ---- the 80% floored suggestion (≈20% below market) ----
+test('suggestUnit = 80% of market mid when that is above cost', () => {
+  assert.deepEqual(eng.suggestUnit(360, 850), { suggested: 680, floored: false, rule: 'marketMinus20' });
+  assert.deepEqual(eng.suggestUnit(290, 650), { suggested: 520, floored: false, rule: 'marketMinus20' });
 });
 
-test('suggestUnit floors at cost when 70% mid drops below cost', () => {
-  // 70% of 500 = 350 < cost 400 -> floored at 400
-  assert.deepEqual(eng.suggestUnit(400, 500), { suggested: 400, floored: true });
+test('suggestUnit floors at cost when 80% mid drops below cost', () => {
+  // 80% of 450 = 360 < cost 400 -> floored at 400
+  assert.deepEqual(eng.suggestUnit(400, 450), { suggested: 400, floored: true, rule: 'costFloor' });
 });
 
 test('suggestUnit with no market falls back to cost', () => {
-  assert.deepEqual(eng.suggestUnit(120, 0), { suggested: 120, floored: true });
+  assert.deepEqual(eng.suggestUnit(120, 0), { suggested: 120, floored: true, rule: 'costFloor' });
+});
+
+test('ferrule floor uses cost × 1.25 when it beats 80% market', () => {
+  // 80% of 110 = 88; cost×1.25 = 125 -> ferrule floor wins
+  assert.deepEqual(eng.suggestUnit(100, 110, { ferrule: true }), { suggested: 125, floored: true, rule: 'ferruleFloor' });
+  // When 80% market clears the ferrule floor, market wins (marketMinus20)
+  assert.deepEqual(eng.suggestUnit(100, 200, { ferrule: true }), { suggested: 160, floored: false, rule: 'marketMinus20' });
+});
+
+test('isFerrule detects sleeve spec codes', () => {
+  assert.equal(eng.isFerrule('00210-10'), true);
+  assert.equal(eng.isFerrule('00110-04'), true);
+  assert.equal(eng.isFerrule('2SN'), true);
+  assert.equal(eng.isFerrule('22611-04-04'), false); // union
+  assert.equal(eng.isFerrule('10011N-06'), false);   // weld fitting
 });
 
 // ---- status classification ----
 test('priceStatus classifies against cost + market mid', () => {
   assert.equal(eng.priceStatus({ cost: 100, rate: 80, marketMid: 1000 }), eng.STATUS.BELOW_COST);
   assert.equal(eng.priceStatus({ cost: 100, rate: 1100, marketMid: 1000 }), eng.STATUS.AT_ABOVE_MARKET);
-  assert.equal(eng.priceStatus({ cost: 100, rate: 600, marketMid: 1000 }), eng.STATUS.BELOW_70); // < 700 floor
-  assert.equal(eng.priceStatus({ cost: 100, rate: 800, marketMid: 1000 }), eng.STATUS.HEALTHY);  // between 700 and 1000
-  // cost above the 70% floor -> at-cost-floor regime
-  assert.equal(eng.priceStatus({ cost: 800, rate: 800, marketMid: 1000 }), eng.STATUS.AT_COST_FLOOR);
+  assert.equal(eng.priceStatus({ cost: 100, rate: 700, marketMid: 1000 }), eng.STATUS.BELOW_FLOOR); // < 800 floor
+  assert.equal(eng.priceStatus({ cost: 100, rate: 900, marketMid: 1000 }), eng.STATUS.HEALTHY);     // between 800 and 1000
+  // cost above the 80% floor -> at-cost-floor regime
+  assert.equal(eng.priceStatus({ cost: 850, rate: 850, marketMid: 1000 }), eng.STATUS.AT_COST_FLOOR);
 });
 
 // ---- end-to-end against the committed master JSON ----
 test('getPricingForItem prices crimping per end (default 2 ends)', () => {
   const r = eng.getPricingForItem({ type: 'crimping', hoseSize: '5/8"', ends: 2 });
   assert.equal(r.source, 'crimping-charges');
-  assert.equal(r.suggestedUnit, 595);
-  assert.equal(r.suggestedBill, 1190); // 595 x 2 ends
+  assert.equal(r.suggestedUnit, 680);  // 850 x 0.80
+  assert.equal(r.suggestedBill, 1360); // 680 x 2 ends
   assert.equal(r.marketMid, 1700);     // 850 x 2
+  assert.equal(r.rule, 'marketMinus20');
 });
 
 test('getPricingForItem prices a fitting by spec code', () => {
@@ -64,22 +80,32 @@ test('getPricingForItem prices a fitting by spec code', () => {
   assert.equal(r.source, 'unit-prices');
   assert.equal(r.costUnit, 138.48);
   assert.equal(r.marketUnit, 620);
-  assert.equal(r.suggestedUnit, 434); // 620 x 0.70
-  assert.equal(r.suggestedBill, 1302); // 434 x 3
+  assert.equal(r.suggestedUnit, 496); // 620 x 0.80
+  assert.equal(r.suggestedBill, 1488); // 496 x 3
+  assert.equal(r.rule, 'marketMinus20');
+});
+
+test('getPricingForItem applies the ferrule floor for a ferrule spec code', () => {
+  const r = eng.getPricingForItem({ type: 'fitting', specCode: '00210-10', qty: 1 });
+  assert.equal(r.source, 'unit-prices');
+  // 80% of 1054 = 843.2; cost×1.25 = 823.34 -> market still wins here
+  assert.equal(r.suggestedUnit, 843.2);
+  assert.equal(r.rule, 'marketMinus20');
 });
 
 test('getPricingForItem prices hose per metre from a description', () => {
   const r = eng.getPricingForItem({ type: 'hose', description: 'R2 hydraulic hose 1/2"', length: 4 });
   assert.equal(r.source, 'hose-cost-market');
   assert.equal(r.marketUnit, 1900);
-  assert.equal(r.suggestedUnit, 1330); // 1900 x 0.70
-  assert.equal(r.suggestedBill, 5320); // 1330 x 4m
+  assert.equal(r.suggestedUnit, 1520); // 1900 x 0.80
+  assert.equal(r.suggestedBill, 6080); // 1520 x 4m
 });
 
 test('getPricingForItem returns a manual warning when nothing matches', () => {
   const r = eng.getPricingForItem({ type: 'fitting', specCode: 'NOPE-99' });
   assert.equal(r.source, 'manual');
-  assert.match(r.warning, /manually/);
+  assert.equal(r.rule, 'manual');
+  assert.match(r.warning, /No market benchmark/);
 });
 
 // ---- import parses the bundled workbook ----

@@ -66,15 +66,16 @@ function computeLineMetrics({ unitCost, ourRate, marketRate, qty, lowMarginThres
  * frozen as of billing time.
  * @returns {{unitCostAtBilling,ourBillRate,marketBillRate,suggestedBillRate,pricingSource,profitAmount,marginPercent,marketGap,priceFlag}}
  */
-function lineSnapshot({ unitCost, ourRate, marketRate, qty, source }) {
+function lineSnapshot({ unitCost, ourRate, marketRate, qty, source, ferrule }) {
   const m = computeLineMetrics({ unitCost, ourRate, marketRate, qty });
-  const suggested = pricingEngine.suggestUnit(unitCost, marketRate);
+  const suggested = pricingEngine.suggestUnit(unitCost, marketRate, { ferrule: !!ferrule });
   return {
     unitCostAtBilling: money.round2(money.num(unitCost)),
     ourBillRate: money.round2(money.num(ourRate)),
     marketBillRate: money.round2(money.num(marketRate)),
     suggestedBillRate: suggested.suggested,
     pricingSource: source || (money.num(marketRate) > 0 || money.num(unitCost) > 0 ? 'inventory' : 'manual'),
+    pricingRuleApplied: suggested.rule,
     profitAmount: m.profitAmount,
     marginPercent: m.marginPercent,
     marketGap: m.marketGap,
@@ -82,13 +83,14 @@ function lineSnapshot({ unitCost, ourRate, marketRate, qty, source }) {
   };
 }
 
-/** Current Cost + MarketMid for a set of inventory ids (for the billing-time snapshot). */
+/** Current Cost + MarketMid (+ spec code, for ferrule detection) for a set of
+ *  inventory ids (for the billing-time snapshot). */
 async function loadCostMarket(ids) {
   const map = new Map();
   const unique = [...new Set((ids || []).filter((i) => i != null))];
   for (const id of unique) {
-    const r = await connection.query(`SELECT Cost, MarketMid FROM Inventory WHERE InventoryID = ${sql.n(id)}`);
-    if (r.length) map.set(id, { unitCost: money.num(r[0].Cost), marketRate: money.num(r[0].MarketMid) });
+    const r = await connection.query(`SELECT Cost, MarketMid, SpecificationCode FROM Inventory WHERE InventoryID = ${sql.n(id)}`);
+    if (r.length) map.set(id, { unitCost: money.num(r[0].Cost), marketRate: money.num(r[0].MarketMid), specCode: r[0].SpecificationCode });
   }
   return map;
 }
@@ -128,8 +130,8 @@ async function billComparison(opts = {}) {
            ii.ItemDescription, ii.Unit, ii.Qty, ii.Rate,
            COALESCE(ii.UnitCostAtBilling, inv.Cost, 0)  AS UnitCost,
            COALESCE(ii.MarketBillRate,  inv.MarketMid, 0) AS MarketRate,
-           ii.SuggestedBillRate, ii.PricingSource,
-           inv.ProductName, inv.UniqueID
+           ii.SuggestedBillRate, ii.PricingSource, ii.PricingRuleApplied,
+           inv.ProductName, inv.UniqueID, inv.SpecificationCode
     FROM (InvoiceItems ii INNER JOIN Invoices i ON ii.InvoiceID = i.InvoiceID)
          LEFT JOIN Inventory inv ON ii.InventoryID = inv.InventoryID
     WHERE ${conds.join(' AND ')}
@@ -158,11 +160,13 @@ async function billComparison(opts = {}) {
     const ourBill = money.round2(ourRate * qty);
     const marketBill = money.round2(marketRate * qty);
     const costTotal = money.round2(unitCost * qty);
-    // Suggested 70% bill: prefer the value snapshotted at billing time, else derive.
-    const suggestedUnit = r.SuggestedBillRate != null
-      ? money.round2(r.SuggestedBillRate)
-      : pricingEngine.suggestUnit(unitCost, marketRate).suggested;
+    // Suggested 80% bill + rule: prefer the values snapshotted at billing time,
+    // else derive (with ferrule detection from the item's spec code).
+    const ferrule = pricingEngine.isFerrule(r.SpecificationCode);
+    const derived = pricingEngine.suggestUnit(unitCost, marketRate, { ferrule });
+    const suggestedUnit = r.SuggestedBillRate != null ? money.round2(r.SuggestedBillRate) : derived.suggested;
     const suggestedBill = money.round2(suggestedUnit * qty);
+    const ruleApplied = r.PricingRuleApplied || derived.rule;
     const status = pricingEngine.priceStatus({ cost: unitCost, rate: ourRate, marketMid: marketRate });
     kpis.lines++;
     kpis.ourBill += ourBill;
@@ -202,6 +206,8 @@ async function billComparison(opts = {}) {
       status,
       statusLabel: pricingEngine.STATUS_LABEL[status] || status,
       pricingSource: r.PricingSource || 'inventory',
+      pricingRuleApplied: ruleApplied,
+      ruleLabel: pricingEngine.RULE_LABEL[ruleApplied] || ruleApplied,
     });
   }
 

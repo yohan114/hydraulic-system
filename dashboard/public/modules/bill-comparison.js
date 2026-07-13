@@ -10,14 +10,22 @@ const BC_FLAG_META = {
     ok: { label: 'OK', color: '#10b981' },
 };
 
-// Richer status (vs cost + the 70% market floor). Drives the Status column.
+// Richer status (vs cost + the 80% market floor). Kept for internal reference.
 const BC_STATUS_META = {
     'below-cost': { label: 'Below Cost', color: '#ef4444' },
     'at-cost-floor': { label: 'At Cost Floor', color: '#f59e0b' },
-    'below-70-market': { label: 'Below 70% Market', color: '#f97316' },
+    'below-market-floor': { label: 'Below 80% Market', color: '#f97316' },
     healthy: { label: 'Healthy Margin', color: '#10b981' },
     'at-above-market': { label: 'At/Above Market', color: '#6366f1' },
     'no-market': { label: 'No Market Ref', color: '#94a3b8' },
+};
+
+// Which pricing rule set the default bill — shown in the "Rule Applied" column.
+const BC_RULE_META = {
+    marketMinus20: { label: 'Market −20%', color: '#10b981' },
+    costFloor: { label: 'Cost Floor', color: '#f59e0b' },
+    ferruleFloor: { label: 'Ferrule Floor', color: '#8b5cf6' },
+    manual: { label: 'Manual', color: '#94a3b8' },
 };
 
 function bcFlagBadge(flag) {
@@ -25,8 +33,8 @@ function bcFlagBadge(flag) {
     return `<span class="badge" style="background:${m.color}1a;color:${m.color};font-weight:600;">${m.label}</span>`;
 }
 
-function bcStatusBadge(status, label) {
-    const m = BC_STATUS_META[status] || { label: label || status || '—', color: '#94a3b8' };
+function bcRuleBadge(rule, label) {
+    const m = BC_RULE_META[rule] || { label: label || rule || '—', color: '#94a3b8' };
     return `<span class="badge" style="background:${m.color}1a;color:${m.color};font-weight:600;">${escAttr(m.label)}</span>`;
 }
 function bcColor(v) { return Number(v) >= 0 ? '#10b981' : '#ef4444'; }
@@ -79,7 +87,7 @@ function renderBillComparison(data) {
                 <td class="num" style="color:${bcColor(r.profit)};font-weight:600;">${formatCurrency(r.profit)}</td>
                 <td class="num" style="color:${bcColor(r.marginPercent)};font-weight:600;">${r.marginPercent}%</td>
                 <td class="num" style="color:${r.marketGap <= 0 ? '#10b981' : '#f97316'};">${formatCurrency(r.marketGap)}</td>
-                <td>${bcStatusBadge(r.status, r.statusLabel)}</td>
+                <td>${bcRuleBadge(r.pricingRuleApplied, r.ruleLabel)}</td>
             </tr>`;
     });
 }

@@ -77,6 +77,8 @@ const COLUMN_ENSURES = {
   InvoiceItems: {
     UnitCostAtBilling: 'REAL', OurBillRate: 'REAL', MarketBillRate: 'REAL',
     SuggestedBillRate: 'REAL', PricingSource: 'TEXT',
+    // Which pricing rule set the default bill: marketMinus20 / costFloor / ferruleFloor / manual.
+    PricingRuleApplied: 'TEXT',
     ProfitAmount: 'REAL', MarginPercent: 'REAL', MarketGap: 'REAL', PriceFlag: 'TEXT',
   },
 };
@@ -164,13 +166,15 @@ async function ensureSchema(conn) {
     // Backfill any line missing EITHER the original snapshot OR the newer
     // suggested-bill / pricing-source columns.
     const legacy = db.prepare(`
-      SELECT ii.InvoiceItemID, ii.Qty, ii.Rate, ii.UnitCostAtBilling, ii.MarketBillRate, inv.Cost, inv.MarketMid
+      SELECT ii.InvoiceItemID, ii.Qty, ii.Rate, ii.UnitCostAtBilling, ii.MarketBillRate, ii.PricingSource,
+             inv.Cost, inv.MarketMid, inv.SpecificationCode
       FROM InvoiceItems ii LEFT JOIN Inventory inv ON ii.InventoryID = inv.InventoryID
-      WHERE ii.UnitCostAtBilling IS NULL OR ii.SuggestedBillRate IS NULL`).all();
+      WHERE ii.UnitCostAtBilling IS NULL OR ii.SuggestedBillRate IS NULL OR ii.PricingRuleApplied IS NULL`).all();
     if (legacy.length) {
+      const { isFerrule } = require('./services/pricingEngine');
       const upd = db.prepare(`UPDATE InvoiceItems SET
         UnitCostAtBilling=@unitCost, OurBillRate=@ourRate, MarketBillRate=@market,
-        SuggestedBillRate=@suggested, PricingSource=@source,
+        SuggestedBillRate=@suggested, PricingSource=@source, PricingRuleApplied=@rule,
         ProfitAmount=@profit, MarginPercent=@margin, MarketGap=@gap, PriceFlag=@flag
         WHERE InvoiceItemID=@id`);
       const tx = db.transaction((rowsIn) => {
@@ -178,10 +182,10 @@ async function ensureSchema(conn) {
           // Prefer the already-snapshotted cost/market when present, else the item's current values.
           const unitCost = r.UnitCostAtBilling != null ? r.UnitCostAtBilling : r.Cost;
           const marketRate = r.MarketBillRate != null ? r.MarketBillRate : r.MarketMid;
-          const s = lineSnapshot({ unitCost, ourRate: r.Rate, marketRate, qty: r.Qty });
+          const s = lineSnapshot({ unitCost, ourRate: r.Rate, marketRate, qty: r.Qty, source: r.PricingSource, ferrule: isFerrule(r.SpecificationCode) });
           upd.run({
             id: r.InvoiceItemID, unitCost: s.unitCostAtBilling, ourRate: s.ourBillRate, market: s.marketBillRate,
-            suggested: s.suggestedBillRate, source: s.pricingSource,
+            suggested: s.suggestedBillRate, source: s.pricingSource, rule: s.pricingRuleApplied,
             profit: s.profitAmount, margin: s.marginPercent, gap: s.marketGap, flag: s.priceFlag,
           });
         }

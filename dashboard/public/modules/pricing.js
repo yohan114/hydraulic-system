@@ -65,7 +65,7 @@ function renderPricingPreview() {
                 <td>${escAttr(r.unit)}</td>
                 <td class="num">${formatCurrency(r.ourCost)}</td>
                 <td class="num">${formatCurrency(r.marketMid)}</td>
-                <td class="num" style="color:#047857;font-weight:600;">${formatCurrency(r.suggested70)}${r.floored ? ' <span style="color:#c2410c;font-size:10px;">(cost)</span>' : ''}</td>
+                <td class="num" style="color:#047857;font-weight:600;">${formatCurrency(r.suggested)}${r.floored ? ' <span style="color:#c2410c;font-size:10px;">(cost)</span>' : ''}</td>
                 <td class="num" style="color:${r.marginPct >= 20 ? '#10b981' : (r.marginPct >= 0 ? '#f59e0b' : '#ef4444')};font-weight:600;">${r.marginPct}%</td>
             </tr>`;
     });
