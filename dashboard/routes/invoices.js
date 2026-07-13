@@ -533,9 +533,16 @@ router.get('/api/invoices/:id/compare', async (req, res) => {
         const comparedItems = items.map((item) => {
             const qty = money.num(item.Qty);
             const ourAmt = money.num(item.Amount);                    // Our Price (billed)
-            const ourCostAmt = money.round2(qty * money.num(item.Cost)); // Our Cost
-            const marketUnit = lineMarketMid(rates, item);            // Market Mid, per unit
-            const marketAmt = money.round2(qty * marketUnit);         // Market Mid, line total
+            // Stock lines: live market + cost (unchanged). Manual/labour lines
+            // (crimping, welding) have no Inventory join, so use their billing-time
+            // snapshot — crimping compares vs its market crimp rate, welding vs its
+            // welding rate.
+            const isManual = item.InventoryID == null;
+            const costUnit = isManual ? money.num(item.UnitCostAtBilling) : money.num(item.Cost);
+            const ourCostAmt = money.round2(qty * costUnit);          // Our Cost
+            const snapMarket = money.num(item.MarketBillRate);
+            const marketUnit = (isManual && snapMarket > 0) ? snapMarket : lineMarketMid(rates, item); // Market, per unit
+            const marketAmt = money.round2(qty * marketUnit);         // Market, line total
 
             ourSubtotal += ourAmt;
             ourCostSubtotal += ourCostAmt;
@@ -627,8 +634,13 @@ router.get('/api/invoices/:id/compare-export', async (req, res) => {
         const excelRows = items.map((item, idx) => {
             const qty = money.num(item.Qty);
             const ourAmt = money.num(item.Amount);
-            const ourCostAmt = money.round2(qty * money.num(item.Cost));
-            const marketUnit = lineMarketMid(rates, item);
+            // Manual/labour lines (crimping, welding) compare against their own
+            // billing-time snapshot; stock lines keep the live market + cost.
+            const isManual = item.InventoryID == null;
+            const costUnit = isManual ? money.num(item.UnitCostAtBilling) : money.num(item.Cost);
+            const ourCostAmt = money.round2(qty * costUnit);
+            const snapMarket = money.num(item.MarketBillRate);
+            const marketUnit = (isManual && snapMarket > 0) ? snapMarket : lineMarketMid(rates, item);
             const marketAmt = money.round2(qty * marketUnit);
             ourSubtotal += ourAmt;
             ourCostSubtotal += ourCostAmt;
