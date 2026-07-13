@@ -74,8 +74,12 @@ test('fully zero line (no cost, no rate) -> ok', () => {
 test('lineSnapshot returns the full stored column set, rounded', () => {
   const s = lineSnapshot({ unitCost: 100.005, ourRate: 200, marketRate: 250, qty: 2 });
   assert.deepStrictEqual(Object.keys(s).sort(), [
-    'marginPercent', 'marketBillRate', 'marketGap', 'ourBillRate', 'priceFlag', 'profitAmount', 'unitCostAtBilling',
+    'marginPercent', 'marketBillRate', 'marketGap', 'ourBillRate', 'priceFlag',
+    'pricingSource', 'profitAmount', 'suggestedBillRate', 'unitCostAtBilling',
   ]);
   assert.strictEqual(s.unitCostAtBilling, 100.01);
   assert.strictEqual(s.ourBillRate, 200);
+  // Suggested = max(cost, 250 × 0.70 = 175) = 175 (per unit).
+  assert.strictEqual(s.suggestedBillRate, 175);
+  assert.strictEqual(s.pricingSource, 'inventory');
 });

@@ -71,8 +71,12 @@ const COLUMN_ENSURES = {
   RateCard: { Category: 'TEXT', OutsideLow: 'REAL', OutsideMid: 'REAL', OutsideHigh: 'REAL' },
   Users: { Role: 'TEXT' },
   // Cost-vs-bill-vs-market snapshot captured per line at billing time.
+  // SuggestedBillRate = the 70%-of-market-mid (floored at cost) figure the system
+  // suggested; PricingSource = where cost/market came from (unit-prices/hose-cost-market/
+  // crimping-charges/inventory/manual).
   InvoiceItems: {
     UnitCostAtBilling: 'REAL', OurBillRate: 'REAL', MarketBillRate: 'REAL',
+    SuggestedBillRate: 'REAL', PricingSource: 'TEXT',
     ProfitAmount: 'REAL', MarginPercent: 'REAL', MarketGap: 'REAL', PriceFlag: 'TEXT',
   },
 };
@@ -157,20 +161,27 @@ async function ensureSchema(conn) {
   // Best effort: no historical prices are kept, so the item's CURRENT cost/market
   // is used. New invoices snapshot the real values at billing time.
   try {
+    // Backfill any line missing EITHER the original snapshot OR the newer
+    // suggested-bill / pricing-source columns.
     const legacy = db.prepare(`
-      SELECT ii.InvoiceItemID, ii.Qty, ii.Rate, inv.Cost, inv.MarketMid
+      SELECT ii.InvoiceItemID, ii.Qty, ii.Rate, ii.UnitCostAtBilling, ii.MarketBillRate, inv.Cost, inv.MarketMid
       FROM InvoiceItems ii LEFT JOIN Inventory inv ON ii.InventoryID = inv.InventoryID
-      WHERE ii.UnitCostAtBilling IS NULL`).all();
+      WHERE ii.UnitCostAtBilling IS NULL OR ii.SuggestedBillRate IS NULL`).all();
     if (legacy.length) {
       const upd = db.prepare(`UPDATE InvoiceItems SET
         UnitCostAtBilling=@unitCost, OurBillRate=@ourRate, MarketBillRate=@market,
+        SuggestedBillRate=@suggested, PricingSource=@source,
         ProfitAmount=@profit, MarginPercent=@margin, MarketGap=@gap, PriceFlag=@flag
         WHERE InvoiceItemID=@id`);
       const tx = db.transaction((rowsIn) => {
         for (const r of rowsIn) {
-          const s = lineSnapshot({ unitCost: r.Cost, ourRate: r.Rate, marketRate: r.MarketMid, qty: r.Qty });
+          // Prefer the already-snapshotted cost/market when present, else the item's current values.
+          const unitCost = r.UnitCostAtBilling != null ? r.UnitCostAtBilling : r.Cost;
+          const marketRate = r.MarketBillRate != null ? r.MarketBillRate : r.MarketMid;
+          const s = lineSnapshot({ unitCost, ourRate: r.Rate, marketRate, qty: r.Qty });
           upd.run({
             id: r.InvoiceItemID, unitCost: s.unitCostAtBilling, ourRate: s.ourBillRate, market: s.marketBillRate,
+            suggested: s.suggestedBillRate, source: s.pricingSource,
             profit: s.profitAmount, margin: s.marginPercent, gap: s.marketGap, flag: s.priceFlag,
           });
         }

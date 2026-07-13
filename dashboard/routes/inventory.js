@@ -11,6 +11,7 @@ const ledger = require('../services/stockLedger');
 const { invoiceMutex } = require('../lib/mutex');
 const { requireRole, roleOf } = require('./auth');
 const { loadRateCard, getCostComparison, rateCardSet } = require('../services/ratecard');
+const pricingEngine = require('../services/pricingEngine');
 
 const adminOnly = requireRole('admin');
 
@@ -66,7 +67,13 @@ router.get('/api/inventory/search', async (req, res) => {
         const safeQ = sql.esc(q);
         const sqlStr = `SELECT * FROM Inventory WHERE UniqueID LIKE '%${safeQ}%' OR ProductName LIKE '%${safeQ}%' OR SpecificationCode LIKE '%${safeQ}%' OR Unit LIKE '%${safeQ}%'`;
         const data = await connection.query(sqlStr);
-        res.json(data);
+        // Attach the suggested 70%-of-market-mid unit bill (floored at cost) so the
+        // invoice picker can default the rate to it. Never below cost.
+        const withSuggested = data.map((r) => {
+            const s = pricingEngine.suggestFromCostMarket(r.Cost, r.MarketMid);
+            return { ...r, SuggestedBill: s.suggestedUnit, SuggestedFloored: s.floored };
+        });
+        res.json(withSuggested);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

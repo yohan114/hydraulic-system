@@ -10,14 +10,29 @@ const BC_FLAG_META = {
     ok: { label: 'OK', color: '#10b981' },
 };
 
+// Richer status (vs cost + the 70% market floor). Drives the Status column.
+const BC_STATUS_META = {
+    'below-cost': { label: 'Below Cost', color: '#ef4444' },
+    'at-cost-floor': { label: 'At Cost Floor', color: '#f59e0b' },
+    'below-70-market': { label: 'Below 70% Market', color: '#f97316' },
+    healthy: { label: 'Healthy Margin', color: '#10b981' },
+    'at-above-market': { label: 'At/Above Market', color: '#6366f1' },
+    'no-market': { label: 'No Market Ref', color: '#94a3b8' },
+};
+
 function bcFlagBadge(flag) {
     const m = BC_FLAG_META[flag] || BC_FLAG_META.ok;
     return `<span class="badge" style="background:${m.color}1a;color:${m.color};font-weight:600;">${m.label}</span>`;
 }
+
+function bcStatusBadge(status, label) {
+    const m = BC_STATUS_META[status] || { label: label || status || '—', color: '#94a3b8' };
+    return `<span class="badge" style="background:${m.color}1a;color:${m.color};font-weight:600;">${escAttr(m.label)}</span>`;
+}
 function bcColor(v) { return Number(v) >= 0 ? '#10b981' : '#ef4444'; }
 
 async function loadBillComparison() {
-    showSkeleton('bill-comparison-tbody', 12, 6);
+    showSkeleton('bill-comparison-tbody', 12, 12);
     const params = new URLSearchParams({ flag: bcState.flag, lowMargin: String(bcState.threshold) });
     if (bcState.from) params.set('from', bcState.from);
     if (bcState.to) params.set('to', bcState.to);
@@ -59,11 +74,12 @@ function renderBillComparison(data) {
                 <td class="num">${r.qty}${r.unit ? ' ' + escAttr(r.unit) : ''}</td>
                 <td class="num">${formatCurrency(r.unitCost)}</td>
                 <td class="num">${formatCurrency(r.ourBillRate)}</td>
+                <td class="num" style="color:#047857;">${r.suggestedBillRate ? formatCurrency(r.suggestedBillRate) : '<span style="color:var(--text-muted)">—</span>'}</td>
                 <td class="num">${r.marketBillRate ? formatCurrency(r.marketBillRate) : '<span style="color:var(--text-muted)">—</span>'}</td>
                 <td class="num" style="color:${bcColor(r.profit)};font-weight:600;">${formatCurrency(r.profit)}</td>
                 <td class="num" style="color:${bcColor(r.marginPercent)};font-weight:600;">${r.marginPercent}%</td>
                 <td class="num" style="color:${r.marketGap <= 0 ? '#10b981' : '#f97316'};">${formatCurrency(r.marketGap)}</td>
-                <td>${bcFlagBadge(r.priceFlag)}</td>
+                <td>${bcStatusBadge(r.status, r.statusLabel)}</td>
             </tr>`;
     });
 }

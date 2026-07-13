@@ -103,6 +103,9 @@
                     <i class="ri-bar-chart-grouped-line"></i> Job Profit Analysis
                     <span class="nav-badge" id="jobProfitNavBadge" style="display:none;"></span>
                 </a>
+                <a href="#" class="nav-item admin-only" data-target="pricing-master">
+                    <i class="ri-price-tag-3-line"></i> Pricing Master
+                </a>
                 <a href="#" class="nav-item" data-target="labour">
                     <i class="ri-team-line"></i> Labour
                 </a>
@@ -711,6 +714,52 @@
                     </div>
                 </section>
 
+                <!-- Pricing Master Section (admin) -->
+                <section id="pricing-master" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Pricing Master</h2>
+                        <p style="color:var(--text-muted);font-size:13px;margin-top:4px;">The shipment datasheet is the pricing source. Our Cost = landed cost · Market = market mid · every bill defaults to <strong>70% of market mid</strong> (never below cost).</p>
+                    </div>
+
+                    <div class="stats-grid" style="margin-bottom:16px;">
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-file-list-3-line"></i></div><div class="stat-details"><h3>Hose lines</h3><p id="pm-count-hose" style="font-size:22px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="ri-nut-line"></i></div><div class="stat-details"><h3>Fitting lines</h3><p id="pm-count-fittings" style="font-size:22px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Crimping sizes</h3><p id="pm-count-crimping" style="font-size:22px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,.1);color:#f59e0b;"><i class="ri-links-line"></i></div><div class="stat-details"><h3>Inventory matched</h3><p id="pm-inv-matched" style="font-size:22px;">0</p><span id="pm-inv-unmatched" style="font-size:12px;color:var(--text-muted);">0 unmatched</span></div></div>
+                    </div>
+
+                    <div class="card" style="padding:18px 20px;margin-bottom:16px;">
+                        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;">
+                            <div>
+                                <div style="font-weight:600;">Source: <span id="pm-source">EC_Shipment_HS25E1112W1_Datasheet.xlsx</span></div>
+                                <div style="font-size:12px;color:var(--text-muted);">Last imported: <span id="pm-imported">never</span> · Invoice <span id="pm-invoice">—</span></div>
+                            </div>
+                            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                                <input type="file" id="pm-file" accept=".xlsx" class="form-control" style="max-width:260px;">
+                                <button class="btn btn-primary" onclick="importPricingMaster()" id="pm-import-btn"><i class="ri-upload-2-line"></i> Import &amp; Sync</button>
+                                <button class="btn btn-secondary" onclick="importPricingMaster(true)" title="Re-import the bundled datasheet"><i class="ri-refresh-line"></i> Re-import bundled</button>
+                            </div>
+                        </div>
+                        <div id="pm-unmatched-note" style="display:none;margin-top:12px;font-size:13px;"></div>
+                    </div>
+
+                    <div class="card" style="padding:0;">
+                        <div class="widget-header" style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">
+                            <h2 style="font-size:15px;">Pricing Preview — cost · market mid · 70% suggested</h2>
+                            <input type="text" id="pm-search" class="form-control" placeholder="Filter by item / spec code…" style="max-width:260px;" oninput="renderPricingPreview()">
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr>
+                                    <th>Group</th><th>Item / Spec</th><th>Size</th><th>Unit</th>
+                                    <th class="num">Our Cost</th><th class="num">Market Mid</th><th class="num">70% Suggested</th><th class="num">Margin @70%</th>
+                                </tr></thead>
+                                <tbody id="pricing-preview-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Job Profit Analysis Section -->
                 <section id="job-profit" class="page-section no-print">
                     <div class="section-header">
@@ -819,8 +868,8 @@
                             <table class="table">
                                 <thead><tr>
                                     <th>Invoice</th><th>Customer</th><th>Product</th><th class="num">Qty</th>
-                                    <th class="num">Our Cost</th><th class="num">Our Bill</th><th class="num">Market Bill</th>
-                                    <th class="num">Profit</th><th class="num">Margin</th><th class="num">Gap vs Market</th><th>Flag</th>
+                                    <th class="num">Our Cost</th><th class="num">Our Bill</th><th class="num">Suggested 70%</th><th class="num">Market Bill</th>
+                                    <th class="num">Profit</th><th class="num">Margin</th><th class="num">Gap vs Market</th><th>Status</th>
                                 </tr></thead>
                                 <tbody id="bill-comparison-tbody"></tbody>
                             </table>
@@ -1241,9 +1290,9 @@
         </div>
     </div>
 
-    <!-- Add Crimping Charge Modal (size-based, from the Rate Card) -->
+    <!-- Add Crimping Charge Modal (per-END, from the shipment datasheet Crimping Charges sheet) -->
     <div id="crimpingModal" class="modal no-print">
-        <div class="modal-content" style="max-width: 460px;">
+        <div class="modal-content" style="max-width: 480px;">
             <div class="modal-header">
                 <h2>Add Crimping Charge</h2>
                 <button class="close-btn" onclick="closeModal('crimpingModal')"><i class="ri-close-line"></i></button>
@@ -1255,9 +1304,9 @@
                         <select id="crimp-size" class="form-control" onchange="updateCrimpingPreview()"></select>
                     </div>
                     <div class="form-group">
-                        <label>Quantity (hoses)</label>
-                        <input type="number" id="crimp-qty" class="form-control" value="1" min="1" step="1" oninput="updateCrimpingPreview()">
-                        <small style="color:var(--text-muted);">The rate covers the whole hose (both ends). Set the number of hoses crimped at this size.</small>
+                        <label>Number of ends</label>
+                        <input type="number" id="crimp-ends" class="form-control" value="2" min="1" step="1" oninput="updateCrimpingPreview()">
+                        <small style="color:var(--text-muted);">One assembly = 2 crimp ends. Charge is per end (billed at 70% of market mid, never below cost).</small>
                     </div>
                     <div class="form-group" style="background:var(--bg-color,#f8fafc);border:1px solid var(--border-color,#e5e7eb);border-radius:8px;padding:12px 14px;">
                         <span id="crimp-preview" style="font-size:15px;"></span>
@@ -1288,7 +1337,7 @@
                                 <th>Product Name</th>
                                 <th>Spec</th>
                                 <th>Avail. Qty</th>
-                                <th>Price</th>
+                                <th>Suggested (70%)</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -1539,5 +1588,6 @@
     <script src="modules/dashboard.js"></script>
     <script src="modules/bill-comparison.js"></script>
     <script src="modules/job-profit.js"></script>
+    <script src="modules/pricing.js"></script>
 </body>
 </html>

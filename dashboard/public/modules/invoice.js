@@ -79,13 +79,15 @@ async function searchModalInventory() {
         data.forEach((item) => {
             // Escape display cells; the Add button passes only the numeric id, so
             // product names containing " or ' can never break the markup.
+            // Show the SUGGESTED 70% bill (what the row will default to).
+            const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
             tbody.innerHTML += `
                 <tr>
                     <td>${escAttr(item.UniqueID)}</td>
                     <td>${escAttr(item.ProductName)}</td>
                     <td>${escAttr(item.SpecificationCode)}</td>
                     <td>${item.Qty}</td>
-                    <td>${formatCurrency(item.Price || 0)}</td>
+                    <td>${formatCurrency(suggested)}${item.SuggestedFloored ? ' <span style="color:#c2410c;font-size:10px;">(cost)</span>' : ''}</td>
                     <td><button class="btn btn-primary" onclick="addInventoryFromModal(${item.InventoryID})">Add</button></td>
                 </tr>
             `;
@@ -96,6 +98,10 @@ async function searchModalInventory() {
 function addInventoryFromModal(invId) {
     const item = modalSearchResults.find((i) => i.InventoryID === invId);
     if (!item) return;
+    // Default the billed rate to the SUGGESTED 70%-of-market-mid figure (floored at
+    // cost). The operator can still edit it before saving. Carry cost + market so
+    // the rate cell can show the three-way comparison badges.
+    const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
     invoiceItems.push({
         id: nextItemId++,
         inventoryId: item.InventoryID,
@@ -103,8 +109,11 @@ function addInventoryFromModal(invId) {
         unit: item.Unit,
         length: item.Length,
         qty: 1,
-        rate: item.Price || 0,
+        rate: suggested,
         cost: item.Cost || 0,
+        marketMid: item.MarketMid || 0,
+        suggested,
+        source: 'inventory',
         maxQty: item.Qty,
     });
     closeModal('selectInventoryModal');
@@ -126,14 +135,15 @@ function addStandardCharges() {
 }
 
 // ----------------------------------------------------
-// Crimping charge — priced from the Rate Card by hose size × number of ends.
+// Crimping charge — priced PER END from the shipment datasheet (Crimping Charges
+// sheet), billed at 70% of the market mid but never below our internal cost.
 // ----------------------------------------------------
 let crimpingRates = [];
 
 async function loadCrimpingRates() {
     if (crimpingRates.length) return crimpingRates;
     try {
-        const res = await authFetch(`${API_URL}/ratecard/crimping`);
+        const res = await authFetch(`${API_URL}/pricing/crimping`);
         const data = await res.json();
         if (Array.isArray(data)) crimpingRates = data;
     } catch (e) { console.error('Error loading crimping rates', e); }
@@ -144,56 +154,55 @@ async function openCrimpingModal() {
     await loadCrimpingRates();
     const sel = document.getElementById('crimp-size');
     if (!crimpingRates.length) {
-        toast('No crimping rates found in the Rate Card. Add them under Rate Card first.', 'error');
+        toast('No crimping rates found. Import the pricing master under Pricing Master first.', 'error');
         return;
     }
-    // The Rate Card price is the full crimping charge for the hose (both ends),
-    // so it is shown as a flat rate — NOT multiplied per end.
-    sel.innerHTML = crimpingRates.map((r) => {
-        const size = String(r.label).replace(/\s*\(per end\)\s*/i, '').replace(/^Crimp\s*/i, '');
-        return `<option value="${r.rateId}">${escAttr(size)} — ${formatCurrency(r.ourPrice)}</option>`;
-    }).join('');
-    document.getElementById('crimp-qty').value = 1;
+    // Each option shows the size and the suggested PER-END price.
+    sel.innerHTML = crimpingRates.map((r) =>
+        `<option value="${escAttr(r.size)}">${escAttr(r.size)}" — ${formatCurrency(r.suggestedPerEnd)}/end</option>`
+    ).join('');
+    document.getElementById('crimp-ends').value = 2;
     updateCrimpingPreview();
     openModal('crimpingModal');
 }
 
 function selectedCrimp() {
-    const id = Number(document.getElementById('crimp-size').value);
-    return crimpingRates.find((r) => r.rateId === id) || null;
+    const size = document.getElementById('crimp-size').value;
+    return crimpingRates.find((r) => r.size === size) || null;
 }
 
-function crimpQty() {
-    return Math.max(1, parseInt(document.getElementById('crimp-qty').value, 10) || 1);
+function crimpEnds() {
+    return Math.max(1, parseInt(document.getElementById('crimp-ends').value, 10) || 1);
 }
 
 function updateCrimpingPreview() {
     const r = selectedCrimp();
-    const qty = crimpQty();
+    const ends = crimpEnds();
     const el = document.getElementById('crimp-preview');
     if (!r) { el.textContent = ''; return; }
-    const total = round2(r.ourPrice * qty);
-    el.innerHTML = qty === 1
-        ? `<strong>${formatCurrency(total)}</strong> (covers both ends)`
-        : `${formatCurrency(r.ourPrice)} &times; ${qty} hoses = <strong>${formatCurrency(total)}</strong>`;
+    const total = round2(r.suggestedPerEnd * ends);
+    const floorNote = r.floored ? ' <span style="color:#c2410c;">(cost floor)</span>' : '';
+    el.innerHTML = `${formatCurrency(r.suggestedPerEnd)}/end &times; ${ends} end${ends === 1 ? '' : 's'} = <strong>${formatCurrency(total)}</strong>${floorNote}`
+        + `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Cost ${formatCurrency(r.costPerEnd)}/end · Market mid ${formatCurrency(r.marketMid)}/end</div>`;
 }
 
 function addCrimpingLine(e) {
     if (e) e.preventDefault();
     const r = selectedCrimp();
     if (!r) return;
-    const qty = crimpQty();
-    // Strip the "(per end)" suffix from the rate-card label for a clean line description.
-    const size = String(r.label).replace(/\s*\(per end\)\s*/i, '').replace(/^Crimp\s*/i, '');
+    const ends = crimpEnds();
     invoiceItems.push({
         id: nextItemId++,
         inventoryId: null,
-        desc: `Crimping charge — ${size}`,
-        unit: 'Nos',           // charged per hose (both ends), not per end
+        desc: `Crimping charge — ${r.size}"`,
+        unit: 'end',
         length: 0,
-        qty,
-        rate: r.ourPrice,      // full both-ends rate from the Rate Card
-        cost: r.ourCost || 0,  // drives the margin hint
+        qty: ends,                       // billed per end
+        rate: r.suggestedPerEnd,         // 70% of market mid, floored at cost
+        cost: r.costPerEnd || 0,         // internal cost per end
+        marketMid: r.marketMid || 0,     // market mid per end
+        suggested: r.suggestedPerEnd,
+        source: 'crimping-charges',
         maxQty: null,
     });
     closeModal('crimpingModal');
@@ -213,16 +222,31 @@ function updateInvoiceItem(id, field, value) {
     if (field === 'qty' || field === 'rate') calcInvoiceTotals();
 }
 
-// Margin hint HTML shown under a rate cell (auto price + margin feature).
+// Comparison badges shown under a rate cell: Our Cost (amber), Market Mid (blue),
+// Suggested 70% (green) + a red warning when the billed rate is below cost. Gives
+// the operator the full 3-way picture (cost / market / suggested) while editing.
 function marginHintHtml(it) {
     const cost = Number(it.cost) || 0;
     const rate = Number(it.rate) || 0;
-    if (cost <= 0) return '<div class="margin-hint muted"></div>'; // unknown cost -> nothing to show
-    if (rate < cost) {
-        return `<div class="margin-hint warn">⚠ below cost Rs.${cost.toFixed(2)}</div>`;
+    const market = Number(it.marketMid) || 0;
+    const suggested = Number(it.suggested) || 0;
+    if (cost <= 0 && market <= 0) return '<div class="margin-hint muted"></div>'; // nothing to compare
+
+    const badges = [];
+    if (cost > 0) badges.push(`<span class="pbadge pbadge-cost" title="Our landed cost">Cost ${formatCurrency(cost)}</span>`);
+    if (market > 0) badges.push(`<span class="pbadge pbadge-market" title="Market mid benchmark">Mid ${formatCurrency(market)}</span>`);
+    if (suggested > 0) badges.push(`<span class="pbadge pbadge-suggested" title="Suggested = 70% of market mid, floored at cost">70% ${formatCurrency(suggested)}</span>`);
+
+    let warn = '';
+    if (cost > 0 && rate < cost) {
+        warn = `<div class="margin-hint warn">⚠ below cost — losing ${formatCurrency(cost - rate)}/unit</div>`;
+    } else if (suggested > 0 && rate < suggested - 0.5) {
+        warn = `<div class="margin-hint" style="color:#b45309;">↓ under the 70% floor</div>`;
+    } else if (rate > 0 && cost > 0) {
+        const pct = round2(((rate - cost) / rate) * 100);
+        warn = `<div class="margin-hint ok">▲ ${pct}% margin</div>`;
     }
-    const pct = rate > 0 ? round2(((rate - cost) / rate) * 100) : 0;
-    return `<div class="margin-hint ok">▲ ${pct}% margin</div>`;
+    return `<div class="pbadges">${badges.join('')}</div>${warn}`;
 }
 
 // Simplified, customer-facing description for the OUTSIDE bill. Display-only —
@@ -291,7 +315,7 @@ function renderInvoiceItems() {
                 </td>
                 <td>
                     <input class="cell" type="number" value="${it.rate}" min="0" step="0.01" oninput="updateInvoiceItem(${it.id}, 'rate', this.value)" ${editable ? '' : 'disabled'}>
-                    ${editable ? marginHintHtml(it) : ''}
+                    <div class="rate-hint-wrap">${editable ? marginHintHtml(it) : ''}</div>
                 </td>
                 <td class="num row-amount">${amount.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 <td class="row-actions no-print">${editable ? `<button type="button" onclick="removeInvoiceItem(${it.id})" title="Delete">×</button>` : ''}</td>
@@ -365,12 +389,12 @@ function calcInvoiceTotals() {
         if (!row) return;
         const rowAmtTd = row.querySelector('.row-amount');
         if (rowAmtTd) rowAmtTd.textContent = amt.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const hint = row.querySelector('.margin-hint');
-        if (hint && isInvoiceEditable) {
-            const tmp = document.createElement('div');
-            tmp.innerHTML = marginHintHtml(it);
-            const fresh = tmp.firstElementChild;
-            if (fresh) { hint.className = fresh.className; hint.textContent = fresh.textContent; }
+        const wrap = row.querySelector('.rate-hint-wrap');
+        if (wrap && isInvoiceEditable) {
+            // Re-render the whole hint block (badges + warning) so it stays in sync
+            // as the rate is edited. marginHintHtml returns multiple elements, so we
+            // replace the container's contents rather than a single node.
+            wrap.innerHTML = marginHintHtml(it);
         }
     });
     subTotal = round2(subTotal);
@@ -428,6 +452,12 @@ async function saveInvoice(status) {
             length: i.length,
             qty: i.qty,
             rate: i.rate,
+            // Manual lines (crimping / technical) carry their own cost + market mid
+            // so the server can snapshot their profitability. Ignored for stock
+            // items (the server snapshots those from Inventory).
+            cost: i.cost,
+            marketMid: i.marketMid,
+            pricingSource: i.source,
         })),
     };
 
@@ -608,7 +638,10 @@ async function viewInvoice(id) {
             length: it.Length,
             qty: it.Qty,
             rate: it.Rate,
-            cost: it.Cost || 0,
+            cost: (it.UnitCostAtBilling != null ? it.UnitCostAtBilling : it.Cost) || 0,
+            marketMid: it.MarketBillRate || 0,
+            suggested: it.SuggestedBillRate || 0,
+            source: it.PricingSource || (it.InventoryID ? 'inventory' : 'manual'),
             maxQty: null,
         }));
 

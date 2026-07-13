@@ -180,6 +180,12 @@ function normaliseItems(rawItems) {
         length: money.num(it.length),
         qty: money.num(it.qty),
         rate: money.num(it.rate),
+        // Manual lines (crimping / technical) carry their own cost + market so the
+        // billing-time snapshot is still accurate for them; ignored for stock items,
+        // which snapshot from Inventory. Never affects the billed amount.
+        cost: money.num(it.cost),
+        marketMid: money.num(it.marketMid),
+        pricingSource: it.pricingSource ? String(it.pricingSource) : null,
     }));
 }
 
@@ -210,12 +216,18 @@ async function insertItems(invoiceId, items, lineAmounts) {
         const item = items[i];
         const invIdVal = item.inventoryId != null ? sql.n(item.inventoryId) : 'NULL';
         const cm = costMarket.get(item.inventoryId) || { unitCost: 0, marketRate: 0 };
-        const s = priceAnalysis.lineSnapshot({ unitCost: cm.unitCost, ourRate: item.rate, marketRate: cm.marketRate, qty: item.qty });
+        // A parts line snapshots from Inventory; a manual line (crimping/technical)
+        // carries its own cost + the source the client resolved it from.
+        const isManual = item.inventoryId == null;
+        const unitCost = isManual ? money.num(item.cost) : cm.unitCost;
+        const marketRate = isManual ? money.num(item.marketMid) : cm.marketRate;
+        const source = item.pricingSource || (isManual ? (marketRate > 0 || unitCost > 0 ? 'manual-priced' : 'manual') : 'inventory');
+        const s = priceAnalysis.lineSnapshot({ unitCost, ourRate: item.rate, marketRate, qty: item.qty, source });
         await connection.execute(
             `INSERT INTO InvoiceItems (InvoiceID, InventoryID, ItemDescription, Unit, [Length], Qty, Rate, Amount,
-                UnitCostAtBilling, OurBillRate, MarketBillRate, ProfitAmount, MarginPercent, MarketGap, PriceFlag)
+                UnitCostAtBilling, OurBillRate, MarketBillRate, SuggestedBillRate, PricingSource, ProfitAmount, MarginPercent, MarketGap, PriceFlag)
              VALUES (${invoiceId}, ${invIdVal}, ${sql.q(item.description)}, ${sql.q(item.unit)}, ${sql.n(item.length, 0)}, ${sql.n(item.qty, 0)}, ${sql.n(item.rate, 0)}, ${lineAmounts[i]},
-                ${s.unitCostAtBilling}, ${s.ourBillRate}, ${s.marketBillRate}, ${s.profitAmount}, ${s.marginPercent}, ${s.marketGap}, ${sql.q(s.priceFlag)})`
+                ${s.unitCostAtBilling}, ${s.ourBillRate}, ${s.marketBillRate}, ${s.suggestedBillRate}, ${sql.q(s.pricingSource)}, ${s.profitAmount}, ${s.marginPercent}, ${s.marketGap}, ${sql.q(s.priceFlag)})`
         );
     }
 }

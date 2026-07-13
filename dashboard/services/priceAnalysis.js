@@ -16,6 +16,7 @@
 const connection = require('../db');
 const money = require('../lib/money');
 const sql = require('../lib/sql');
+const pricingEngine = require('./pricingEngine');
 
 const LOW_MARGIN_DEFAULT = 15; // percent — a line at/under this is "low-margin"
 
@@ -59,15 +60,21 @@ function computeLineMetrics({ unitCost, ourRate, marketRate, qty, lowMarginThres
 }
 
 /**
- * Snapshot column values for one line at billing time.
- * @returns {{unitCostAtBilling,ourBillRate,marketBillRate,profitAmount,marginPercent,marketGap,priceFlag}}
+ * Snapshot column values for one line at billing time. Also records the
+ * SUGGESTED bill (70% of market mid, floored at cost) and the pricing source,
+ * so a report can later show what the system suggested vs what was billed —
+ * frozen as of billing time.
+ * @returns {{unitCostAtBilling,ourBillRate,marketBillRate,suggestedBillRate,pricingSource,profitAmount,marginPercent,marketGap,priceFlag}}
  */
-function lineSnapshot({ unitCost, ourRate, marketRate, qty }) {
+function lineSnapshot({ unitCost, ourRate, marketRate, qty, source }) {
   const m = computeLineMetrics({ unitCost, ourRate, marketRate, qty });
+  const suggested = pricingEngine.suggestUnit(unitCost, marketRate);
   return {
     unitCostAtBilling: money.round2(money.num(unitCost)),
     ourBillRate: money.round2(money.num(ourRate)),
     marketBillRate: money.round2(money.num(marketRate)),
+    suggestedBillRate: suggested.suggested,
+    pricingSource: source || (money.num(marketRate) > 0 || money.num(unitCost) > 0 ? 'inventory' : 'manual'),
     profitAmount: m.profitAmount,
     marginPercent: m.marginPercent,
     marketGap: m.marketGap,
@@ -121,6 +128,7 @@ async function billComparison(opts = {}) {
            ii.ItemDescription, ii.Unit, ii.Qty, ii.Rate,
            COALESCE(ii.UnitCostAtBilling, inv.Cost, 0)  AS UnitCost,
            COALESCE(ii.MarketBillRate,  inv.MarketMid, 0) AS MarketRate,
+           ii.SuggestedBillRate, ii.PricingSource,
            inv.ProductName, inv.UniqueID
     FROM (InvoiceItems ii INNER JOIN Invoices i ON ii.InvoiceID = i.InvoiceID)
          LEFT JOIN Inventory inv ON ii.InventoryID = inv.InventoryID
@@ -130,7 +138,7 @@ async function billComparison(opts = {}) {
 
   const wantFlag = opts.flag && opts.flag !== 'all' ? opts.flag : null;
   const rows = [];
-  const kpis = { lines: 0, ourBill: 0, cost: 0, profit: 0, marketBill: 0, marketGap: 0, belowCost: 0, lowMargin: 0, overMarket: 0 };
+  const kpis = { lines: 0, ourBill: 0, cost: 0, profit: 0, marketBill: 0, suggestedBill: 0, marketGap: 0, belowCost: 0, lowMargin: 0, overMarket: 0 };
   const byMonth = new Map();      // month -> { ourBill, marketBill, cost, profit }
   const flagCounts = { 'below-cost': 0, 'low-margin': 0, 'over-market': 0, ok: 0 };
 
@@ -150,11 +158,18 @@ async function billComparison(opts = {}) {
     const ourBill = money.round2(ourRate * qty);
     const marketBill = money.round2(marketRate * qty);
     const costTotal = money.round2(unitCost * qty);
+    // Suggested 70% bill: prefer the value snapshotted at billing time, else derive.
+    const suggestedUnit = r.SuggestedBillRate != null
+      ? money.round2(r.SuggestedBillRate)
+      : pricingEngine.suggestUnit(unitCost, marketRate).suggested;
+    const suggestedBill = money.round2(suggestedUnit * qty);
+    const status = pricingEngine.priceStatus({ cost: unitCost, rate: ourRate, marketMid: marketRate });
     kpis.lines++;
     kpis.ourBill += ourBill;
     kpis.cost += costTotal;
     kpis.profit += m.profitAmount;
     kpis.marketBill += marketBill;
+    kpis.suggestedBill += suggestedBill;
     kpis.marketGap += m.marketGap;
 
     const mo = byMonth.get(monthOf(r.InvoiceDate)) || { ourBill: 0, marketBill: 0, cost: 0, profit: 0 };
@@ -175,6 +190,8 @@ async function billComparison(opts = {}) {
       unitCost: money.round2(unitCost),
       ourBillRate: money.round2(ourRate),
       marketBillRate: money.round2(marketRate),
+      suggestedBillRate: suggestedUnit,
+      suggestedBill,
       ourBill,
       marketBill,
       cost: costTotal,
@@ -182,10 +199,13 @@ async function billComparison(opts = {}) {
       marginPercent: m.marginPercent,
       marketGap: m.marketGap,
       priceFlag: m.priceFlag,
+      status,
+      statusLabel: pricingEngine.STATUS_LABEL[status] || status,
+      pricingSource: r.PricingSource || 'inventory',
     });
   }
 
-  for (const k of ['ourBill', 'cost', 'profit', 'marketBill', 'marketGap']) kpis[k] = money.round2(kpis[k]);
+  for (const k of ['ourBill', 'cost', 'profit', 'marketBill', 'suggestedBill', 'marketGap']) kpis[k] = money.round2(kpis[k]);
   kpis.marginPercent = kpis.ourBill > 0 ? money.round2((kpis.profit / kpis.ourBill) * 100) : 0;
   kpis.flagged = kpis.belowCost + kpis.lowMargin + kpis.overMarket;
 

@@ -295,6 +295,13 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
 .margin-hint.warn { color: #b91c1c; font-weight: 600; }
 .margin-hint.muted { color: #94a3b8; }
 
+/* Three-way pricing comparison badges under an invoice rate cell. */
+.pbadges { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.pbadge { font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; white-space: nowrap; line-height: 1.5; }
+.pbadge-cost { background: rgba(245, 158, 11, .14); color: #b45309; }
+.pbadge-market { background: rgba(37, 99, 235, .12); color: #1d4ed8; }
+.pbadge-suggested { background: rgba(16, 185, 129, .15); color: #047857; }
+
 /* Account controls in the sidebar */
 .sidebar-footer { padding: 14px 16px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
 .sidebar-footer .account-line { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }

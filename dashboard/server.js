@@ -48,6 +48,7 @@ app.use(require('./routes/reports'));
 app.use(require('./routes/finance'));
 app.use(require('./routes/users'));
 app.use(require('./routes/jobProfit'));
+app.use(require('./routes/pricing'));
 
 async function start() {
   try {
