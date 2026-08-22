@@ -70,18 +70,60 @@ test('registering the crimping machine puts it on the balance sheet', async () =
   assert.ok(trialBalanced());
 });
 
+test('an asset owned before the books opened posts at the opening date, not acquisition', async () => {
+  const accumBefore = balanceOf('1590');
+  const plantBefore = balanceOf('1510');
+
+  // Bought in January, books opened in May: four months already depreciated.
+  const res = await app.post('/api/assets', {
+    name: 'Old bench press', inServiceFrom: '2026-01-01', postingDate: '2026-05-21',
+    cost: 120000, residual: 0, lifeMonths: 60, accumulated: 8000, opening: true,
+  });
+  assert.equal(res.status, 200, res.text);
+
+  assert.equal(balanceOf('1510'), plantBefore + 120000);
+  assert.equal(balanceOf('1590'), accumBefore - 8000, 'the depreciation already taken comes forward');
+  assert.ok(trialBalanced());
+
+  // Both entries sit at the opening date, not in January.
+  const entries = db.prepare(`
+    SELECT EntryDate FROM JournalEntries
+    WHERE SourceType IN ('asset', 'asset-opening-dep') ORDER BY JournalID DESC LIMIT 2`).all();
+  entries.forEach((e) => assert.equal(e.EntryDate, '2026-05-21',
+    'an opening asset belongs on the ledger when the books opened'));
+
+  // Its age still counts from January, so the next charge is not the first.
+  const asset = (await app.get('/api/assets')).body.find((x) => x.Name === 'Old bench press');
+  assert.equal(asset.InServiceFrom, '2026-01-01');
+  assert.equal(asset.Accumulated, 8000);
+  assert.equal(asset.NetBookValue, 112000);
+});
+
+test('a bad posting date is refused', async () => {
+  const res = await app.post('/api/assets', {
+    name: 'Bad date', inServiceFrom: '2026-01-01', postingDate: 'January', cost: 100, lifeMonths: 12,
+  });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /Posting date/);
+});
+
 test('an asset with no cost is refused', async () => {
   const res = await app.post('/api/assets', { name: 'Nothing', inServiceFrom: '2026-01-01', cost: 0 });
   assert.equal(res.status, 400);
 });
 
+// Two assets are on the books by now: the crimping machine (480,000 / 60 =
+// 8,000 a month) and the bench press (120,000 / 60 = 2,000).
+const MONTHLY = 8000 + 2000;
+
 test('a depreciation run charges the period and posts it', async () => {
   const res = await app.post('/api/assets/depreciation/run', { period: '2026-08' });
   assert.equal(res.status, 200, res.text);
-  assert.equal(res.body.total, 8000);                 // 480,000 / 60
-  assert.equal(res.body.charged.length, 1);
-  assert.equal(balanceOf('6400'), 8000, 'the charge is an expense');
-  assert.equal(balanceOf('1590'), -8000, 'and reduces the asset via accumulated depreciation');
+  assert.equal(res.body.total, MONTHLY);
+  assert.equal(res.body.charged.length, 2, 'every active asset is charged');
+  assert.equal(res.body.charged.find((c) => c.assetId === assetId).charge, 8000);
+  assert.equal(balanceOf('6400'), MONTHLY, 'the charge is an expense');
+  assert.equal(balanceOf('1590'), -(MONTHLY + 8000), 'accumulated includes the 8,000 brought forward');
   assert.ok(trialBalanced());
 
   const asset = (await app.get('/api/assets')).body.find((a) => a.AssetID === assetId);
@@ -92,16 +134,16 @@ test('a depreciation run charges the period and posts it', async () => {
 test('running the same period twice charges nothing more', async () => {
   const again = await app.post('/api/assets/depreciation/run', { period: '2026-08' });
   assert.equal(again.body.total, 0, 'the period was already charged');
-  assert.equal(balanceOf('6400'), 8000, 'depreciation must not double');
-  assert.equal(db.prepare('SELECT COUNT(*) c FROM DepreciationEntries').get().c, 1);
+  assert.equal(balanceOf('6400'), MONTHLY, 'depreciation must not double');
+  assert.equal(db.prepare("SELECT COUNT(*) c FROM DepreciationEntries WHERE Period = '2026-08'").get().c, 2);
 });
 
 test('a later period charges again, and the run is recorded per asset', async () => {
   const res = await app.post('/api/assets/depreciation/run', { period: '2026-09' });
-  assert.equal(res.body.total, 8000);
-  assert.equal(balanceOf('6400'), 16000);
+  assert.equal(res.body.total, MONTHLY);
+  assert.equal(balanceOf('6400'), MONTHLY * 2);
   const entries = await app.get('/api/assets/depreciation');
-  assert.equal(entries.body.length, 2);
+  assert.equal(entries.body.length, 4, 'two assets x two periods');
   assert.equal(entries.body[0].Period, '2026-09');
 });
 

@@ -60,6 +60,19 @@ function createAsset(a) {
   const inService = String(a.inServiceFrom || a.purchaseDate || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(inService)) throw new ControlError('A valid in-service date is required');
 
+  // The POSTING date can differ from the in-service date: a machine bought in
+  // January and carried into books that open in May belongs on the ledger at the
+  // opening date, with the months already depreciated brought forward. Dating it
+  // at acquisition instead would make a balance sheet as at February show
+  // depreciation that had not happened yet.
+  //
+  // Validated BEFORE the row is written — otherwise a bad date leaves an asset
+  // that never reached the ledger but still depreciates.
+  const postingDate = String(a.postingDate || inService).slice(0, 10);
+  if (a.postingDate && !/^\d{4}-\d{2}-\d{2}$/.test(postingDate)) {
+    throw new ControlError('Posting date must be YYYY-MM-DD');
+  }
+
   const assetId = db.prepare(`INSERT INTO FixedAssets
     (Code, Name, Category, SupplierID, PurchaseDate, InServiceFrom, Cost, Residual, LifeMonths,
      Method, Accumulated, Status, Notes, CreatedAt, UpdatedAt)
@@ -75,7 +88,7 @@ function createAsset(a) {
   if (a.postCost !== false) {
     const contra = a.opening ? ACC.OPENING_EQUITY : (a.paidFrom === 'bank' ? ACC.BANK : ACC.AP);
     posting = ledgerSvc.postEntry({
-      date: inService,
+      date: postingDate,
       memo: `Fixed asset — ${name}`,
       sourceType: 'asset', sourceID: assetId,
       postedBy: a.postedBy,
@@ -89,7 +102,7 @@ function createAsset(a) {
     const accumulated = money.round2(a.accumulated);
     if (accumulated > 0) {
       ledgerSvc.postEntry({
-        date: inService,
+        date: postingDate,
         memo: `Accumulated depreciation brought forward — ${name}`,
         sourceType: 'asset-opening-dep', sourceID: assetId,
         postedBy: a.postedBy, allowClosedPeriod: true,
