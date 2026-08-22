@@ -5,7 +5,43 @@ const money = require('../lib/money');
 const sql = require('../lib/sql');
 const billing = require('../services/billing');
 const finance = require('../lib/finance');
+const glPosting = require('../services/glPosting');
+const ledgerSvc = require('../services/ledger');
 const router = express.Router();
+
+/**
+ * Post the row that was just inserted into `table` to the General Ledger.
+ *
+ * A posting failure is RETURNED, never thrown: the operational record is
+ * already saved and correct, and losing an expense to a chart-of-accounts
+ * problem would be the worse outcome. The caller surfaces it alongside the
+ * success so it is visible rather than silent.
+ */
+async function postLatest(table, idCol, post, req) {
+    try {
+        const last = await connection.query(`SELECT ${idCol} FROM ${table} ORDER BY ${idCol} DESC LIMIT 1`);
+        if (!last.length) return null;
+        return post(last[0][idCol], { postedBy: req.user && req.user.username });
+    } catch (err) {
+        console.error(`Ledger posting failed for ${table}:`, err.message);
+        return { error: err.message };
+    }
+}
+
+/**
+ * Reverse the journal a record produced, before that record is deleted.
+ * Without this the posting would outlive its source and keep moving money.
+ */
+async function reverseFor(sourceType, sourceId, req) {
+    try {
+        const journalId = ledgerSvc.isPosted(sourceType, sourceId);
+        if (!journalId) return null;
+        return ledgerSvc.reverseEntry(journalId, { postedBy: req.user && req.user.username });
+    } catch (err) {
+        console.error(`Ledger reversal failed for ${sourceType} ${sourceId}:`, err.message);
+        return { error: err.message };
+    }
+}
 
 router.get('/api/workers', async (req, res) => {
     try {
@@ -79,7 +115,8 @@ router.post('/api/labour', async (req, res) => {
             `INSERT INTO LabourPayments (WorkerID, Amount, PayPeriod, PaymentDate, Method, Notes, CreatedAt)
              VALUES (${workerId}, ${amount}, ${sql.q(period)}, ${sql.dbDate(b.paymentDate) === 'NULL' ? 'Now()' : sql.dbDate(b.paymentDate)}, ${sql.q(b.method || 'Cash')}, ${sql.q(b.notes)}, Now())`
         );
-        res.json({ success: true });
+        const posting = await postLatest('LabourPayments', 'LabourPaymentID', glPosting.postLabourPayment, req);
+        res.json({ success: true, posting });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -88,8 +125,11 @@ router.post('/api/labour', async (req, res) => {
 
 router.delete('/api/labour/:id', async (req, res) => {
     try {
-        await connection.execute(`DELETE FROM LabourPayments WHERE LabourPaymentID = ${sql.n(req.params.id)}`);
-        res.json({ success: true });
+        const id = sql.n(req.params.id);
+        // Same orphan risk as expenses: reverse the posting before the row goes.
+        const reversal = await reverseFor('labour', id, req);
+        await connection.execute(`DELETE FROM LabourPayments WHERE LabourPaymentID = ${id}`);
+        res.json({ success: true, reversal });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -187,7 +227,8 @@ router.post('/api/labour/technical/:invoiceId/pay', async (req, res) => {
             `INSERT INTO LabourPayments (WorkerID, Amount, PayPeriod, PaymentDate, Method, Notes, CreatedAt)
              VALUES (${workerId}, ${amount}, ${sql.q(period)}, ${sql.dbDate(b.paidDate) === 'NULL' ? 'Now()' : sql.dbDate(b.paidDate)}, ${sql.q(b.method || 'Cash')}, ${sql.q(notes)}, Now())`
         );
-        res.json({ success: true, amount });
+        const posting = await postLatest('LabourPayments', 'LabourPaymentID', glPosting.postLabourPayment, req);
+        res.json({ success: true, amount, posting });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -224,7 +265,8 @@ router.post('/api/expenses', async (req, res) => {
             `INSERT INTO Expenses (Category, Amount, ExpenseDate, Method, Notes, CreatedAt)
              VALUES (${sql.q(b.category || 'Other')}, ${amount}, ${sql.dbDate(b.expenseDate) === 'NULL' ? 'Now()' : sql.dbDate(b.expenseDate)}, ${sql.q(b.method || 'Cash')}, ${sql.q(b.notes)}, Now())`
         );
-        res.json({ success: true });
+        const posting = await postLatest('Expenses', 'ExpenseID', glPosting.postExpense, req);
+        res.json({ success: true, posting });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -233,8 +275,12 @@ router.post('/api/expenses', async (req, res) => {
 
 router.delete('/api/expenses/:id', async (req, res) => {
     try {
-        await connection.execute(`DELETE FROM Expenses WHERE ExpenseID = ${sql.n(req.params.id)}`);
-        res.json({ success: true });
+        const id = sql.n(req.params.id);
+        // Reverse the journal BEFORE the row goes: once the expense is deleted
+        // its posting would be an orphan that still moves cash in the ledger.
+        const reversal = await reverseFor('expense', id, req);
+        await connection.execute(`DELETE FROM Expenses WHERE ExpenseID = ${id}`);
+        res.json({ success: true, reversal });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

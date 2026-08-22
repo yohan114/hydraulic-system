@@ -556,3 +556,25 @@ html.role-viewer .hide-from-viewer { display: none !important; }
 .jp-foot-cell.jp-unpaid .k { color: #dc2626; font-weight: 700; }
 .jp-foot-cell.jp-unpaid .v { font-size: 22px; font-weight: 800; color: #dc2626; }
 .nav-badge { background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 7px; margin-left: 6px; }
+
+/* Job Profit Analysis — the three numbered comparisons.
+   (1) our cost vs outside cost, (2) our price vs outside price,
+   (3) our cost vs our price. Each card is headed by a step chip. */
+.analysis-step { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); }
+.analysis-step .step-no { flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--primary), #4f46e5); align-self: center; }
+.analysis-step .step-title { font-size: 15px; font-weight: 600; color: var(--text-main); }
+.analysis-step .step-hint { font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
+.analysis-sub { font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-muted); margin: 20px 0 8px; }
+.analysis-note { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
+/* The bottom line of each comparison. */
+.table tr.analysis-total td { font-weight: 700; background: var(--secondary); border-top: 2px solid var(--border-color); }
+/* Signed money: green when it went our way, red when it did not. The KPI
+   selectors are listed explicitly because `.stat-details p` sets a colour and
+   would otherwise out-specify a bare `.pos` / `.neg`. */
+.pos, .stat-details p.pos { color: var(--success); }
+.neg, .stat-details p.neg { color: var(--danger); }
+.flat, .stat-details p.flat { color: var(--text-muted); }
+:root[data-theme="dark"] .pos, :root[data-theme="dark"] .stat-details p.pos { color: #34d399; }
+:root[data-theme="dark"] .neg, :root[data-theme="dark"] .stat-details p.neg { color: #f87171; }
+/* "est" provenance tag on an outside cost derived from market retail. */
+.basis-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; background: var(--secondary); color: var(--text-muted); border: 1px solid var(--border-color); }

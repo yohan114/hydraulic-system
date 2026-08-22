@@ -91,69 +91,6 @@ router.get('/api/receivables', async (req, res) => {
 });
 
 
-function monthOf(dateVal) {
-    const d = dateVal ? new Date(dateVal) : new Date();
-    const use = isNaN(d.getTime()) ? new Date() : d;
-    return `${use.getFullYear()}-${String(use.getMonth() + 1).padStart(2, '0')}`;
-}
-
-// Finalized invoices with net-of-tax revenue and material cost (COGS).
-
-async function finalizedProfitRows() {
-    const rows = await connection.query(`
-        SELECT Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName,
-               Invoices.SubTotal, Invoices.Discount, Invoices.GrandTotal,
-               SUM(InvoiceItems.Qty * Inventory.Cost) AS MaterialCost
-        FROM ((Invoices INNER JOIN InvoiceItems ON Invoices.InvoiceID = InvoiceItems.InvoiceID)
-              LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID)
-        WHERE Invoices.Status = 'Finalized'
-        GROUP BY Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName,
-                 Invoices.SubTotal, Invoices.Discount, Invoices.GrandTotal
-        ORDER BY Invoices.InvoiceDate DESC
-    `);
-    return rows.map((r) => {
-        const revenueExTax = money.round2(money.num(r.SubTotal) - money.num(r.Discount));
-        const materialCost = money.round2(r.MaterialCost);
-        const p = finance.jobProfit({ revenueExTax, materialCost });
-        return {
-            invoiceId: r.InvoiceID,
-            invoiceNo: r.InvoiceNo,
-            invoiceDate: r.InvoiceDate,
-            billedToName: r.BilledToName,
-            revenueExTax,
-            materialCost,
-            grossProfit: p.grossProfit,
-            grossMarginPct: p.grossMarginPct,
-            month: monthOf(r.InvoiceDate),
-        };
-    });
-}
-
-
-router.get('/api/reports/invoice-profit', async (req, res) => {
-    try {
-        const rows = await finalizedProfitRows();
-        const totals = rows.reduce(
-            (a, r) => ({
-                revenueExTax: a.revenueExTax + r.revenueExTax,
-                materialCost: a.materialCost + r.materialCost,
-                grossProfit: a.grossProfit + r.grossProfit,
-            }),
-            { revenueExTax: 0, materialCost: 0, grossProfit: 0 }
-        );
-        res.json({
-            invoices: rows,
-            totals: {
-                revenueExTax: money.round2(totals.revenueExTax),
-                materialCost: money.round2(totals.materialCost),
-                grossProfit: money.round2(totals.grossProfit),
-            },
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Could not compute invoice profit. Ensure the database is migrated. ' + err.message });
-    }
-});
-
 
 // Price analysis: per-item our-price-vs-market-price with margins, plus a
 // monthly trend — the consolidated, always-current replacement for the loose
@@ -294,44 +231,6 @@ router.get('/api/reports/price-analysis/export', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).send('Error generating export');
-    }
-});
-
-
-router.get('/api/reports/pl', async (req, res) => {
-    try {
-        const [profitRows, labour, expenses, payments] = await Promise.all([
-            finalizedProfitRows(),
-            connection.query('SELECT Amount, PayPeriod, PaymentDate FROM LabourPayments').catch(() => []),
-            connection.query('SELECT Amount, ExpenseDate FROM Expenses').catch(() => []),
-            connection.query("SELECT Payments.Amount, Payments.PaymentDate FROM Payments").catch(() => []),
-        ]);
-
-        const bucket = {}; // month -> { revenue, cogs, labour, expenses, paymentsIn }
-        const M = (m) => (bucket[m] = bucket[m] || { revenue: 0, cogs: 0, labour: 0, expenses: 0, paymentsIn: 0 });
-
-        profitRows.forEach((r) => { const b = M(r.month); b.revenue += r.revenueExTax; b.cogs += r.materialCost; });
-        labour.forEach((l) => { const m = String(l.PayPeriod || '').match(/^\d{4}-\d{2}$/) ? l.PayPeriod : monthOf(l.PaymentDate); M(m).labour += money.num(l.Amount); });
-        expenses.forEach((e) => { M(monthOf(e.ExpenseDate)).expenses += money.num(e.Amount); });
-        payments.forEach((p) => { M(monthOf(p.PaymentDate)).paymentsIn += money.num(p.Amount); });
-
-        const months = Object.keys(bucket).sort().reverse().map((m) => {
-            const b = bucket[m];
-            const pl = finance.monthlyPL(b);
-            const cf = finance.cashFlow({ paymentsIn: b.paymentsIn, labourOut: b.labour, expensesOut: b.expenses });
-            return { month: m, ...pl, paymentsIn: cf.inflow, cashOut: cf.outflow, cashNet: cf.net };
-        });
-
-        const grand = months.reduce(
-            (a, m) => ({ revenue: a.revenue + m.revenue, cogs: a.cogs + m.cogs, labour: a.labour + m.labour, expenses: a.expenses + m.expenses, paymentsIn: a.paymentsIn + m.paymentsIn }),
-            { revenue: 0, cogs: 0, labour: 0, expenses: 0, paymentsIn: 0 }
-        );
-        const totals = finance.monthlyPL(grand);
-        const totalCash = finance.cashFlow({ paymentsIn: grand.paymentsIn, labourOut: grand.labour, expensesOut: grand.expenses });
-
-        res.json({ months, totals: { ...totals, paymentsIn: totalCash.inflow, cashOut: totalCash.outflow, cashNet: totalCash.net } });
-    } catch (err) {
-        res.status(500).json({ error: 'Could not compute P&L. Ensure the database is migrated. ' + err.message });
     }
 });
 

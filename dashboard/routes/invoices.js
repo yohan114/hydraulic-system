@@ -4,6 +4,7 @@ const xlsx = require('xlsx');
 const connection = require('../db');
 const money = require('../lib/money');
 const sql = require('../lib/sql');
+const glPosting = require('../services/glPosting');
 const billing = require('../services/billing');
 const finance = require('../lib/finance');
 const invoiceNoLib = require('../lib/invoiceNo');
@@ -423,7 +424,18 @@ router.post('/api/invoices/finalize', async (req, res) => {
             return { invoiceId, invoiceNo };
         });
 
-        res.json({ success: true, invoiceId: result.invoiceId, invoiceNo: result.invoiceNo, totals });
+        // Post the sale to the ledger. A posting problem must not un-finalize an
+        // invoice that is already saved and has already moved stock, so it is
+        // reported alongside the success rather than thrown.
+        let posting = null;
+        try {
+            posting = glPosting.postInvoice(result.invoiceId, { postedBy: req.user && req.user.username });
+        } catch (postErr) {
+            console.error('Ledger posting failed for', result.invoiceNo, '-', postErr.message);
+            posting = { error: postErr.message };
+        }
+
+        res.json({ success: true, invoiceId: result.invoiceId, invoiceNo: result.invoiceNo, totals, posting });
     } catch (err) {
         res.status(err.httpStatus || 500).json({ error: err.message });
     }
@@ -466,7 +478,17 @@ router.post('/api/invoices/:id/cancel', async (req, res) => {
                 `UPDATE Invoices SET Status = 'Cancelled', CancelledAt = Now(), CancelReason = ${sql.q(reason)} WHERE InvoiceID = ${id}`
             );
         });
-        res.json({ success: true });
+
+        // A void is corrected by reversing its journal, never by deleting one.
+        let reversal = null;
+        try {
+            reversal = glPosting.reverseInvoice(id, { postedBy: req.user && req.user.username });
+        } catch (revErr) {
+            console.error('Ledger reversal failed for invoice', id, '-', revErr.message);
+            reversal = { error: revErr.message };
+        }
+
+        res.json({ success: true, reversal });
     } catch (err) {
         res.status(err.httpStatus || 500).json({ error: err.message });
     }

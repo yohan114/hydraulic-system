@@ -1,25 +1,30 @@
 'use strict';
 
 /**
- * SQLite schema bootstrap + Rate Card seed (idempotent).
+ * SQLite schema BASELINE + Rate Card seed (idempotent).
  *
- * Creates any missing tables/columns/indexes on `hydraulic.db` and seeds the
- * Rate Card. Safe to run repeatedly — the server calls {@link ensureSchema} on
- * boot, and it can be run standalone:  node migrate.js   (or: npm run migrate)
+ * This file is the pre-ERP schema: every table and column the system had before
+ * the ERP conversion began. It stays idempotent and is safe to run repeatedly.
  *
- * (Replaces the old Access DDL migration; the schema now lives here as plain
- *  SQLite `CREATE TABLE IF NOT EXISTS`.)
+ * Schema changes from the ERP work onwards do NOT belong here — they are
+ * numbered migrations in `migrations/NNNN-name.js`, applied once and recorded,
+ * so a live database can be brought forward one reversible step at a time. See
+ * lib/migrations.js.
+ *
+ *   node migrate.js             bring the database fully up to date
+ *   node migrate.js --dry-run   report what would run, change nothing
  */
 
 const connection = require('./db');
 const { RATECARD_SEED } = require('./lib/ratecardSeed');
 const { lineSnapshot } = require('./services/priceAnalysis');
+const { applyPending } = require('./lib/migrations');
 
 const TABLES = {
   Inventory: `CREATE TABLE IF NOT EXISTS Inventory (
     InventoryID INTEGER PRIMARY KEY, UniqueID TEXT, ProductName TEXT, SpecificationCode TEXT,
     Size TEXT, Description TEXT, Length REAL, Qty REAL, Unit TEXT, CreatedAt TEXT, UpdatedAt TEXT,
-    Price REAL, Cost REAL, MarketMid REAL,
+    Price REAL, Cost REAL, MarketMid REAL, MarketLow REAL,
     SupplierID INTEGER, LastPurchasePrice REAL, LastPurchaseDate TEXT, ReorderLevel REAL)`,
   Invoices: `CREATE TABLE IF NOT EXISTS Invoices (
     InvoiceID INTEGER PRIMARY KEY, InvoiceNo TEXT, InvoiceDate TEXT, PONo TEXT, PODate TEXT, DeliveryDate TEXT,
@@ -61,7 +66,11 @@ const TABLES = {
 // if missing so schema evolution stays automatic.
 const COLUMN_ENSURES = {
   Inventory: {
-    Price: 'REAL', Cost: 'REAL', MarketMid: 'REAL',
+    // MarketMid = outside RETAIL price (what a competing shop bills the customer).
+    // MarketLow = outside TRADE price (what the same part costs to buy locally).
+    // The Job Profit Analysis compares our cost against MarketLow and our price
+    // against MarketMid; see lib/finance.js jobProfitAnalysis.
+    Price: 'REAL', Cost: 'REAL', MarketMid: 'REAL', MarketLow: 'REAL',
     // Supplier link + last-purchase tracking (cost accuracy) + per-item reorder threshold.
     SupplierID: 'INTEGER', LastPurchasePrice: 'REAL', LastPurchaseDate: 'TEXT', ReorderLevel: 'REAL',
   },
@@ -132,6 +141,7 @@ async function ensureSchema(conn) {
     'UPDATE Invoices SET RoundOff = 0 WHERE RoundOff IS NULL',
     'UPDATE Inventory SET Cost = 0 WHERE Cost IS NULL',
     'UPDATE Inventory SET MarketMid = 0 WHERE MarketMid IS NULL',
+    'UPDATE Inventory SET MarketLow = 0 WHERE MarketLow IS NULL',
     // Default reorder threshold matches the old hard-coded low-stock rule (Qty <= 5).
     'UPDATE Inventory SET ReorderLevel = 5 WHERE ReorderLevel IS NULL',
     // Any pre-roles user rows are administrators (there was only ever one admin).
@@ -198,20 +208,40 @@ async function ensureSchema(conn) {
   return { applied, skipped, failed };
 }
 
+/**
+ * Bring a database fully up to date: the idempotent baseline above, then every
+ * pending numbered migration from `migrations/`.
+ *
+ * @param {{_db: import('better-sqlite3').Database}} conn
+ * @param {object} [opts] forwarded to {@link applyPending} (dryRun, backup, log)
+ * @returns {Promise<{baseline:object, migrations:object}>}
+ */
+async function migrateToLatest(conn, opts = {}) {
+  const baseline = await ensureSchema(conn);
+  const migrations = await applyPending(conn._db, opts);
+  return { baseline, migrations };
+}
+
 async function main() {
-  console.log('Running SQLite schema bootstrap...');
-  const summary = await ensureSchema(connection);
-  if (summary.applied.length) console.log('Applied:', summary.applied.join(', '));
-  if (summary.skipped.length) console.log('Already present:', summary.skipped.join(', '));
-  if (summary.failed.length) {
-    console.error('Failed:');
-    summary.failed.forEach((f) => console.error(`  - ${f.name}: ${f.error}`));
+  const dryRun = process.argv.includes('--dry-run');
+  console.log(dryRun ? 'Migration status (dry run)...' : 'Running SQLite schema bootstrap...');
+
+  const { baseline, migrations } = await migrateToLatest(connection, { dryRun, log: (m) => console.log(' ', m) });
+
+  if (baseline.applied.length) console.log('Baseline applied:', baseline.applied.join(', '));
+  if (baseline.failed.length) {
+    console.error('Baseline failed:');
+    baseline.failed.forEach((f) => console.error(`  - ${f.name}: ${f.error}`));
     process.exitCode = 1;
   }
+  if (migrations.applied.length) console.log('Migrations applied:', migrations.applied.join(', '));
+  else if (!dryRun) console.log('Migrations: nothing pending.');
+  if (migrations.drifted.length) process.exitCode = 1;
+
   console.log('Done.');
 }
 
-module.exports = { ensureSchema };
+module.exports = { ensureSchema, migrateToLatest };
 
 if (require.main === module) {
   main().catch((err) => { console.error('Migration error:', err.message); process.exit(1); });

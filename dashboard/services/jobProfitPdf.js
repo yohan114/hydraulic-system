@@ -1,16 +1,26 @@
 'use strict';
 
 /**
- * Job Profit Analysis → colourful, print-ready HTML for the puppeteer PDF.
- * Self-contained (inline CSS, inline SVG chart). Rendered server-side so text
- * and colours stay crisp (unlike an html2canvas raster).
+ * Job Profit Analysis → print-ready HTML for the puppeteer PDF.
+ *
+ * Mirrors the Excel export cell for cell: OUR COST | OUTSIDE COST | PROFIT
+ * blocked per invoice, then SUMMARY, then the technical/crimping labour still
+ * owed. Both are fed by services/jobProfitExport.js, so the printed sheet and
+ * the spreadsheet always say the same thing.
+ *
+ * Self-contained (inline CSS) and rendered server-side so text and colours stay
+ * crisp. The colour banding matches the shop's own spreadsheet: navy title,
+ * blue OUR COST, orange OUTSIDE COST, green PROFIT.
  */
 
 const money = require('../lib/money');
 
 const C = {
-  navy: '#0f172a', blue: '#2563eb', amber: '#f59e0b', purple: '#8b5cf6',
-  green: '#10b981', red: '#dc2626', grey: '#f1f5f9', line: '#e5e7eb', muted: '#64748b',
+  navy: '#1F3864', blue: '#2E75B6', blueSoft: '#DDEBF7', blueHead: '#BDD7EE',
+  orange: '#C55A11', orangeSoft: '#FCE4D6', orangeHead: '#F8CBAD',
+  green: '#375623', greenMid: '#548235', greenSoft: '#E2EFDA', greenHead: '#C6E0B4',
+  red: '#C00000', redSoft: '#FCE4E4',
+  line: '#BFBFBF', muted: '#7F7F7F', ink: '#1F1F1F',
 };
 
 function esc(s) {
@@ -18,184 +28,197 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-function fmt(v) { return money.formatLKR(v); }
-function d10(v) { return v ? String(v).slice(0, 10) : ''; }
-function marginColor(m) { return m >= 20 ? C.green : (m >= 0 ? C.amber : C.red); }
-
-function kpiCard(bg, label, value, sub) {
-  return `<div style="flex:1;background:${bg};color:#fff;border-radius:10px;padding:12px 14px;">
-    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.9;">${esc(label)}</div>
-    <div style="font-size:17px;font-weight:800;margin-top:4px;">${esc(value)}</div>
-    ${sub ? `<div style="font-size:10px;opacity:.9;margin-top:2px;">${esc(sub)}</div>` : ''}
-  </div>`;
+// Bare 2dp with thousands separators — "Rs." on every cell is noise at this density.
+function n2(v) {
+  const x = money.round2(v);
+  return x.toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function pct1(part, whole) {
+  return whole > 0 ? `${(Math.round((part / whole) * 1000) / 10).toFixed(1)}%` : '—';
 }
 
-// Grouped vertical bars per invoice: material cost / our bill / outside cost.
-function barChart(invoices) {
-  if (!invoices.length) return '';
-  const max = Math.max(1, ...invoices.map((i) => Math.max(i.materialCost, i.ourBill, i.outsideCost)));
-  const barW = 12, gap = 3, groupGap = 20, chartH = 130, top = 8, labelH = 26;
-  const groupW = barW * 3 + gap * 2;
-  const width = Math.max(320, invoices.length * (groupW + groupGap) + groupGap);
-  const y = (v) => top + chartH - (v / max) * chartH;
-  const series = [['materialCost', C.blue], ['ourBill', C.green], ['outsideCost', C.purple]];
-  let bars = '';
-  invoices.forEach((inv, i) => {
-    const gx = groupGap + i * (groupW + groupGap);
-    series.forEach(([k, color], j) => {
-      const x = gx + j * (barW + gap), yy = y(inv[k]);
-      bars += `<rect x="${x}" y="${yy}" width="${barW}" height="${top + chartH - yy}" rx="2" fill="${color}"></rect>`;
-    });
-    const short = String(inv.invoiceNo).split('/').slice(-2).join('/');
-    bars += `<text x="${gx + groupW / 2}" y="${top + chartH + 14}" text-anchor="middle" font-size="9" fill="${C.muted}">${esc(short)}</text>`;
-  });
-  const legend = [['Material Cost', C.blue], ['Our Bill', C.green], ['Outside Cost', C.purple]]
-    .map(([l, c]) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;font-size:11px;"><span style="width:11px;height:11px;border-radius:2px;background:${c};display:inline-block;"></span>${l}</span>`).join('');
-  return `<div style="margin:6px 0 4px;">${legend}</div>
-    <div style="overflow-x:auto;"><svg width="${width}" height="${chartH + top + labelH}">${bars}</svg></div>`;
-}
-
-function invoiceBlock(inv) {
-  const detailRows = inv.lines.map((l, i) => {
-    const tint = l.isTech ? `background:#fff7ed;` : '';
-    const diffColor = l.diff >= 0 ? C.green : C.red;
-    return `<tr style="${tint}">
-      <td class="c">${i + 1}</td>
-      <td>${esc(l.description)}${l.isTech ? ' <span style="color:#c2410c;font-weight:700;">◆</span>' : ''}</td>
-      <td class="c">${l.qty}</td>
-      <td class="r">${fmt(l.ourCostRate)}</td>
-      <td class="r">${fmt(l.ourBilledRate)}</td>
-      <td class="r">${fmt(l.outsideRate)}</td>
-      <td class="r">${fmt(l.ourAmount)}</td>
-      <td class="r">${fmt(l.outsideAmount)}</td>
-      <td class="r" style="color:${diffColor};font-weight:700;">${fmt(l.diff)}</td>
+// One invoice: its line rows, with the block totals spanning them.
+function block(b) {
+  const n = Math.max(1, b.lines.length);
+  const rows = b.lines.map((l, i) => {
+    const first = i === 0;
+    const span = ` rowspan="${n}"`;
+    return `<tr${l.isSundry ? ' class="sundry"' : ''}>
+      ${first ? `<td class="inv"${span}>${esc(b.invoiceNo)}</td>` : ''}
+      <td class="desc">${esc(l.description)}</td>
+      <td class="c">${esc(l.unit)}</td>
+      <td class="r">${l.isSundry ? '' : l.qty}</td>
+      <td class="r">${l.isSundry ? '' : n2(l.costRate)}</td>
+      <td class="r cost">${n2(l.costAmount)}</td>
+      ${first ? `<td class="r tot cost"${span}>${n2(b.ourCost)}</td>` : ''}
+      ${first ? `<td class="c size"${span}>${esc(b.hoseSize)}</td>` : ''}
+      <td class="r out">${l.outsideRate > 0 ? n2(l.outsideRate) : ''}</td>
+      <td class="r out">${l.outsideRate > 0 ? l.qty : ''}</td>
+      <td class="r out">${l.outsideRate > 0 ? n2(l.outsideAmount) : ''}</td>
+      ${first ? `<td class="r tot out"${span}>${n2(b.outsideTotal)}</td>` : ''}
+      ${first ? `<td class="r prof"${span}>${n2(b.invoiceTotal)}</td>` : ''}
+      ${first ? `<td class="r prof strong"${span}>${n2(b.profit)}</td>` : ''}
+      ${first ? `<td class="r prof strong"${span}>${pct1(b.profit, b.invoiceTotal)}</td>` : ''}
     </tr>`;
   }).join('');
-  return `<div style="margin:6px 0 12px 14px;border-left:3px solid ${C.line};padding-left:10px;">
-    <table class="detail">
-      <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th><th class="r">Our Cost Rate</th><th class="r">Our Billed Rate</th><th class="r">Outside Rate</th><th class="r">Our Amount</th><th class="r">Outside Amount</th><th class="r">Diff</th></tr></thead>
-      <tbody>${detailRows}</tbody>
-    </table>
-  </div>`;
+  return rows + '<tr class="gap"><td colspan="15"></td></tr>';
 }
 
 /**
- * @param {{invoices:Array, totals:object}} data
+ * @param {{blocks:Array, unpaid:Array, totals:object}} model from buildExportModel
  * @param {{period?:string, generatedAt?:string}} [opts]
  */
-function buildJobProfitHtml(data, opts = {}) {
-  const { invoices, totals } = data;
+function buildJobProfitHtml(model, opts = {}) {
+  const { blocks, unpaid, totals } = model;
   const period = opts.period || 'All finalized invoices';
-  let generated = opts.generatedAt;
-  if (!generated) { const dt = new Date(); generated = dt.toISOString().slice(0, 10); }
+  const generated = opts.generatedAt || new Date().toISOString().slice(0, 10);
+  const lab = model.labour || {};
+  const range = model.range || {};
+  const rangeText = range.from && range.to
+    ? (range.from === range.to ? range.from : `${range.from}  to  ${range.to}`)
+    : '—';
 
-  const summaryRows = invoices.map((inv, idx) => {
-    const alt = idx % 2 ? `background:${C.grey};` : '';
-    const pColor = inv.profit >= 0 ? C.green : C.red;
-    const labour = inv.techPaid
-      ? `<span style="background:#dcfce7;color:#166534;padding:2px 7px;border-radius:9px;font-weight:700;">✓ Paid</span>`
-      : `<span style="background:#fee2e2;color:#991b1b;padding:2px 7px;border-radius:9px;font-weight:700;">⚠ Unpaid</span>`;
-    return `<tr style="${alt}">
-      <td><strong>${esc(inv.invoiceNo)}</strong></td>
-      <td>${esc(inv.customer || 'Walk-in')}</td>
-      <td class="r">${fmt(inv.ourBill)}</td>
-      <td class="r">${fmt(inv.materialCost)}</td>
-      <td class="r">${fmt(inv.outsideCost)}</td>
-      <td class="r" style="color:${pColor};font-weight:700;">${fmt(inv.profit)}</td>
-      <td class="r" style="color:${marginColor(inv.margin)};font-weight:700;">${inv.margin}%</td>
-      <td class="r">${fmt(inv.techCharges)}</td>
-      <td class="c">${labour}</td>
+  const detail = blocks.map(block).join('');
+
+  const summaryRows = blocks.map((b) => {
+    const gain = money.round2(b.outsideTotal - b.ourCost);
+    return `<tr>
+      <td>${esc(b.invoiceNo)}</td>
+      <td class="r cost">${n2(b.ourCost)}</td>
+      <td class="r out">${n2(b.outsideTotal)}</td>
+      <td class="r prof strong">${n2(gain)}</td>
+      <td class="r prof strong">${pct1(gain, b.outsideTotal)}</td>
     </tr>`;
   }).join('');
+  const totalGain = money.round2(totals.outsideTotal - totals.ourCost);
 
-  const details = invoices.map((inv) => `
-    <div style="page-break-inside:avoid;margin-top:10px;">
-      <div style="font-size:12px;font-weight:700;color:${C.navy};">${esc(inv.invoiceNo)} — ${esc(inv.customer || 'Walk-in')} <span style="color:${C.muted};font-weight:400;">(${d10(inv.invoiceDate)})</span></div>
-      ${invoiceBlock(inv)}
-    </div>`).join('');
+  const labourRows = unpaid.map((u) => `<tr class="${u.status === 'Unpaid' ? 'owed' : ''}">
+      <td>${esc(u.invoiceNo)}</td>
+      <td class="c">${esc(u.date)}</td>
+      <td>${esc(u.customer)}</td>
+      <td class="r">${n2(u.amount)}</td>
+      <td class="c strong" style="color:${u.status === 'Unpaid' ? C.red : C.greenMid};">${esc(u.status)}</td>
+    </tr>`).join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Job Profit Analysis</title>
 <style>
   * { box-sizing: border-box; }
-  @page { size: A4; margin: 0; }
+  @page { size: A4 landscape; margin: 10mm 8mm; }
   html, body { margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 11px; }
-  .wrap { padding: 0 0 24px; }
-  .header { background: ${C.navy}; color: #fff; padding: 20px 28px; display: flex; justify-content: space-between; align-items: center; }
-  .header .brand { font-size: 20px; font-weight: 800; }
-  .header .brand span { color: ${C.blue}; }
-  .header .tag { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; opacity: .8; margin-top: 2px; }
-  .header .title { font-size: 18px; font-weight: 800; letter-spacing: .5px; text-align: right; }
-  .header .meta { font-size: 10px; opacity: .85; text-align: right; margin-top: 4px; }
-  .body { padding: 16px 28px; }
-  .kpis { display: flex; gap: 10px; margin-bottom: 16px; }
-  .card { background: #fff; border: 1px solid ${C.line}; border-radius: 8px; }
-  .card .h { padding: 9px 14px; font-size: 12px; font-weight: 700; color: ${C.navy}; border-bottom: 1px solid ${C.line}; }
-  table.summary { width: 100%; border-collapse: collapse; }
-  table.summary th { background: ${C.navy}; color: #fff; padding: 7px 9px; font-size: 10px; text-align: left; }
-  table.summary td { padding: 6px 9px; border-bottom: 1px solid ${C.line}; font-size: 11px; }
-  table.summary td.r, table.summary th.r { text-align: right; }
-  table.summary td.c, table.summary th.c { text-align: center; }
-  table.detail { width: 100%; border-collapse: collapse; margin: 2px 0; }
-  table.detail th { background: ${C.grey}; color: ${C.navy}; padding: 4px 7px; font-size: 9px; text-align: left; border-bottom: 1px solid ${C.line}; }
-  table.detail td { padding: 3px 7px; font-size: 10px; border-bottom: 1px solid #f3f4f6; }
-  table.detail td.r, table.detail th.r { text-align: right; }
-  table.detail td.c, table.detail th.c { text-align: center; }
-  .footer { background: ${C.navy}; color: #fff; padding: 14px 28px; display: flex; justify-content: space-between; gap: 16px; margin-top: 18px; }
-  .footer .cell .k { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; opacity: .8; }
-  .footer .cell .v { font-size: 15px; font-weight: 800; margin-top: 2px; }
-  .unpaid-box { margin: 16px 28px 0; background: #fff; border: 2px solid ${C.red}; border-radius: 10px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
-  .unpaid-box .k { font-size: 13px; font-weight: 800; color: ${C.red}; text-transform: uppercase; letter-spacing: .5px; }
-  .unpaid-box .v { font-size: 26px; font-weight: 800; color: ${C.red}; }
-  h3.sec { font-size: 13px; color: ${C.navy}; margin: 18px 0 6px; border-bottom: 2px solid ${C.navy}; padding-bottom: 4px; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: ${C.ink}; font-size: 9px; }
+
+  .title { background: ${C.navy}; color: #fff; padding: 10px 14px; display: flex; justify-content: space-between; align-items: baseline; }
+  .title .t { font-size: 15px; font-weight: 800; letter-spacing: .5px; }
+  .title .m { font-size: 9px; opacity: .85; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid ${C.line}; padding: 3px 5px; }
+  td.r, th.r { text-align: right; }
+  td.c, th.c { text-align: center; }
+  .strong { font-weight: 700; }
+
+  /* The three colour groups, as in the shop's own sheet. */
+  th.g-cost { background: ${C.blue}; color: #fff; }
+  th.g-out  { background: ${C.orange}; color: #fff; }
+  th.g-prof { background: ${C.green}; color: #fff; }
+  th.h-cost { background: ${C.blueHead}; }
+  th.h-out  { background: ${C.orangeHead}; }
+  th.h-prof { background: ${C.greenHead}; }
+  th { font-size: 9px; font-weight: 700; text-align: left; }
+  td.cost { background: ${C.blueSoft}; }
+  td.out  { background: ${C.orangeSoft}; }
+  td.prof { background: ${C.greenSoft}; }
+  td.tot  { font-weight: 700; }
+  td.inv  { font-weight: 700; background: #fff; vertical-align: top; width: 108px; }
+  td.size { background: ${C.blueSoft}; font-weight: 600; }
+  td.desc { max-width: 250px; }
+  tr.sundry td { font-style: italic; color: ${C.muted}; }
+  tr.sundry td.cost { color: ${C.ink}; }
+  tr.gap td { border: 0; height: 5px; padding: 0; }
+  tr { page-break-inside: avoid; }
+
+  h3.sec { font-size: 12px; color: #fff; background: ${C.navy}; padding: 6px 10px; margin: 14px 0 0; letter-spacing: .5px; }
+  .sum { width: 62%; }
+  tr.total td { background: ${C.navy}; color: #fff; font-weight: 800; }
+  tr.owed td { background: ${C.redSoft}; }
+  tr.grand td { background: ${C.red}; color: #fff; font-weight: 800; font-size: 11px; }
 </style></head><body>
-  <div class="wrap">
-    <div class="header">
-      <div>
-        <div class="brand">Edward and <span>Christie</span></div>
-        <div class="tag">Hydraulic Hose Repair</div>
-      </div>
-      <div>
-        <div class="title">JOB PROFIT ANALYSIS REPORT</div>
-        <div class="meta">Period: ${esc(period)}</div>
-        <div class="meta">Generated: ${esc(generated)}</div>
-      </div>
-    </div>
 
-    <div class="body">
-      <div class="kpis">
-        ${kpiCard(C.blue, 'Our Total Bill', fmt(totals.ourBill))}
-        ${kpiCard(C.amber, 'Our Material Cost', fmt(totals.materialCost))}
-        ${kpiCard(C.purple, 'Outside Market Cost', fmt(totals.outsideCost))}
-        ${kpiCard(C.green, 'Gross Profit', fmt(totals.grossProfit), `${totals.margin}% margin`)}
-        ${kpiCard(C.red, 'Unpaid Technical Charges', fmt(totals.unpaidTech), `${totals.unpaidCount} job(s) unpaid`)}
-      </div>
-
-      <h3 class="sec">Cost vs Bill vs Market — per job</h3>
-      ${barChart(invoices)}
-
-      <h3 class="sec">Per-Invoice Summary</h3>
-      <table class="summary">
-        <thead><tr><th>Invoice #</th><th>Customer</th><th class="r">Our Bill</th><th class="r">Material Cost</th><th class="r">Outside Cost</th><th class="r">Profit/Loss</th><th class="r">Margin %</th><th class="r">Tech Charges</th><th class="c">Labour</th></tr></thead>
-        <tbody>${summaryRows || '<tr><td colspan="9" style="text-align:center;color:#888;">No invoices in this period</td></tr>'}</tbody>
-      </table>
-
-      <h3 class="sec">Itemised Detail <span style="font-weight:400;color:${C.muted};font-size:10px;">(◆ = technical / crimping labour, highlighted)</span></h3>
-      ${details}
-    </div>
-
-    <div class="unpaid-box">
-      <div class="k">Total Unpaid Technical Charges</div>
-      <div class="v">${fmt(totals.unpaidTech)}</div>
-    </div>
-
-    <div class="footer">
-      <div class="cell"><div class="k">Total Our Bill</div><div class="v">${fmt(totals.ourBill)}</div></div>
-      <div class="cell"><div class="k">Total Outside Cost</div><div class="v">${fmt(totals.outsideCost)}</div></div>
-      <div class="cell"><div class="k">Total Profit</div><div class="v">${fmt(totals.profit)}</div></div>
-      <div class="cell"><div class="k">Overall Margin</div><div class="v">${totals.margin}%</div></div>
-    </div>
+  <div class="title">
+    <div class="t">JOB PROFIT ANALYSIS</div>
+    <div class="m">Edward and Christie · Hydraulic Hose Repair &nbsp;|&nbsp; Period: ${esc(period)} &nbsp;|&nbsp; ${totals.count} job(s) &nbsp;|&nbsp; Generated ${esc(generated)}</div>
   </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="g-cost" colspan="8">OUR COST</th>
+        <th class="g-out" colspan="4">OUTSIDE COST</th>
+        <th class="g-prof" colspan="3">PROFIT</th>
+      </tr>
+      <tr>
+        <th class="h-cost">Invoice Number</th><th class="h-cost">Description</th><th class="h-cost c">Unit</th>
+        <th class="h-cost r">Qty</th><th class="h-cost r">Rate</th><th class="h-cost r">Amount</th>
+        <th class="h-cost r">Total Our Cost</th><th class="h-cost c">Hose Size</th>
+        <th class="h-out r">Rate (Outside)</th><th class="h-out r">Qty (Outside)</th>
+        <th class="h-out r">Outside Cost</th><th class="h-out r">Total Outside Cost</th>
+        <th class="h-prof r">Invoice Total</th><th class="h-prof r">Profit</th><th class="h-prof r">Margin %</th>
+      </tr>
+    </thead>
+    <tbody>${detail || '<tr><td colspan="15" class="c" style="color:#888;">No jobs in this period</td></tr>'}</tbody>
+  </table>
+
+  <h3 class="sec">SUMMARY</h3>
+  <table class="sum">
+    <thead><tr>
+      <th class="h-cost">Invoice Number</th><th class="h-cost r">Our Actual Cost</th>
+      <th class="h-out r">Outside Cost</th><th class="h-prof r">Profit</th><th class="h-prof r">Margin %</th>
+    </tr></thead>
+    <tbody>
+      ${summaryRows}
+      <tr class="total">
+        <td>TOTAL</td><td class="r">${n2(totals.ourCost)}</td><td class="r">${n2(totals.outsideTotal)}</td>
+        <td class="r">${n2(totalGain)}</td><td class="r">${pct1(totalGain, totals.outsideTotal)}</td>
+      </tr>
+      <tr>
+        <td>Total Material Cost</td><td class="r cost">${n2(totals.materialCost)}</td>
+        <td colspan="3" style="color:${C.muted};">parts only — excludes crimping, welding and sundry</td>
+      </tr>
+      <tr>
+        <td>Total Sundry (Electricity)</td><td class="r cost">${n2(totals.sundry)}</td>
+        <td colspan="3" style="color:${C.muted};">10% of each job's other costs — already inside Our Actual Cost</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 class="sec">TECHNICAL / CRIMPING LABOUR</h3>
+  <table class="sum">
+    <thead><tr>
+      <th class="h-cost">Invoice Number</th><th class="h-cost c">Date</th><th class="h-cost">Customer</th>
+      <th class="h-cost r">Technical Charge</th><th class="h-cost c">Status</th>
+    </tr></thead>
+    <tbody>
+      ${labourRows || '<tr><td colspan="5" class="c" style="color:#888;">No technical or crimping labour on these jobs</td></tr>'}
+      <tr class="total"><td colspan="3">TOTAL BILLED</td><td class="r">${n2(totals.techCharges)}</td><td></td></tr>
+      <tr class="grand"><td colspan="3">TOTAL UNPAID</td><td class="r">${n2(totals.unpaidTech)}</td><td class="c">${totals.unpaidCount} job(s)</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sec">REPORT DETAILS</h3>
+  <table class="sum">
+    <tbody>
+      <tr><td>Date range (jobs in this report)</td><td class="r strong" colspan="2">${esc(rangeText)}</td></tr>
+      <tr><td>Filter applied</td><td class="r" colspan="2">${esc(period)}</td></tr>
+      <tr><td>Invoices / jobs</td><td class="r strong" colspan="2">${totals.count}</td></tr>
+      <tr><td>Jobs with technical / crimping labour</td><td class="r strong" colspan="2">${lab.jobs || 0}</td></tr>
+      <tr><td>&nbsp;&nbsp;&nbsp;— labour paid</td><td class="r">${lab.paidCount || 0} job(s)</td><td class="r">${n2(lab.paidAmount)}</td></tr>
+      <tr class="owed"><td>&nbsp;&nbsp;&nbsp;— labour UNPAID</td><td class="r strong">${lab.unpaidCount || 0} job(s)</td><td class="r strong">${n2(lab.unpaidAmount)}</td></tr>
+      <tr class="total"><td>Total labour billed</td><td></td><td class="r">${n2(lab.billed)}</td></tr>
+      <tr><td>Sundry (Electricity) rate</td><td class="r" colspan="2">10% of each job's other costs</td></tr>
+      <tr><td>Figures</td><td class="r" colspan="2">Exclude SSCL/VAT</td></tr>
+    </tbody>
+  </table>
+
 </body></html>`;
 }
 

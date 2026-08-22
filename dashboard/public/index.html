@@ -72,6 +72,21 @@
                 <a href="#" class="nav-item" data-target="inventory">
                     <i class="ri-box-3-line"></i> Inventory
                 </a>
+                <a href="#" class="nav-item" data-target="workshop">
+                    <i class="ri-hammer-line"></i> Workshop
+                </a>
+                <a href="#" class="nav-item" data-target="procurement">
+                    <i class="ri-shopping-cart-2-line"></i> Procurement
+                </a>
+                <a href="#" class="nav-item" data-target="controls">
+                    <i class="ri-shield-check-line"></i> Controls
+                </a>
+                <a href="#" class="nav-item" data-target="accounting">
+                    <i class="ri-book-2-line"></i> Accounting
+                </a>
+                <a href="#" class="nav-item" data-target="customers">
+                    <i class="ri-group-line"></i> Customers &amp; Machines
+                </a>
                 <a href="#" class="nav-item" data-target="suppliers">
                     <i class="ri-truck-line"></i> Suppliers
                 </a>
@@ -111,9 +126,6 @@
                 </a>
                 <a href="#" class="nav-item" data-target="expenses">
                     <i class="ri-wallet-3-line"></i> Expenses
-                </a>
-                <a href="#" class="nav-item" data-target="reports">
-                    <i class="ri-line-chart-line"></i> Profit &amp; Loss
                 </a>
                 <a href="#" class="nav-item admin-only" data-target="users">
                     <i class="ri-shield-user-line"></i> Users
@@ -290,6 +302,242 @@
                                     </tr>
                                 </thead>
                                 <tbody id="inventory-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Controls Section -->
+                <section id="controls" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Controls</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" id="ctl-tab-stock" onclick="ctlShowTab('stock')">Stock Valuation</button>
+                            <button class="btn btn-secondary" id="ctl-tab-takes" onclick="ctlShowTab('takes')">Stock Takes</button>
+                            <button class="btn btn-secondary" id="ctl-tab-assets" onclick="ctlShowTab('assets')">Fixed Assets</button>
+                            <button class="btn btn-secondary" id="ctl-tab-ageing" onclick="ctlShowTab('ageing')">Receivables</button>
+                        </div>
+                    </div>
+
+                    <div id="ctl-pane-stock">
+                        <div id="ctl-stock-recon" style="margin-bottom:16px;"></div>
+                        <div class="card">
+                            <div class="widget-header" style="padding:16px 24px;border-bottom:1px solid var(--border-color);">
+                                <h2 style="font-size:15px;">Stock value by category</h2>
+                                <span class="step-hint">Quantity on hand × its weighted-average cost, checked against the ledger.</span>
+                            </div>
+                            <div class="table-responsive"><table class="table">
+                                <thead><tr><th>Category</th><th class="num">Items</th><th class="num">Qty</th><th class="num">Value</th><th class="num">Share</th></tr></thead>
+                                <tbody id="ctl-stock-tbody"></tbody>
+                                <tfoot id="ctl-stock-tfoot"></tfoot>
+                            </table></div>
+                            <div id="ctl-stock-negative" style="padding:0 24px 16px;"></div>
+                        </div>
+                    </div>
+
+                    <div id="ctl-pane-takes" style="display:none;">
+                        <div class="card" style="padding:14px 18px;margin-bottom:16px;">
+                            <button class="btn btn-primary admin-only" onclick="newStockTake()"><i class="ri-list-check-2"></i> New Stock Take</button>
+                            <span class="step-hint">Freezes today's system quantities onto a count sheet.</span>
+                        </div>
+                        <div class="card"><div class="table-responsive"><table class="table">
+                            <thead><tr><th>Take</th><th>Date</th><th class="num">Lines</th><th>Counted by</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="ctl-takes-tbody"></tbody>
+                        </table></div></div>
+                    </div>
+
+                    <div id="ctl-pane-assets" style="display:none;">
+                        <div class="stats-grid" style="margin-bottom:16px;">
+                            <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-building-2-line"></i></div><div class="stat-details"><h3>Plant at Cost</h3><p id="ctl-asset-cost" style="font-size:20px;">Rs. 0.00</p></div></div>
+                            <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Net Book Value</h3><p id="ctl-asset-nbv" style="font-size:20px;">Rs. 0.00</p></div></div>
+                        </div>
+                        <div class="card" style="padding:14px 18px;margin-bottom:16px;">
+                            <button class="btn btn-primary admin-only" onclick="openAssetModal()"><i class="ri-add-line"></i> Register Asset</button>
+                            <button class="btn btn-secondary admin-only" onclick="runDepreciation()"><i class="ri-calendar-check-line"></i> Run Depreciation</button>
+                            <button class="btn btn-secondary admin-only" onclick="closeYear()"><i class="ri-lock-line"></i> Close Year</button>
+                        </div>
+                        <div class="card"><div class="table-responsive"><table class="table">
+                            <thead><tr><th>Asset</th><th>Category</th><th>In service</th><th class="num">Cost</th><th class="num">Depreciated</th><th class="num">Net book value</th><th>Life</th></tr></thead>
+                            <tbody id="ctl-assets-tbody"></tbody>
+                        </table></div></div>
+                    </div>
+
+                    <div id="ctl-pane-ageing" style="display:none;">
+                        <div class="card"><div id="ctl-ageing-buckets" class="jp-footer"></div></div>
+                        <div class="card"><div class="table-responsive"><table class="table">
+                            <thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Due</th><th class="num">Total</th><th class="num">Outstanding</th></tr></thead>
+                            <tbody id="ctl-ageing-tbody"></tbody>
+                        </table></div></div>
+                    </div>
+                </section>
+
+                <!-- Workshop Section -->
+                <section id="workshop" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Workshop</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" id="ws-tab-jobs" onclick="wsShowTab('jobs')">Job Cards</button>
+                            <button class="btn btn-secondary" id="ws-tab-quotes" onclick="wsShowTab('quotes')">Quotations</button>
+                            <button class="btn btn-secondary" id="ws-tab-labour" onclick="wsShowTab('labour')">Technician Pay</button>
+                            <button class="btn btn-primary admin-only" onclick="openJobModal()"><i class="ri-add-line"></i> New Job Card</button>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid" style="margin-bottom:16px;">
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Open Jobs</h3><p id="ws-stat-open" style="font-size:20px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(220,38,38,.1);color:#dc2626;"><i class="ri-alarm-warning-line"></i></div><div class="stat-details"><h3>Urgent</h3><p id="ws-stat-urgent" style="font-size:20px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-check-double-line"></i></div><div class="stat-details"><h3>Done, Not Yet Invoiced</h3><p id="ws-stat-completed" style="font-size:20px;">0</p></div></div>
+                    </div>
+
+                    <div id="ws-pane-jobs" class="card">
+                        <div class="table-responsive"><table class="table">
+                            <thead><tr><th>Job</th><th>Received</th><th>Machine / Customer</th><th>Description</th><th class="num">Value</th><th class="num">Labour</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="ws-jobs-tbody"></tbody>
+                        </table></div>
+                    </div>
+
+                    <div id="ws-pane-quotes" class="card" style="display:none;">
+                        <div class="table-responsive"><table class="table">
+                            <thead><tr><th>Quote</th><th>Date</th><th>Machine / Customer</th><th class="num">Lines</th><th class="num">Value</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="ws-quotes-tbody"></tbody>
+                        </table></div>
+                    </div>
+
+                    <div id="ws-pane-labour" style="display:none;">
+                        <div class="card"><div id="ws-labour-total" class="jp-footer"></div></div>
+                        <div class="card" style="padding:0 24px;"><div id="ws-labour-body"></div></div>
+                    </div>
+                </section>
+
+                <!-- Procurement Section -->
+                <section id="procurement" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Procurement</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" id="proc-tab-orders" onclick="procShowTab('orders')">Orders</button>
+                            <button class="btn btn-secondary" id="proc-tab-receipts" onclick="procShowTab('receipts')">Receipts</button>
+                            <button class="btn btn-secondary" id="proc-tab-bills" onclick="procShowTab('bills')">Supplier Bills</button>
+                            <button class="btn btn-secondary" id="proc-tab-payables" onclick="procShowTab('payables')">Payables</button>
+                            <button class="btn btn-primary admin-only" onclick="openPoModal()"><i class="ri-add-line"></i> New Order</button>
+                        </div>
+                    </div>
+
+                    <div id="proc-pane-orders" class="card">
+                        <div class="table-responsive"><table class="table">
+                            <thead><tr><th>Order</th><th>Date</th><th>Supplier</th><th class="num">Lines</th><th class="num">Value</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="proc-orders-tbody"></tbody>
+                        </table></div>
+                    </div>
+
+                    <div id="proc-pane-receipts" class="card" style="display:none;">
+                        <div class="table-responsive"><table class="table">
+                            <thead><tr><th>Receipt</th><th>Date</th><th>Supplier</th><th>Order</th><th class="num">Goods</th><th class="num">Freight &amp; Duty</th><th>Actions</th></tr></thead>
+                            <tbody id="proc-receipts-tbody"></tbody>
+                        </table></div>
+                    </div>
+
+                    <div id="proc-pane-bills" class="card" style="display:none;">
+                        <div class="table-responsive"><table class="table">
+                            <thead><tr><th>Bill</th><th>Date</th><th>Supplier</th><th>Receipt</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Outstanding</th><th>Actions</th></tr></thead>
+                            <tbody id="proc-bills-tbody"></tbody>
+                        </table></div>
+                    </div>
+
+                    <div id="proc-pane-payables" style="display:none;">
+                        <div class="card"><div id="proc-ageing" class="jp-footer"></div></div>
+                        <div class="card"><div class="table-responsive"><table class="table">
+                            <thead><tr><th>Bill</th><th>Supplier</th><th>Bill date</th><th>Due</th><th class="num">Total</th><th class="num">Outstanding</th></tr></thead>
+                            <tbody id="proc-payables-tbody"></tbody>
+                        </table></div></div>
+                    </div>
+                </section>
+
+                <!-- Accounting / General Ledger Section -->
+                <section id="accounting" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Accounting</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary" id="gl-tab-trial" onclick="glShowTab('trial')">Trial Balance</button>
+                            <button class="btn btn-secondary" id="gl-tab-pl" onclick="glShowTab('pl')">Profit &amp; Loss</button>
+                            <button class="btn btn-secondary" id="gl-tab-bs" onclick="glShowTab('bs')">Balance Sheet</button>
+                            <button class="btn btn-secondary" id="gl-tab-journals" onclick="glShowTab('journals')">Journals</button>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:14px 18px;margin-bottom:16px;">
+                        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+                            <div><label style="font-size:12px;color:var(--text-muted);">From</label><input type="date" id="gl-from" class="form-control"></div>
+                            <div><label style="font-size:12px;color:var(--text-muted);">To</label><input type="date" id="gl-to" class="form-control"></div>
+                            <button class="btn btn-primary" onclick="loadLedger()"><i class="ri-refresh-line"></i> Apply</button>
+                            <span class="step-hint">Every figure here is derived from the ledger. The balance sheet is always as at the <em>To</em> date.</span>
+                        </div>
+                    </div>
+
+                    <div id="gl-pane-trial" class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Code</th><th>Account</th><th>Type</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+                                <tbody id="gl-trial-tbody"></tbody>
+                                <tfoot id="gl-trial-tfoot"></tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="gl-pane-pl" class="card" style="display:none;padding:24px;"><div id="gl-pl-body"></div></div>
+                    <div id="gl-pane-bs" class="card" style="display:none;padding:24px;"><div id="gl-bs-body"></div></div>
+
+                    <div id="gl-pane-journals" class="card" style="display:none;">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Entry</th><th>Date</th><th>Memo</th><th>Source</th><th class="num">Lines</th><th class="num">Amount</th></tr></thead>
+                                <tbody id="gl-journals-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Customers & Machines Section -->
+                <section id="customers" class="page-section no-print">
+                    <div class="section-header">
+                        <h2>Customers &amp; Machines</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-secondary admin-only" onclick="openMachineModal()"><i class="ri-tools-line"></i> Add Machine</button>
+                            <button class="btn btn-primary admin-only" onclick="openCustomerModal()"><i class="ri-add-line"></i> Add Customer</button>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid" style="margin-bottom:16px;">
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-group-line"></i></div><div class="stat-details"><h3>External Customers</h3><p id="cust-stat-external" style="font-size:20px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-briefcase-line"></i></div><div class="stat-details"><h3>External Jobs</h3><p id="cust-stat-external-jobs" style="font-size:20px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,.1);color:#f59e0b;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Machines / Own Plant</h3><p id="cust-stat-machines" style="font-size:20px;">0</p></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="ri-home-gear-line"></i></div><div class="stat-details"><h3>Internal Jobs</h3><p id="cust-stat-internal-jobs" style="font-size:20px;">0</p></div></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px;border-bottom:1px solid var(--border-color);">
+                            <h2 style="font-size:15px;">Customers</h2>
+                            <span class="step-hint">Who the work is billed to. <strong>Internal</strong> means the shop's own fleet — recorded for costing, not sold.</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr>
+                                    <th>Name</th><th>Type</th><th>Phone</th>
+                                    <th class="num">Jobs</th><th class="num">Machines</th><th class="num">Credit Limit</th><th>Actions</th>
+                                </tr></thead>
+                                <tbody id="customers-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="widget-header" style="padding:16px 24px;border-bottom:1px solid var(--border-color);">
+                            <h2 style="font-size:15px;">Machines &amp; Equipment</h2>
+                            <span class="step-hint">The plant each job was done on — vehicle registrations and workshop equipment.</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Machine</th><th>Owner</th><th class="num">Jobs</th><th>Code</th><th>Actions</th></tr></thead>
+                                <tbody id="machines-tbody"></tbody>
                             </table>
                         </div>
                     </div>
@@ -661,35 +909,7 @@
                     <div class="card"><div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Category</th><th>Notes</th><th>Method</th><th class="num">Amount</th><th></th></tr></thead><tbody id="expenses-tbody"></tbody></table></div></div>
                 </section>
 
-                <!-- Reports / P&L Section -->
-                <section id="reports" class="page-section no-print">
-                    <div class="section-header"><h2>Profit &amp; Loss</h2></div>
-                    <div class="stats-grid" style="margin-bottom: 24px;">
-                        <div class="stat-card"><div class="stat-icon" style="background: rgba(16,185,129,0.1); color:#10b981;"><i class="ri-arrow-up-circle-line"></i></div><div class="stat-details"><h3>Revenue (ex-tax)</h3><p id="pl-stat-revenue" style="font-size:20px;">Rs. 0.00</p></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background: rgba(245,158,11,0.1); color:#f59e0b;"><i class="ri-shopping-bag-line"></i></div><div class="stat-details"><h3>Costs (COGS+Labour+Exp)</h3><p id="pl-stat-costs" style="font-size:20px;">Rs. 0.00</p></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background: rgba(37,99,235,0.1); color:var(--primary);"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Net Profit</h3><p id="pl-stat-net" style="font-size:20px;">Rs. 0.00</p><span id="pl-stat-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background: rgba(100,116,139,0.1); color:#64748b;"><i class="ri-wallet-3-line"></i></div><div class="stat-details"><h3>Net Cash Flow</h3><p id="pl-stat-cash" style="font-size:20px;">Rs. 0.00</p></div></div>
-                    </div>
-                    <div class="card">
-                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Monthly Profit &amp; Loss</h2></div>
-                        <div class="table-responsive">
-                            <table class="table">
-                                <thead><tr><th>Month</th><th class="num">Revenue</th><th class="num">COGS</th><th class="num">Gross</th><th class="num">Labour</th><th class="num">Expenses</th><th class="num">Net Profit</th><th class="num">Margin</th><th class="num">Cash In</th><th class="num">Cash Out</th></tr></thead>
-                                <tbody id="pl-tbody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Per-Invoice Profit</h2></div>
-                        <div class="table-responsive">
-                            <table class="table">
-                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Revenue (ex-tax)</th><th class="num">Material Cost</th><th class="num">Gross Profit</th><th class="num">Margin</th></tr></thead>
-                                <tbody id="invoice-profit-tbody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </section>
-
+                
                 <!-- Users Section (admin only) -->
                 <section id="users" class="page-section no-print">
                     <div class="section-header">
@@ -793,20 +1013,97 @@
                     </div>
 
                     <div class="stats-grid" style="margin-bottom:16px;">
-                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-bill-line"></i></div><div class="stat-details"><h3>Our Total Bill</h3><p id="jp-kpi-bill" style="font-size:20px;">Rs. 0.00</p></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,.1);color:#f59e0b;"><i class="ri-price-tag-3-line"></i></div><div class="stat-details"><h3>Our Material Cost</h3><p id="jp-kpi-cost" style="font-size:20px;">Rs. 0.00</p></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="ri-store-2-line"></i></div><div class="stat-details"><h3>Outside Market Cost</h3><p id="jp-kpi-outside" style="font-size:20px;">Rs. 0.00</p></div></div>
-                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Gross Profit</h3><p id="jp-kpi-profit" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6;"><i class="ri-shopping-cart-2-line"></i></div><div class="stat-details"><h3>1 · Sourcing Gain (vs Outside Cost)</h3><p id="jp-kpi-sourcing" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-sourcing-sub" style="font-size:12px;color:var(--text-muted);">—</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-price-tag-3-line"></i></div><div class="stat-details"><h3>2 · Customer Saving (vs Outside Price)</h3><p id="jp-kpi-saving" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-saving-sub" style="font-size:12px;color:var(--text-muted);">—</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>3 · Gross Profit (Our Price − Our Cost)</h3><p id="jp-kpi-profit" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
+                        <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,.1);color:#f59e0b;"><i class="ri-swap-box-line"></i></div><div class="stat-details"><h3>Advantage vs an Outside Shop</h3><p id="jp-kpi-advantage" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-advantage-sub" style="font-size:12px;color:var(--text-muted);">—</span></div></div>
                         <div class="stat-card" style="border-left:4px solid #dc2626;"><div class="stat-icon" style="background:rgba(220,38,38,.1);color:#dc2626;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Unpaid Technical Charges</h3><p id="jp-kpi-unpaid" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-unpaid-count" style="font-size:12px;color:var(--text-muted);">0 jobs</span></div></div>
                     </div>
 
+                    <!-- (1) BUYING — our cost vs outside cost, with the P&L compare -->
+                    <div class="card" style="padding:24px;">
+                        <h3 class="analysis-step">
+                            <span class="step-no">1</span>
+                            <span class="step-title">Our Cost vs Outside Cost</span>
+                            <span class="step-hint">Buying — what these parts cost us, against what they would have cost bought from a local supplier.</span>
+                        </h3>
+                        <table class="table">
+                            <thead><tr><th>Where the parts came from</th><th class="num">Cost of parts</th><th class="num">vs Outside</th></tr></thead>
+                            <tbody>
+                                <tr><td>Outside cost — bought from a local supplier</td><td class="num" id="jp1-outside-cost">Rs. 0.00</td><td class="num flat">100%</td></tr>
+                                <tr><td>Our cost — what we actually paid</td><td class="num" id="jp1-our-cost">Rs. 0.00</td><td class="num" id="jp1-our-cost-pct">—</td></tr>
+                                <tr class="analysis-total"><td id="jp1-gain-label">Sourcing gain</td><td class="num" id="jp1-gain">Rs. 0.00</td><td class="num" id="jp1-gain-pct">—</td></tr>
+                            </tbody>
+                        </table>
+
+                        <div class="analysis-sub">Profit &amp; Loss compare — same jobs, same billed price, parts sourced two ways</div>
+                        <table class="table">
+                            <thead><tr><th></th><th class="num">Bought outside</th><th class="num">Ours</th><th class="num">Difference</th></tr></thead>
+                            <tbody>
+                                <tr><td>Revenue (ex-tax)</td><td class="num" id="jp1-pl-rev-out">Rs. 0.00</td><td class="num" id="jp1-pl-rev-our">Rs. 0.00</td><td class="num flat">Rs. 0.00</td></tr>
+                                <tr><td>Cost of parts</td><td class="num" id="jp1-pl-cost-out">Rs. 0.00</td><td class="num" id="jp1-pl-cost-our">Rs. 0.00</td><td class="num" id="jp1-pl-cost-diff">Rs. 0.00</td></tr>
+                                <tr class="analysis-total"><td>Gross profit</td><td class="num" id="jp1-pl-gp-out">Rs. 0.00</td><td class="num" id="jp1-pl-gp-our">Rs. 0.00</td><td class="num" id="jp1-pl-gp-diff">Rs. 0.00</td></tr>
+                                <tr><td>Gross margin</td><td class="num" id="jp1-pl-m-out">—</td><td class="num" id="jp1-pl-m-our">—</td><td class="num flat">—</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="analysis-note" id="jp1-note"></p>
+                    </div>
+
+                    <!-- (2) SELLING — our price vs outside price -->
+                    <div class="card" style="padding:24px;">
+                        <h3 class="analysis-step">
+                            <span class="step-no">2</span>
+                            <span class="step-title">Our Price vs Outside Price</span>
+                            <span class="step-hint">Selling — what we billed, against what a competing shop would have billed.</span>
+                        </h3>
+                        <table class="table">
+                            <thead><tr><th>Who is billing</th><th class="num">Price (ex-tax)</th><th class="num">vs Market</th></tr></thead>
+                            <tbody>
+                                <tr><td>Outside price — competing shop (market)</td><td class="num" id="jp2-outside-price">Rs. 0.00</td><td class="num flat">100%</td></tr>
+                                <tr><td>Our price — billed on these jobs</td><td class="num" id="jp2-our-price">Rs. 0.00</td><td class="num" id="jp2-our-price-pct">—</td></tr>
+                                <tr class="analysis-total"><td id="jp2-saving-label">Customer saves</td><td class="num" id="jp2-saving">Rs. 0.00</td><td class="num" id="jp2-saving-pct">—</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="analysis-note" id="jp2-note"></p>
+                    </div>
+
+                    <!-- (3) EARNING — our cost vs our price -->
+                    <div class="card" style="padding:24px;">
+                        <h3 class="analysis-step">
+                            <span class="step-no">3</span>
+                            <span class="step-title">Our Cost vs Our Price</span>
+                            <span class="step-hint">Earning — the profit actually banked on these jobs.</span>
+                        </h3>
+                        <table class="table">
+                            <thead><tr><th>Line</th><th class="num">Amount</th><th class="num">Of price</th></tr></thead>
+                            <tbody>
+                                <tr><td>Our price — billed (ex-tax)</td><td class="num" id="jp3-our-price">Rs. 0.00</td><td class="num flat">100%</td></tr>
+                                <tr><td>Our cost — what we actually paid</td><td class="num" id="jp3-our-cost">Rs. 0.00</td><td class="num" id="jp3-our-cost-pct">—</td></tr>
+                                <tr class="analysis-total"><td id="jp3-gp-label">Gross profit</td><td class="num" id="jp3-gp">Rs. 0.00</td><td class="num" id="jp3-gp-pct">—</td></tr>
+                                <tr><td>Markup on cost</td><td class="num" id="jp3-markup">—</td><td class="num flat"></td></tr>
+                            </tbody>
+                        </table>
+
+                        <div class="analysis-sub">Reconciliation — how the three steps tie together</div>
+                        <table class="table">
+                            <tbody>
+                                <tr><td>Our profit on these jobs</td><td class="num" id="jpb-our-profit">Rs. 0.00</td></tr>
+                                <tr><td>An outside shop's profit on the same jobs</td><td class="num" id="jpb-outside-profit">Rs. 0.00</td></tr>
+                                <tr class="analysis-total"><td>Our advantage <span class="step-hint">(= sourcing gain − customer saving)</span></td><td class="num" id="jpb-advantage">Rs. 0.00</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="analysis-note" id="jp3-note"></p>
+                    </div>
+
                     <div class="card">
+                        <div class="widget-header" style="padding:16px 24px;border-bottom:1px solid var(--border-color);"><h2 style="font-size:15px;">Per job — all three comparisons</h2></div>
                         <div class="table-responsive">
                             <table class="table">
                                 <thead><tr>
                                     <th>Invoice #</th><th>Date</th><th>Customer</th>
-                                    <th class="num">Our Bill</th><th class="num">Outside (Market)</th>
-                                    <th class="num">Profit/Loss</th><th class="num">Margin %</th><th class="num">Technical Charges</th>
+                                    <th class="num">Our Cost</th><th class="num">Outside Cost</th><th class="num">1 · Gain</th>
+                                    <th class="num">Our Price</th><th class="num">Outside Price</th><th class="num">2 · Saving</th>
+                                    <th class="num">3 · Profit</th><th class="num">Margin</th><th class="num">Tech Charges</th>
                                     <th>Labour Status</th><th>Actions</th>
                                 </tr></thead>
                                 <tbody id="job-profit-tbody"></tbody>
@@ -1244,6 +1541,327 @@
         </div>
     </div>
 
+    <!-- Fixed Asset Modal -->
+    <div id="assetModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 620px;">
+            <div class="modal-header">
+                <h2>Register Fixed Asset</h2>
+                <button class="close-btn" onclick="closeModal('assetModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="assetForm" onsubmit="submitAsset(event)">
+                    <div class="form-group row">
+                        <div class="col" style="flex:2;"><label>Asset</label><input type="text" id="asset-name" class="form-control" placeholder="Crimping machine" required></div>
+                        <div class="col"><label>Code</label><input type="text" id="asset-code" class="form-control" placeholder="PM-001"></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Category</label>
+                            <select id="asset-category" class="form-control"><option>Plant</option><option>Vehicle</option><option>Tools</option><option>Office</option></select>
+                        </div>
+                        <div class="col"><label>In service from</label><input type="date" id="asset-date" class="form-control" required></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Cost (Rs.)</label><input type="number" id="asset-cost" class="form-control" step="0.01" required></div>
+                        <div class="col"><label>Residual value</label><input type="number" id="asset-residual" class="form-control" step="0.01" value="0"></div>
+                        <div class="col"><label>Useful life (months)</label><input type="number" id="asset-life" class="form-control" step="1" value="60"></div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:400;">
+                            <input type="checkbox" id="asset-opening" style="width:auto;">
+                            Already owned before the books opened — post against opening equity rather than payables
+                        </label>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('assetModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Register Asset</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stock Take Modal -->
+    <div id="stockTakeModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 860px;">
+            <div class="modal-header">
+                <h2 id="stockTakeTitle">Stock Take</h2>
+                <button class="close-btn" onclick="closeModal('stockTakeModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="stock-take-id">
+                <div id="stockTakeBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Job Card Modal -->
+    <div id="jobModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 960px;">
+            <div class="modal-header">
+                <h2 id="jobModalTitle">New Job Card</h2>
+                <button class="close-btn" onclick="closeModal('jobModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="jobForm" onsubmit="submitJob(event)">
+                    <input type="hidden" id="job-id">
+                    <div class="form-group row">
+                        <div class="col"><label>Customer</label><select id="job-customer" class="form-control"></select></div>
+                        <div class="col"><label>Machine</label><select id="job-machine" class="form-control"></select></div>
+                        <div class="col"><label>Priority</label>
+                            <select id="job-priority" class="form-control"><option value="normal">Normal</option><option value="urgent">Urgent</option></select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Received</label><input type="date" id="job-received" class="form-control" required></div>
+                        <div class="col"><label>Promised</label><input type="date" id="job-promised" class="form-control"></div>
+                        <div class="col" id="job-status-row" style="display:none;"><label>Status</label>
+                            <select id="job-status" class="form-control">
+                                <option value="open">Open</option>
+                                <option value="in-progress">In progress</option>
+                                <option value="waiting-parts">Waiting for parts</option>
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col" style="flex:2;"><label>Job description</label><input type="text" id="job-desc" class="form-control" placeholder="Boom cylinder hose burst"></div>
+                        <div class="col"><label>Hose spec</label><input type="text" id="job-spec" class="form-control" placeholder="R2 1/2&quot; x 1.2m, 2 ends"></div>
+                    </div>
+
+                    <div class="analysis-sub">Parts and charges</div>
+                    <div id="job-lines"></div>
+                    <button type="button" class="btn btn-secondary" onclick="addJobLine()"><i class="ri-add-line"></i> Add line</button>
+
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('jobModal')">Close</button>
+                        <button type="button" class="btn btn-secondary admin-only" id="job-invoice-btn" onclick="invoiceJob()">Invoice this job</button>
+                        <button type="submit" class="btn btn-primary">Save Job Card</button>
+                    </div>
+                </form>
+
+                <div id="job-labour-panel" style="display:none;border-top:1px solid var(--border-color);margin-top:20px;padding-top:16px;">
+                    <div class="analysis-sub">Technician work — accrued as owed the moment it is recorded</div>
+                    <div id="job-labour-list"></div>
+                    <div class="form-group row" style="align-items:flex-end;">
+                        <div class="col"><label>Worker</label><select id="job-worker" class="form-control"></select></div>
+                        <div class="col"><label>Work</label>
+                            <select id="job-labour-type" class="form-control"><option value="crimping">Crimping</option><option value="welding">Welding</option><option value="technical">Technical</option></select>
+                        </div>
+                        <div class="col" style="max-width:110px;"><label>Ends / units</label><input type="number" id="job-labour-units" class="form-control" step="0.01"></div>
+                        <div class="col" style="max-width:120px;"><label>Rate</label><input type="number" id="job-labour-rate" class="form-control" step="0.01" value="300"></div>
+                        <div class="col" style="max-width:150px;"><button type="button" class="btn btn-primary admin-only" onclick="addLabourToJob()">Record work</button></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purchase Order Modal -->
+    <div id="poModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2>New Purchase Order</h2>
+                <button class="close-btn" onclick="closeModal('poModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="poForm" onsubmit="submitPurchaseOrder(event)">
+                    <div class="form-group row">
+                        <div class="col"><label>Supplier</label><select id="po-supplier" class="form-control"></select></div>
+                        <div class="col"><label>Order date</label><input type="date" id="po-date" class="form-control" required></div>
+                        <div class="col"><label>Expected</label><input type="date" id="po-expected" class="form-control"></div>
+                    </div>
+                    <div class="analysis-sub">Lines</div>
+                    <div id="po-lines"></div>
+                    <button type="button" class="btn btn-secondary" onclick="addPoLine()"><i class="ri-add-line"></i> Add line</button>
+                    <div class="form-group" style="margin-top:14px;"><label>Notes</label><input type="text" id="po-notes" class="form-control"></div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('poModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Raise Order</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Goods Receipt Modal -->
+    <div id="grnModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2>Receive Goods — <span id="grn-title-ref"></span></h2>
+                <button class="close-btn" onclick="closeModal('grnModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="grnForm" onsubmit="submitGoodsReceipt(event)">
+                    <input type="hidden" id="grn-po-id"><input type="hidden" id="grn-supplier-id">
+                    <div class="form-group row">
+                        <div class="col"><label>Receipt date</label><input type="date" id="grn-date" class="form-control" required></div>
+                        <div class="col" style="flex:2;"><label>Notes</label><input type="text" id="grn-notes" class="form-control"></div>
+                    </div>
+                    <div class="analysis-sub">What arrived</div>
+                    <div id="grn-lines" oninput="updateGrnPreview()"></div>
+                    <div class="analysis-sub">Freight, duty and clearing — spread across the lines above</div>
+                    <div id="grn-costs" oninput="updateGrnPreview()"></div>
+                    <button type="button" class="btn btn-secondary" onclick="addGrnCost()"><i class="ri-add-line"></i> Add cost</button>
+                    <p class="analysis-note" id="grn-preview"></p>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('grnModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Receive &amp; Value Stock</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supplier Payment Modal -->
+    <div id="supplierPayModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2>Pay Supplier</h2>
+                <button class="close-btn" onclick="closeModal('supplierPayModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="supplierPayForm" onsubmit="submitSupplierPayment(event)">
+                    <input type="hidden" id="sp-bill-id"><input type="hidden" id="sp-supplier-id">
+                    <p class="analysis-note">Outstanding on this bill: <strong id="sp-outstanding"></strong></p>
+                    <div class="form-group row">
+                        <div class="col"><label>Amount</label><input type="number" id="sp-amount" class="form-control" step="0.01" required></div>
+                        <div class="col"><label>Date</label><input type="date" id="sp-date" class="form-control" required></div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col"><label>Method</label>
+                            <select id="sp-method" class="form-control">
+                                <option>Cash</option><option>Bank Transfer</option><option>Cheque</option>
+                            </select>
+                        </div>
+                        <div class="col"><label>Notes</label><input type="text" id="sp-notes" class="form-control"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('supplierPayModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ledger detail (account drill-down / journal) -->
+    <div id="glDetailModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 id="glDetailTitle">Ledger</h2>
+                <button class="close-btn" onclick="closeModal('glDetailModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body"><div id="glDetailBody"></div></div>
+        </div>
+    </div>
+
+    <!-- Customer Modal -->
+    <div id="customerModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="customerModalTitle">Add Customer</h2>
+                <button class="close-btn" onclick="closeModal('customerModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="customerForm" onsubmit="submitCustomer(event)">
+                    <input type="hidden" id="cust-id">
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Customer Name</label>
+                            <input type="text" id="cust-name" class="form-control" required>
+                        </div>
+                        <div class="col">
+                            <label>Type</label>
+                            <select id="cust-kind" class="form-control">
+                                <option value="external">External — billed and paid</option>
+                                <option value="internal">Internal — own fleet, costing only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Phone</label>
+                            <input type="text" id="cust-phone" class="form-control">
+                        </div>
+                        <div class="col">
+                            <label>Email</label>
+                            <input type="text" id="cust-email" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Address</label>
+                        <input type="text" id="cust-address" class="form-control">
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>TIN</label>
+                            <input type="text" id="cust-tin" class="form-control">
+                        </div>
+                        <div class="col">
+                            <label>Credit Limit (Rs.)</label>
+                            <input type="number" id="cust-credit" class="form-control" step="0.01" value="0">
+                        </div>
+                        <div class="col">
+                            <label>Payment Terms (days)</label>
+                            <input type="number" id="cust-terms" class="form-control" step="1" value="0">
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('customerModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Customer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Machine Modal -->
+    <div id="machineModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="machineModalTitle">Add Machine</h2>
+                <button class="close-btn" onclick="closeModal('machineModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="machineForm" onsubmit="submitMachine(event)">
+                    <input type="hidden" id="mach-id">
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Machine / Equipment</label>
+                            <input type="text" id="mach-name" class="form-control" placeholder="HEX-18" required>
+                        </div>
+                        <div class="col">
+                            <label>Type</label>
+                            <select id="mach-kind" class="form-control">
+                                <option value="registration">Registration — vehicle or plant</option>
+                                <option value="equipment">Equipment — workshop machine</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group row">
+                        <div class="col">
+                            <label>Owner</label>
+                            <select id="mach-customer" class="form-control"></select>
+                        </div>
+                        <div class="col">
+                            <label>Code (optional)</label>
+                            <input type="text" id="mach-code" class="form-control">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <input type="text" id="mach-notes" class="form-control">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('machineModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Machine</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Record Purchase Modal -->
     <div id="purchaseModal" class="modal no-print">
         <div class="modal-content" style="max-width: 520px;">
@@ -1639,6 +2257,11 @@
          handlers resolve at call-time. -->
     <script src="modules/core.js"></script>
     <script src="modules/inventory.js"></script>
+    <script src="modules/customers.js"></script>
+    <script src="modules/ledger.js"></script>
+    <script src="modules/procurement.js"></script>
+    <script src="modules/jobs.js"></script>
+    <script src="modules/controls.js"></script>
     <script src="modules/invoice.js"></script>
     <script src="modules/dashboard.js"></script>
     <script src="modules/bill-comparison.js"></script>

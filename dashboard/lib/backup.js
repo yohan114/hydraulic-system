@@ -77,4 +77,33 @@ async function runStartupBackup(db, opts = {}) {
   return result;
 }
 
-module.exports = { runStartupBackup, filesToPrune, todayStamp, KEEP_DAYS };
+/**
+ * Snapshot the database to a named file on demand — used before a schema
+ * migration so any step can be reversed by restoring the copy.
+ *
+ * Unlike {@link runStartupBackup} this DOES throw: if we cannot take the safety
+ * copy, the migration must not run.
+ *
+ * @param {import('better-sqlite3').Database} db open database handle
+ * @param {string} label short tag for the file name (e.g. a migration version)
+ * @param {object} [opts]
+ * @param {string} [opts.dir] backup directory (default: <db dir>/backups)
+ * @param {Date}   [opts.now]
+ * @returns {Promise<string>} the file written
+ */
+async function backupBeforeMigration(db, label, opts = {}) {
+  const dbPath = db.name;
+  const dir = opts.dir || path.join(path.dirname(dbPath), 'backups');
+  fs.mkdirSync(dir, { recursive: true });
+
+  const now = opts.now || new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${todayStamp(now)}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  const safe = String(label || 'migration').replace(/[^A-Za-z0-9._-]/g, '-');
+  const dest = path.join(dir, `pre-${stamp}-${safe}.db`);
+
+  await db.backup(dest);
+  return dest;
+}
+
+module.exports = { runStartupBackup, backupBeforeMigration, filesToPrune, todayStamp, KEEP_DAYS };

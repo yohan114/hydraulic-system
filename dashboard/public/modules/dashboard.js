@@ -345,74 +345,12 @@ async function deleteExpense(id) {
     catch (err) { toast(String(err), 'error'); }
 }
 
-// ----------------------------------------------------
-// Reports: Monthly P&L + per-invoice profit
-// ----------------------------------------------------
-async function loadReports() {
-    showSkeleton('pl-tbody', 10, 3);
-    showSkeleton('invoice-profit-tbody', 7, 4);
-    try {
-        const [plRes, ipRes] = await Promise.all([authFetch(`${API_URL}/reports/pl`), authFetch(`${API_URL}/reports/invoice-profit`)]);
-        const pl = await plRes.json();
-        const ip = await ipRes.json();
-        if (!plRes.ok) { toast(pl.error || 'Could not load P&L', 'error'); return; }
-        renderPL(pl);
-        renderInvoiceProfit(ip);
-    } catch (e) { console.error('Error loading reports', e); }
-}
-
+// Money whose sign carries meaning: green when positive, red when negative.
+// Shared by the Price Analysis screen.
 function signed(n) {
     const v = Number(n) || 0;
     const color = v >= 0 ? '#10b981' : '#ef4444';
     return `<span style="color:${color};font-weight:600;">${formatCurrency(v)}</span>`;
-}
-
-function renderPL(pl) {
-    const t = pl.totals || {};
-    document.getElementById('pl-stat-revenue').textContent = formatCurrency(t.revenue);
-    document.getElementById('pl-stat-costs').textContent = formatCurrency(t.totalCosts);
-    document.getElementById('pl-stat-net').innerHTML = signed(t.netProfit);
-    document.getElementById('pl-stat-margin').textContent = `${(t.netMarginPct == null ? 0 : t.netMarginPct)}% margin`;
-    document.getElementById('pl-stat-cash').innerHTML = signed(t.cashNet);
-
-    const tb = document.getElementById('pl-tbody');
-    tb.innerHTML = '';
-    const months = pl.months || [];
-    if (!months.length) { emptyRow('pl-tbody', 10, '📈', 'No data yet', 'Finalize invoices and log labour/expenses to see your P&L.'); return; }
-    months.forEach((m) => {
-        tb.innerHTML += `
-            <tr>
-                <td><strong>${m.month}</strong></td>
-                <td class="num">${formatCurrency(m.revenue)}</td>
-                <td class="num">${formatCurrency(m.cogs)}</td>
-                <td class="num">${formatCurrency(m.grossProfit)}</td>
-                <td class="num">${formatCurrency(m.labour)}</td>
-                <td class="num">${formatCurrency(m.expenses)}</td>
-                <td class="num">${signed(m.netProfit)}</td>
-                <td class="num">${m.netMarginPct == null ? '-' : m.netMarginPct + '%'}</td>
-                <td class="num">${formatCurrency(m.paymentsIn)}</td>
-                <td class="num">${formatCurrency(m.cashOut)}</td>
-            </tr>`;
-    });
-}
-
-function renderInvoiceProfit(ip) {
-    const tb = document.getElementById('invoice-profit-tbody');
-    tb.innerHTML = '';
-    const rows = (ip && ip.invoices) || [];
-    if (!rows.length) { emptyRow('invoice-profit-tbody', 7, '🧾', 'No finalized invoices', ''); return; }
-    rows.forEach((r) => {
-        tb.innerHTML += `
-            <tr>
-                <td><strong>${r.invoiceNo}</strong></td>
-                <td>${formatDate(r.invoiceDate)}</td>
-                <td>${r.billedToName || 'Walk-in'}</td>
-                <td class="num">${formatCurrency(r.revenueExTax)}</td>
-                <td class="num">${formatCurrency(r.materialCost)}</td>
-                <td class="num">${signed(r.grossProfit)}</td>
-                <td class="num">${r.grossMarginPct == null ? '-' : r.grossMarginPct + '%'}</td>
-            </tr>`;
-    });
 }
 
 // ----------------------------------------------------

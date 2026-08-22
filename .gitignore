@@ -17,3 +17,8 @@ backups/
 hydraulic.db-wal
 hydraulic.db-shm
 hydraulic.db-journal
+
+# Server stdout, when started detached
+dashboard/server-out.log
+# Ad-hoc database copies taken by hand before a risky change
+hydraulic.db.bak-*

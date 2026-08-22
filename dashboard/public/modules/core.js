@@ -421,6 +421,11 @@ function showSection(sectionId) {
     const titles = {
         'dashboard': 'Dashboard',
         'inventory': 'Inventory Management',
+        'workshop': 'Workshop',
+        'procurement': 'Procurement',
+        'controls': 'Controls',
+        'accounting': 'Accounting',
+        'customers': 'Customers & Machines',
         'suppliers': 'Suppliers',
         'new-invoice': 'Invoice Document',
         'history': 'Invoice History',
@@ -435,12 +440,16 @@ function showSection(sectionId) {
         'users': 'Users & Roles',
         'labour': 'Labour',
         'expenses': 'Expenses',
-        'reports': 'Profit & Loss',
     };
     document.getElementById('page-title').textContent = titles[sectionId];
 
     if (sectionId === 'dashboard') loadDashboard();
     else if (sectionId === 'inventory') loadInventory();
+    else if (sectionId === 'workshop') wsShowTab(wsTab || 'jobs');
+    else if (sectionId === 'procurement') procShowTab(procTab || 'orders');
+    else if (sectionId === 'controls') ctlShowTab(ctlTab || 'stock');
+    else if (sectionId === 'accounting') glShowTab(glTab || 'trial');
+    else if (sectionId === 'customers') loadCustomersMasters();
     else if (sectionId === 'suppliers') loadSuppliers();
     else if (sectionId === 'history') loadHistory();
     else if (sectionId === 'transactions') loadTransactions();
@@ -453,7 +462,6 @@ function showSection(sectionId) {
     else if (sectionId === 'pricing-master') loadPricingMaster();
     else if (sectionId === 'labour') loadLabour();
     else if (sectionId === 'expenses') loadExpenses();
-    else if (sectionId === 'reports') loadReports();
     else if (sectionId === 'users') loadUsers();
 }
 

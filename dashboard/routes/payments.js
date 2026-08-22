@@ -4,6 +4,7 @@ const connection = require('../db');
 const money = require('../lib/money');
 const sql = require('../lib/sql');
 const billing = require('../services/billing');
+const glPosting = require('../services/glPosting');
 const { invoiceMutex } = require('../lib/mutex');
 const router = express.Router();
 
@@ -73,7 +74,20 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
 
         const invoice = await connection.query(`SELECT GrandTotal, AmountPaid FROM Invoices WHERE InvoiceID = ${id}`);
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
-        res.json({ success: true, amountPaid: pay.amountPaid, balance: pay.balance, status: pay.status });
+
+        // Post the receipt. Internal jobs have no receivable, so glPosting
+        // returns null for them rather than inventing cash.
+        let posting = null;
+        try {
+            const last = await connection.query(
+                `SELECT PaymentID FROM Payments WHERE InvoiceID = ${id} ORDER BY PaymentID DESC LIMIT 1`);
+            if (last.length) posting = glPosting.postPayment(last[0].PaymentID, { postedBy: req.user && req.user.username });
+        } catch (postErr) {
+            console.error('Ledger posting failed for payment on invoice', id, '-', postErr.message);
+            posting = { error: postErr.message };
+        }
+
+        res.json({ success: true, amountPaid: pay.amountPaid, balance: pay.balance, status: pay.status, posting });
     } catch (err) {
         res.status(err.httpStatus || 500).json({ error: 'Could not record payment. Ensure the database is migrated. ' + err.message });
     }

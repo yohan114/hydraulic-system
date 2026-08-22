@@ -10,9 +10,10 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-const { ensureSchema } = require('./migrate');
+const { migrateToLatest } = require('./migrate');
 const connection = require('./db');
 const { runStartupBackup } = require('./lib/backup');
+const { auditMiddleware } = require('./lib/audit');
 const { router: authRouter, requireAuth, viewerReadOnlyGuard } = require('./routes/auth');
 
 const PORT = process.env.PORT || 9999;
@@ -35,6 +36,10 @@ app.use((req, res, next) => {
 // already populated req.user, so this can see the caller's role.
 app.use(viewerReadOnlyGuard);
 
+// Audit trail: one row per state-changing API call, written after the response
+// so the recorded status is the real one. Reads are not logged.
+app.use(auditMiddleware(connection));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Feature routers — each owns its own /api/... paths.
@@ -49,17 +54,30 @@ app.use(require('./routes/finance'));
 app.use(require('./routes/users'));
 app.use(require('./routes/jobProfit'));
 app.use(require('./routes/pricing'));
+app.use(require('./routes/ledger'));
+app.use(require('./routes/procurement'));
+app.use(require('./routes/jobs'));
+app.use(require('./routes/controls'));
 
 async function start() {
   try {
-    const summary = await ensureSchema(connection);
-    if (summary && summary.applied.length) console.log('Schema:', summary.applied.join(', '));
-    if (summary && summary.failed && summary.failed.length) {
+    // Baseline, then any pending numbered migration. A safety copy of the
+    // database is written first; if that copy cannot be made, nothing is
+    // applied and the error surfaces here rather than half-migrating.
+    const { baseline, migrations } = await migrateToLatest(connection, { log: (m) => console.log(' ', m) });
+    if (baseline && baseline.applied.length) console.log('Schema:', baseline.applied.join(', '));
+    if (baseline && baseline.failed && baseline.failed.length) {
       console.error('WARNING: some schema upgrades FAILED — run "npm run migrate":');
-      summary.failed.forEach((f) => console.error(`  - ${f.name}: ${f.error}`));
+      baseline.failed.forEach((f) => console.error(`  - ${f.name}: ${f.error}`));
+    }
+    if (migrations && migrations.applied.length) console.log('Migrations:', migrations.applied.join(', '));
+    if (migrations && migrations.drifted.length) {
+      console.error('WARNING: these migrations were edited after being applied:');
+      migrations.drifted.forEach((d) => console.error(`  - ${d.version} ${d.name}`));
     }
   } catch (e) {
-    console.warn('Schema check skipped:', e.message);
+    console.error('Migration failed — server not started:', e.message);
+    process.exit(1);
   }
 
   // Daily safety snapshot to backups/YYYY-MM-DD.db (keeps the last 7 days).
@@ -82,4 +100,8 @@ async function start() {
   });
 }
 
-start();
+// Exported so the integration tests can drive the real app (routers, auth gate,
+// role guard and all) against a throwaway database without opening a port.
+module.exports = { app, start };
+
+if (require.main === module) start();
