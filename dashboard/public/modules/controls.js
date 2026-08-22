@@ -115,15 +115,24 @@ function renderAgeing(d) {
 
 // ---- actions ----
 
-async function runDepreciation() {
-    const period = prompt('Charge depreciation for which month? (YYYY-MM)', new Date().toISOString().slice(0, 7));
+async function runDepreciation(period, allowFuture) {
+    period = period || prompt('Charge depreciation for which month? (YYYY-MM)', new Date().toISOString().slice(0, 7));
     if (!period) return;
     try {
         const res = await authFetch(`${API_URL}/assets/depreciation/run`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period }),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(allowFuture ? { period, allowFuture: true } : { period }),
         });
         const d = await res.json();
-        if (!res.ok) return toast(d.error || 'Could not run depreciation', 'error');
+        if (!res.ok) {
+            // A month that has not begun is nearly always a typo, so it is refused
+            // by default — but let someone who means it say so.
+            if (/has not started yet/.test(d.error || '') && confirm(`${d.error}\n\nCharge ${period} anyway?`)) {
+                return runDepreciation(period, true);
+            }
+            return toast(d.error || 'Could not run depreciation', 'error');
+        }
         toast(d.total > 0
             ? `Charged ${formatCurrency(d.total)} across ${d.charged.length} asset(s) for ${period}`
             : `Nothing to charge for ${period}${d.skipped.length ? ` (${d.skipped.length} skipped)` : ''}`,

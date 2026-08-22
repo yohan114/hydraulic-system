@@ -127,6 +127,17 @@ function runDepreciation(period, opts = {}) {
   const db = connection._db;
   if (!/^\d{4}-\d{2}$/.test(String(period || ''))) throw new ControlError('Period must be YYYY-MM');
 
+  // Depreciation is a charge for time already elapsed. Charging a month that
+  // has not begun would recognise wear that has not happened and put a
+  // future-dated journal in front of every report run before then. Almost
+  // always a typo, so it is refused unless asked for explicitly.
+  if (!opts.allowFuture && assets.isFuturePeriod(period, opts.today)) {
+    throw new ControlError(
+      `${period} has not started yet — depreciation is charged for time already elapsed. ` +
+      'Run it at the end of that month.'
+    );
+  }
+
   const rows = db.prepare(`
     SELECT a.* FROM FixedAssets a
     WHERE a.Status = 'active'

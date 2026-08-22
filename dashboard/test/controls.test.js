@@ -139,12 +139,38 @@ test('running the same period twice charges nothing more', async () => {
 });
 
 test('a later period charges again, and the run is recorded per asset', async () => {
-  const res = await app.post('/api/assets/depreciation/run', { period: '2026-09' });
-  assert.equal(res.body.total, MONTHLY);
+  // Called through the service with an explicit reference date, so the test does
+  // not depend on when the suite happens to run: 2026-09 is a future period for
+  // most of 2026 and the guard would (correctly) refuse it.
+  const controls = require('../services/controls');
+  const res = controls.runDepreciation('2026-09', { today: '2026-10-01' });
+  assert.equal(res.total, MONTHLY);
   assert.equal(balanceOf('6400'), MONTHLY * 2);
   const entries = await app.get('/api/assets/depreciation');
   assert.equal(entries.body.length, 4, 'two assets x two periods');
   assert.equal(entries.body[0].Period, '2026-09');
+});
+
+/**
+ * Two months out is future no matter when the suite runs, and it never collides
+ * with the fixed 2026 periods the tests above charge.
+ */
+function futurePeriod() {
+  const d = new Date();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + 2);
+  return d.toISOString().slice(0, 7);
+}
+
+test('a period that has not started yet is refused', async () => {
+  const future = futurePeriod();
+  const res = await app.post('/api/assets/depreciation/run', { period: future });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /has not started yet/);
+  assert.equal(
+    db.prepare('SELECT COUNT(*) c FROM DepreciationEntries WHERE Period = ?').get(future).c, 0,
+    'a refused run must charge nothing at all'
+  );
 });
 
 test('a bad period is refused', async () => {
@@ -300,4 +326,18 @@ test('control writes are audited', () => {
   ).all().map((r) => r.Entity);
   ['asset', 'depreciation', 'stock-take', 'year-end'].forEach((e) =>
     assert.ok(seen.includes(e), `${e} was not audited`));
+});
+
+/**
+ * Last, because it deliberately posts into a future period and there is no sense
+ * in making every assertion above account for that.
+ */
+test('an explicit override can still charge a future period', () => {
+  const controls = require('../services/controls');
+  const future = futurePeriod();
+
+  const forced = controls.runDepreciation(future, { allowFuture: true });
+  assert.ok(forced.total > 0, 'the guard catches slips, not intent');
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM DepreciationEntries WHERE Period = ?').get(future).c, 2);
+  assert.ok(trialBalanced(), 'an overridden run is still a balanced posting');
 });

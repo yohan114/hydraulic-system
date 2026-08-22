@@ -25,6 +25,25 @@ function periodIndex(period) {
   return Number(m[1]) * 12 + (Number(m[2]) - 1);
 }
 
+/**
+ * Has this period not begun yet?
+ *
+ * Depreciation is a charge for time already elapsed, so a period that has not
+ * started cannot have any. The line is drawn at the period's FIRST day, not its
+ * last: charging the month you are currently in is normal practice, charging one
+ * that has not begun is a slip.
+ *
+ * @param {string} period `YYYY-MM`
+ * @param {string} [today] `YYYY-MM-DD`, defaults to the current date
+ * @returns {boolean}
+ */
+function isFuturePeriod(period, today) {
+  const p = periodIndex(period);
+  const ref = periodIndex(String(today || new Date().toISOString().slice(0, 10)).slice(0, 7));
+  if (p == null || ref == null) return false;
+  return p > ref;
+}
+
 /** How many whole months of service an asset has had by the end of `period`. */
 function monthsInService(inServiceFrom, period) {
   const start = periodIndex(String(inServiceFrom || '').slice(0, 7));
@@ -161,4 +180,4 @@ function stockTakeVariance(lines) {
   return { lines: out, totalVariance, shortages, overages };
 }
 
-module.exports = { periodIndex, monthsInService, monthlyCharge, runPeriod, stockValue, stockTakeVariance };
+module.exports = { periodIndex, isFuturePeriod, monthsInService, monthlyCharge, runPeriod, stockValue, stockTakeVariance };

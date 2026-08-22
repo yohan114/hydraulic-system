@@ -14,6 +14,18 @@ test('months in service counts from the month it was commissioned', () => {
   assert.equal(monthsInService('', '2026-08'), 0);
 });
 
+test('a period that has not begun is future; the current month is not', () => {
+  const { isFuturePeriod } = require('../lib/assets');
+  // The line is the period's FIRST day: you may charge the month you are in.
+  assert.equal(isFuturePeriod('2026-08', '2026-08-22'), false, 'the current month is chargeable');
+  assert.equal(isFuturePeriod('2026-08', '2026-08-01'), false);
+  assert.equal(isFuturePeriod('2026-09', '2026-08-22'), true, 'next month has not started');
+  assert.equal(isFuturePeriod('2027-01', '2026-08-22'), true);
+  assert.equal(isFuturePeriod('2026-07', '2026-08-22'), false, 'last month is overdue, not future');
+  // Garbage is not treated as future — the format check catches it first.
+  assert.equal(isFuturePeriod('rubbish', '2026-08-22'), false);
+});
+
 test('straight line charges the same amount each month', () => {
   const r = monthlyCharge({ ...CRIMPER, accumulated: 0 }, '2026-08');
   assert.equal(r.charge, 8000);            // 480,000 over 60 months

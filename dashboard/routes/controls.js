@@ -47,7 +47,7 @@ router.get('/api/assets/depreciation', async (req, res) => {
 router.post('/api/assets/depreciation/run', async (req, res) => {
   try {
     const period = String((req.body || {}).period || '');
-    const result = controls.runDepreciation(period, { postedBy: actor(req) });
+    const result = controls.runDepreciation(period, { postedBy: actor(req), allowFuture: !!(req.body || {}).allowFuture });
     res.locals.audit = { entity: 'depreciation', entityId: period, action: 'run' };
     res.json({ success: true, ...result });
   } catch (err) { fail(res, err); }
