@@ -6,6 +6,7 @@
  */
 
 const express = require('express');
+const xlsx = require('xlsx');
 const connection = require('../db');
 const sql = require('../lib/sql');
 const controls = require('../services/controls');
@@ -79,6 +80,52 @@ router.post('/api/stock-takes', async (req, res) => {
 
 router.get('/api/stock-takes/:id', async (req, res) => {
   try { res.json(controls.stockTakeDetail(sql.n(req.params.id))); } catch (err) { fail(res, err); }
+});
+
+/**
+ * The count sheet as a spreadsheet, to carry round the racks.
+ *
+ * Grouped by category so the walk follows the shelves, with the Counted column
+ * left BLANK rather than pre-filled with the system figure — a sheet that
+ * already shows the answer invites confirming it instead of counting it.
+ */
+router.get('/api/stock-takes/:id/export', async (req, res) => {
+  try {
+    const detail = controls.stockTakeDetail(sql.n(req.params.id));
+    const posted = detail.Status === 'posted';
+
+    const rows = detail.lines.map((l, i) => ({
+      '#': String(i + 1).padStart(3, '0'),
+      'Category': l.category || 'Uncategorised',
+      'Code': l.uniqueId || '',
+      'Item': l.name || '',
+      'Unit': l.unit || '',
+      'System Qty': l.systemQty,
+      // Blank on a draft: fill it in at the shelf.
+      'Counted Qty': posted ? l.countedQty : '',
+      'Difference': posted ? l.qtyDiff : '',
+      'Value Difference': posted ? l.valueDiff : '',
+      'Notes': l.notes || '',
+    }));
+    if (posted) {
+      rows.push({});
+      rows.push({ 'Item': 'TOTAL VARIANCE', 'Value Difference': detail.totalVariance });
+    }
+
+    const ws = xlsx.utils.json_to_sheet(rows.length ? rows : [{ 'Item': 'No stock' }]);
+    const widths = {};
+    rows.forEach((r) => Object.keys(r).forEach((k) => {
+      widths[k] = Math.max(widths[k] || k.length, String(r[k] == null ? '' : r[k]).length);
+    }));
+    ws['!cols'] = Object.keys(widths).map((k) => ({ wch: Math.min(widths[k] + 4, 46) }));
+
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, 'Count Sheet');
+    const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', `attachment; filename="Stock_Count_${String(detail.TakeNo).replace(/[^A-Z0-9]/gi, '_')}.xlsx"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (err) { fail(res, err); }
 });
 
 router.put('/api/stock-takes/:id', async (req, res) => {

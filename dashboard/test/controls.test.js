@@ -179,6 +179,22 @@ test('opening a stock take freezes the system quantities onto a count sheet', as
   assert.equal(detail.body.lines.length, 2);
 });
 
+test('the draft count sheet exports with the Counted column blank', async () => {
+  const res = await app.getBuffer(`/api/stock-takes/${takeId}/export`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition'), /Stock_Count_ST_\d{4}_0001\.xlsx/);
+
+  const xlsx = require('xlsx');
+  const wb = xlsx.read(res.buffer, { type: 'buffer' });
+  const rows = xlsx.utils.sheet_to_json(wb.Sheets['Count Sheet'], { defval: '' });
+  assert.equal(rows.length, 2, 'one row per stock line');
+  rows.forEach((r) => {
+    assert.ok(r['System Qty'] !== '', 'the system figure is shown so it can be checked against');
+    assert.equal(r['Counted Qty'], '', 'a sheet that pre-fills the answer invites confirming, not counting');
+  });
+  assert.ok(rows.some((r) => r.Category === 'Hose'));
+});
+
 test('entering counts produces a variance without changing stock yet', async () => {
   const detail = await app.get(`/api/stock-takes/${takeId}`);
   const hoseLine = detail.body.lines.find((l) => l.inventoryId === hoseId);

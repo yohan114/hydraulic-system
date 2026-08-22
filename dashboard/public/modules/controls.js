@@ -212,13 +212,20 @@ async function openStockTake(takeId) {
             <p class="analysis-note">Shortages <span class="neg">${formatCurrency(d.shortages)}</span> ·
                overages <span class="pos">${formatCurrency(d.overages)}</span> ·
                net <strong>${formatCurrency(d.totalVariance)}</strong></p>
-            ${posted ? '' : `
             <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="downloadCountSheet(${takeId})">
+                    <i class="ri-file-excel-line"></i> ${posted ? 'Download result' : 'Download count sheet'}
+                </button>
+                ${posted ? '' : `
                 <button class="btn btn-secondary" onclick="saveStockTake()">Save counts</button>
-                <button class="btn btn-primary admin-only" onclick="postStockTake()">Post &amp; adjust stock</button>
-            </div>`}`;
+                <button class="btn btn-primary admin-only" onclick="postStockTake()">Post &amp; adjust stock</button>`}
+            </div>`;
         openModal('stockTakeModal');
     } catch (e) { toast(String(e), 'error'); }
+}
+
+function downloadCountSheet(takeId) {
+    downloadExport(`/stock-takes/${takeId}/export`, 'Stock_Count_Sheet.xlsx');
 }
 
 async function saveStockTake() {

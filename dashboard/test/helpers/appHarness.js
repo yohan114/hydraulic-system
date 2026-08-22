@@ -84,6 +84,16 @@ async function startTestApp(opts = {}) {
     dbFile,
     db: connection,
     request,
+    /**
+     * Fetch a binary response (xlsx, pdf) as a Buffer. Reading these through
+     * `text()` mangles them, so exports need their own path.
+     */
+    async getBuffer(url, headers = {}) {
+      const init = { method: 'GET', headers: { ...headers } };
+      if (token) init.headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(baseUrl + url, init);
+      return { status: res.status, ok: res.ok, headers: res.headers, buffer: Buffer.from(await res.arrayBuffer()) };
+    },
     get: (u, h) => request('GET', u, undefined, h),
     post: (u, b, h) => request('POST', u, b, h),
     put: (u, b, h) => request('PUT', u, b, h),
