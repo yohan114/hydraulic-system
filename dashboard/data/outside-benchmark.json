@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "source": "Outside-company retail price list (workshop photos, 2026-07-13)",
+    "note": "Competitor counter prices in LKR, VAT-incl retail. Highest-priority MARKET benchmark: what a customer would pay elsewhere. Overrides the shipment datasheet 'market mid' when an exact code / hose size matches. Hose prices are per METRE (the parenthetical column ≈ per-inch × 40). Assembly = per hose (both ends). Welding = welded assembly; WeldingExtra = per extra weld.",
+    "capturedAt": "2026-07-13"
+  },
+  "hose": {
+    "R2 1/4":   { "marketPerM": 1600, "assemble": 1200, "welding": 1200, "weldingExtra": 600 },
+    "R2 5/16":  { "marketPerM": 1600, "assemble": 1200, "welding": 1200, "weldingExtra": 600 },
+    "R2 3/8":   { "marketPerM": 2000, "assemble": 1200, "welding": 1200, "weldingExtra": 600 },
+    "R2 1/2":   { "marketPerM": 2400, "assemble": 1200, "welding": 1200, "weldingExtra": 600 },
+    "R2 5/8":   { "marketPerM": 2800, "assemble": 1400, "welding": 1400, "weldingExtra": 700 },
+    "R2 3/4":   { "marketPerM": 3200, "assemble": 1600, "welding": 1600, "weldingExtra": 800 },
+    "R2 1":     { "marketPerM": 4000, "assemble": 2400, "welding": 2400, "weldingExtra": 1200 },
+    "R2 1-1/4": { "marketPerM": 5600, "assemble": 2800, "welding": 2800, "weldingExtra": 1400 },
+    "4SH 1/2":   { "marketPerM": 3600, "assemble": 1600, "welding": 1600, "weldingExtra": 800 },
+    "4SH 5/8":   { "marketPerM": 4800, "assemble": 1800, "welding": 1800, "weldingExtra": 900 },
+    "4SH 3/4":   { "marketPerM": 5600, "assemble": 2000, "welding": 2000, "weldingExtra": 1000 },
+    "4SH 1":     { "marketPerM": 7200, "assemble": 2800, "welding": 2800, "weldingExtra": 1400 },
+    "4SH 1-1/4": { "marketPerM": 8800, "assemble": 4000, "welding": 4000, "weldingExtra": 2000 }
+  },
+  "fittings": {
+    "22611-04-04": 300, "22611-06-06": 400, "22611-08-08": 600, "22611-10-10": 900,
+    "22611-12-12": 1000, "22611-16-16": 1650, "22611-20-20": 3350,
+    "22691-04-04": 500, "22691-06-06": 600, "22691-08-08": 800, "22691-10-10": 1200,
+    "22692-12-12": 1450, "22692-16-16": 2450, "22692-20-20": 4000,
+    "28611D-14-04": 450, "28611D-18-06": 600, "28611D-22-08": 800, "28611D-24-10": 1250,
+    "28612D-30-12": 1450, "28612D-33-16": 1650, "28612D-42-20": 4000,
+    "IB-04-04": 400, "IB-06-06": 600, "IB-08-08": 800, "IB-10-10": 950, "IB-12-12": 950,
+    "IB-16-16": 1650, "IB-20-20": 2450, "IB-24-24": 3450, "IB-32-32": 4450,
+    "IWB-04": 300, "IWB-06": 350, "IWB-08": 400, "IWB-12": 500, "IWB-16": 800, "IWB-20": 1200, "IWB-24": 1800,
+    "2WB-12": 650, "2WB-16": 1250, "2WB-20": 1950,
+    "AB-04-04-04": 900, "AB-06-06-06": 1250, "AB-08-08-08": 1850, "AB-12-12-12": 3250,
+    "AB-16-16-16": 4500, "AB-20-20-20": 6500,
+    "IBT9-04-04": 600, "IBT9-06-06": 750, "IBT9-08-08": 1450, "IBT9-12-12": 1850, "IBT9-16-16": 2450, "IBT9-20-20": 3450,
+    "R6-03": 250, "R6-04": 250, "R6-05": 300, "R6-06": 300, "R6-08": 400, "R6-10": 500, "R6-12": 600, "R6-16": 800, "R6-20": 1200,
+    "BANJO-10-10-04": 600, "BANJO-12-12-04": 650, "BANJO-14-14-06": 850, "BANJO-16-16-06": 950,
+    "BANJO-18-21-08": 1250, "BANJO-20-20-08": 1600, "BANJO-22-22-08": 1800, "BANJO-26-22-08": 2450, "BANJO-26-30-08": 3250,
+    "POWER-FITTING-14MM-ST": 600, "POWER-FITTING-16MM-BEND": 800
+  },
+  "bondedSeal": {
+    "1/4": 200, "3/8": 250, "1/2": 400, "3/4": 600, "1": 700, "1-1/4": 850,
+    "14MM": 200, "16MM": 200, "18MM": 200
+  },
+  "banjoBSP": { "1/4": 600, "3/8": 800, "1/2": 900 },
+  "services": {
+    "serviceHose1W": { "1/4": 250, "5/16": 300, "3/8": 350 },
+    "serviceHose2W": { "1/4": 300, "5/16": 350, "3/8": 500 },
+    "serviceHoseRepairEnd": { "1/4": 700, "5/16": 800, "3/8": 900 },
+    "serviceHoseRepairJointer": { "1/4": 1400, "5/16": 1600, "3/8": 1800 },
+    "boatHoseRepair": { "1/2-straight-end": 1600, "1/2-bend-end": 1800, "1/2-jointer": 2200 },
+    "boatWinchWheel": { "boat-winch-1/2": 600, "boat-wheel-3/8": 400 },
+    "pressureNozzle": { "1/4": 1250, "3/8": 1250, "gun": 3500 },
+    "petrolPumpHose": { "3/4": 2800, "1": 3600 },
+    "petrolPumpNozzle": { "3/4": 8000, "1": 12000 }
+  }
+}

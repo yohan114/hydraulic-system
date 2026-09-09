@@ -1,215 +1,248 @@
 'use strict';
 
 /**
- * Idempotent schema upgrade for the smart-billing features.
+ * SQLite schema BASELINE + Rate Card seed (idempotent).
  *
- * Adds the columns and tables introduced by the lock / accuracy / payment work
- * to an existing HydraulicHoseRepair.accdb, without touching data. Every
- * statement is run independently and "already exists" errors are swallowed, so
- * it is safe to run repeatedly — the server also calls {@link ensureSchema} on
- * boot so operators do not have to remember to run it by hand.
+ * This file is the pre-ERP schema: every table and column the system had before
+ * the ERP conversion began. It stays idempotent and is safe to run repeatedly.
  *
- * Run standalone:  node migrate.js   (or: npm run migrate)
+ * Schema changes from the ERP work onwards do NOT belong here — they are
+ * numbered migrations in `migrations/NNNN-name.js`, applied once and recorded,
+ * so a live database can be brought forward one reversible step at a time. See
+ * lib/migrations.js.
+ *
+ *   node migrate.js             bring the database fully up to date
+ *   node migrate.js --dry-run   report what would run, change nothing
  */
 
-const ADODB = require('node-adodb');
+const connection = require('./db');
 const { RATECARD_SEED } = require('./lib/ratecardSeed');
+const { lineSnapshot } = require('./services/priceAnalysis');
+const { applyPending } = require('./lib/migrations');
 
-// Each entry is one DDL statement plus a human label for logging.
-const COLUMN_UPGRADES = [
-    ['Inventory.Price', 'ALTER TABLE Inventory ADD COLUMN Price DOUBLE'],
-    ['Inventory.Cost', 'ALTER TABLE Inventory ADD COLUMN Cost DOUBLE'],
-    ['Inventory.MarketMid', 'ALTER TABLE Inventory ADD COLUMN MarketMid DOUBLE'],
-    ['RateCard.Category', 'ALTER TABLE RateCard ADD COLUMN Category VARCHAR(20)'],
-    ['RateCard.OutsideLow', 'ALTER TABLE RateCard ADD COLUMN OutsideLow CURRENCY'],
-    ['RateCard.OutsideMid', 'ALTER TABLE RateCard ADD COLUMN OutsideMid CURRENCY'],
-    ['RateCard.OutsideHigh', 'ALTER TABLE RateCard ADD COLUMN OutsideHigh CURRENCY'],
-    ['Invoices.Discount', 'ALTER TABLE Invoices ADD COLUMN Discount CURRENCY'],
-    ['Invoices.RoundOff', 'ALTER TABLE Invoices ADD COLUMN RoundOff CURRENCY'],
-    ['Invoices.AmountPaid', 'ALTER TABLE Invoices ADD COLUMN AmountPaid CURRENCY'],
-    ['Invoices.PaymentStatus', 'ALTER TABLE Invoices ADD COLUMN PaymentStatus VARCHAR(20)'],
-    ['Invoices.CancelledAt', 'ALTER TABLE Invoices ADD COLUMN CancelledAt DATETIME'],
-    ['Invoices.CancelReason', 'ALTER TABLE Invoices ADD COLUMN CancelReason MEMO'],
+const TABLES = {
+  Inventory: `CREATE TABLE IF NOT EXISTS Inventory (
+    InventoryID INTEGER PRIMARY KEY, UniqueID TEXT, ProductName TEXT, SpecificationCode TEXT,
+    Size TEXT, Description TEXT, Length REAL, Qty REAL, Unit TEXT, CreatedAt TEXT, UpdatedAt TEXT,
+    Price REAL, Cost REAL, MarketMid REAL, MarketLow REAL,
+    SupplierID INTEGER, LastPurchasePrice REAL, LastPurchaseDate TEXT, ReorderLevel REAL)`,
+  Invoices: `CREATE TABLE IF NOT EXISTS Invoices (
+    InvoiceID INTEGER PRIMARY KEY, InvoiceNo TEXT, InvoiceDate TEXT, PONo TEXT, PODate TEXT, DeliveryDate TEXT,
+    BilledToName TEXT, BilledToAddress TEXT, DeliveredToName TEXT, DeliveredToAddress TEXT,
+    SubTotal REAL, SSCLRate REAL, SSCLAmount REAL, VATRate REAL, VATAmount REAL, GrandTotal REAL,
+    Status TEXT, CreatedAt TEXT, FinalizedAt TEXT, Discount REAL, RoundOff REAL, AmountPaid REAL,
+    PaymentStatus TEXT, CancelledAt TEXT, CancelReason TEXT)`,
+  InvoiceItems: `CREATE TABLE IF NOT EXISTS InvoiceItems (
+    InvoiceItemID INTEGER PRIMARY KEY, InvoiceID INTEGER, InventoryID INTEGER, ItemDescription TEXT,
+    Unit TEXT, Length REAL, Qty REAL, Rate REAL, Amount REAL,
+    UnitCostAtBilling REAL, OurBillRate REAL, MarketBillRate REAL,
+    ProfitAmount REAL, MarginPercent REAL, MarketGap REAL, PriceFlag TEXT)`,
+  StockMovements: `CREATE TABLE IF NOT EXISTS StockMovements (
+    MovementID INTEGER PRIMARY KEY, InventoryID INTEGER, InvoiceID INTEGER, MovementType TEXT,
+    QtyChange REAL, PreviousQty REAL, NewQty REAL, MovementDate TEXT, Notes TEXT)`,
+  Payments: `CREATE TABLE IF NOT EXISTS Payments (
+    PaymentID INTEGER PRIMARY KEY, InvoiceID INTEGER, Amount REAL, PaymentDate TEXT, Method TEXT, Notes TEXT, CreatedAt TEXT)`,
+  Users: `CREATE TABLE IF NOT EXISTS Users (
+    UserID INTEGER PRIMARY KEY, Username TEXT UNIQUE, PasswordHash TEXT, Role TEXT, CreatedAt TEXT, UpdatedAt TEXT)`,
+  RateCard: `CREATE TABLE IF NOT EXISTS RateCard (
+    RateID INTEGER PRIMARY KEY, Spec TEXT, SizeCode TEXT, SizeInch REAL, Label TEXT, Unit TEXT,
+    OurCost REAL, OurPrice REAL, OutsidePrice REAL, UpdatedAt TEXT, Category TEXT,
+    OutsideLow REAL, OutsideMid REAL, OutsideHigh REAL)`,
+  Workers: `CREATE TABLE IF NOT EXISTS Workers (
+    WorkerID INTEGER PRIMARY KEY, Name TEXT, Role TEXT, Active INTEGER, CreatedAt TEXT)`,
+  LabourPayments: `CREATE TABLE IF NOT EXISTS LabourPayments (
+    LabourPaymentID INTEGER PRIMARY KEY, WorkerID INTEGER, Amount REAL, PayPeriod TEXT, PaymentDate TEXT, Method TEXT, Notes TEXT, CreatedAt TEXT)`,
+  Expenses: `CREATE TABLE IF NOT EXISTS Expenses (
+    ExpenseID INTEGER PRIMARY KEY, Category TEXT, Amount REAL, ExpenseDate TEXT, Method TEXT, Notes TEXT, CreatedAt TEXT)`,
+  Suppliers: `CREATE TABLE IF NOT EXISTS Suppliers (
+    SupplierID INTEGER PRIMARY KEY, Name TEXT, ContactPerson TEXT, Phone TEXT, Email TEXT, Address TEXT,
+    Notes TEXT, Active INTEGER, CreatedAt TEXT, UpdatedAt TEXT)`,
+  Purchases: `CREATE TABLE IF NOT EXISTS Purchases (
+    PurchaseID INTEGER PRIMARY KEY, InventoryID INTEGER, SupplierID INTEGER, Qty REAL, UnitPrice REAL,
+    PurchaseDate TEXT, Notes TEXT, CreatedAt TEXT)`,
+};
+
+// Columns that may be absent on a database created by an earlier build — added
+// if missing so schema evolution stays automatic.
+const COLUMN_ENSURES = {
+  Inventory: {
+    // MarketMid = outside RETAIL price (what a competing shop bills the customer).
+    // MarketLow = outside TRADE price (what the same part costs to buy locally).
+    // The Job Profit Analysis compares our cost against MarketLow and our price
+    // against MarketMid; see lib/finance.js jobProfitAnalysis.
+    Price: 'REAL', Cost: 'REAL', MarketMid: 'REAL', MarketLow: 'REAL',
+    // Supplier link + last-purchase tracking (cost accuracy) + per-item reorder threshold.
+    SupplierID: 'INTEGER', LastPurchasePrice: 'REAL', LastPurchaseDate: 'TEXT', ReorderLevel: 'REAL',
+  },
+  Invoices: { Discount: 'REAL', RoundOff: 'REAL', AmountPaid: 'REAL', PaymentStatus: 'TEXT', CancelledAt: 'TEXT', CancelReason: 'TEXT',
+    // Whether this job's technical/crimping (labour) charge has been paid out to the worker.
+    TechChargePaid: 'INTEGER' },
+  RateCard: { Category: 'TEXT', OutsideLow: 'REAL', OutsideMid: 'REAL', OutsideHigh: 'REAL' },
+  Users: { Role: 'TEXT' },
+  // Cost-vs-bill-vs-market snapshot captured per line at billing time.
+  // SuggestedBillRate = the 70%-of-market-mid (floored at cost) figure the system
+  // suggested; PricingSource = where cost/market came from (unit-prices/hose-cost-market/
+  // crimping-charges/inventory/manual).
+  InvoiceItems: {
+    UnitCostAtBilling: 'REAL', OurBillRate: 'REAL', MarketBillRate: 'REAL',
+    SuggestedBillRate: 'REAL', PricingSource: 'TEXT',
+    // Which pricing rule set the default bill: marketMinus20 / costFloor / ferruleFloor / manual.
+    PricingRuleApplied: 'TEXT',
+    ProfitAmount: 'REAL', MarginPercent: 'REAL', MarketGap: 'REAL', PriceFlag: 'TEXT',
+  },
+};
+
+const INDEXES = [
+  // Unique invoice number makes a duplicate fail loudly at insert time.
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_Invoices_InvoiceNo ON Invoices(InvoiceNo)',
+  'CREATE INDEX IF NOT EXISTS idx_inv_status ON Invoices(Status)',
+  'CREATE INDEX IF NOT EXISTS idx_inv_finalizedat ON Invoices(FinalizedAt)',
+  'CREATE INDEX IF NOT EXISTS idx_inv_date ON Invoices(InvoiceDate)',
+  'CREATE INDEX IF NOT EXISTS idx_ii_invoice ON InvoiceItems(InvoiceID)',
+  'CREATE INDEX IF NOT EXISTS idx_ii_inventory ON InvoiceItems(InventoryID)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_inventory ON StockMovements(InventoryID)',
+  'CREATE INDEX IF NOT EXISTS idx_pay_invoice ON Payments(InvoiceID)',
+  'CREATE INDEX IF NOT EXISTS idx_inv_supplier ON Inventory(SupplierID)',
+  'CREATE INDEX IF NOT EXISTS idx_pur_inventory ON Purchases(InventoryID)',
+  'CREATE INDEX IF NOT EXISTS idx_pur_supplier ON Purchases(SupplierID)',
 ];
 
-const TABLE_UPGRADES = [
-    ['Payments', `CREATE TABLE Payments (
-        [PaymentID] AUTOINCREMENT PRIMARY KEY,
-        [InvoiceID] INT,
-        [Amount] CURRENCY,
-        [PaymentDate] DATETIME,
-        [Method] VARCHAR(50),
-        [Notes] MEMO,
-        [CreatedAt] DATETIME
-    )`],
-    ['Users', `CREATE TABLE Users (
-        [UserID] AUTOINCREMENT PRIMARY KEY,
-        [Username] VARCHAR(100) UNIQUE NOT NULL,
-        [PasswordHash] VARCHAR(255) NOT NULL,
-        [Role] VARCHAR(50),
-        [CreatedAt] DATETIME,
-        [UpdatedAt] DATETIME
-    )`],
-    ['RateCard', `CREATE TABLE RateCard (
-        [RateID] AUTOINCREMENT PRIMARY KEY,
-        [Spec] VARCHAR(20),
-        [SizeCode] VARCHAR(20),
-        [SizeInch] DOUBLE,
-        [Label] VARCHAR(100),
-        [Unit] VARCHAR(10),
-        [OurCost] CURRENCY,
-        [OurPrice] CURRENCY,
-        [OutsidePrice] CURRENCY,
-        [UpdatedAt] DATETIME
-    )`],
-    ['Workers', `CREATE TABLE Workers (
-        [WorkerID] AUTOINCREMENT PRIMARY KEY,
-        [Name] VARCHAR(150) NOT NULL,
-        [Role] VARCHAR(100),
-        [Active] INTEGER,
-        [CreatedAt] DATETIME
-    )`],
-    ['LabourPayments', `CREATE TABLE LabourPayments (
-        [LabourPaymentID] AUTOINCREMENT PRIMARY KEY,
-        [WorkerID] INT,
-        [Amount] CURRENCY,
-        [PayPeriod] VARCHAR(7),
-        [PaymentDate] DATETIME,
-        [Method] VARCHAR(50),
-        [Notes] MEMO,
-        [CreatedAt] DATETIME
-    )`],
-    ['Expenses', `CREATE TABLE Expenses (
-        [ExpenseID] AUTOINCREMENT PRIMARY KEY,
-        [Category] VARCHAR(50),
-        [Amount] CURRENCY,
-        [ExpenseDate] DATETIME,
-        [Method] VARCHAR(50),
-        [Notes] MEMO,
-        [CreatedAt] DATETIME
-    )`],
-];
+/**
+ * Apply the schema against the (better-sqlite3) connection from lib/db.js.
+ * @param {{_db: import('better-sqlite3').Database}} conn
+ * @returns {Promise<{applied:string[], skipped:string[], failed:Array<{name:string,error:string}>}>}
+ */
+async function ensureSchema(conn) {
+  const applied = [];
+  const skipped = [];
+  const failed = [];
+  const db = conn._db;
 
-// Indexes to ensure. A UNIQUE index on InvoiceNo makes a duplicate number fail
-// loudly at insert time instead of silently attaching items to another invoice.
-// (Fresh DBs from create_db.ps1 already declare InvoiceNo UNIQUE; this backfills
-// older databases. It is skipped harmlessly if the index exists or if legacy
-// duplicate data is present.)
-const INDEX_UPGRADES = [
-    ['Invoices.InvoiceNo (unique)', 'CREATE UNIQUE INDEX idx_Invoices_InvoiceNo ON Invoices (InvoiceNo)'],
-];
+  for (const [name, ddl] of Object.entries(TABLES)) {
+    try { db.exec(ddl); applied.push(name); } catch (e) { failed.push({ name, error: e.message }); }
+  }
 
-// True when the driver error means "this column/table already exists".
-function isAlreadyExists(message) {
-    const m = String(message || '').toLowerCase();
-    return (
-        m.includes('already exists') ||
-        m.includes('already has') ||
-        m.includes('duplicate') ||
-        // Access reports a re-added column as a general field-already-in-use error.
-        m.includes('field') && m.includes('already')
-    );
+  for (const [table, cols] of Object.entries(COLUMN_ENSURES)) {
+    let existing;
+    try { existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name)); }
+    catch (_) { existing = new Set(); }
+    for (const [col, type] of Object.entries(cols)) {
+      if (existing.has(col)) { skipped.push(`${table}.${col}`); continue; }
+      try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); applied.push(`${table}.${col}`); }
+      catch (e) { failed.push({ name: `${table}.${col}`, error: e.message }); }
+    }
+  }
+
+  for (const ddl of INDEXES) { try { db.exec(ddl); } catch (_) { /* legacy dup data */ } }
+
+  const backfills = [
+    'UPDATE Invoices SET AmountPaid = 0 WHERE AmountPaid IS NULL',
+    'UPDATE Invoices SET Discount = 0 WHERE Discount IS NULL',
+    'UPDATE Invoices SET RoundOff = 0 WHERE RoundOff IS NULL',
+    'UPDATE Inventory SET Cost = 0 WHERE Cost IS NULL',
+    'UPDATE Inventory SET MarketMid = 0 WHERE MarketMid IS NULL',
+    'UPDATE Inventory SET MarketLow = 0 WHERE MarketLow IS NULL',
+    // Default reorder threshold matches the old hard-coded low-stock rule (Qty <= 5).
+    'UPDATE Inventory SET ReorderLevel = 5 WHERE ReorderLevel IS NULL',
+    // Any pre-roles user rows are administrators (there was only ever one admin).
+    "UPDATE Users SET Role = 'admin' WHERE Role IS NULL OR Role = ''",
+    'UPDATE Invoices SET TechChargePaid = 0 WHERE TechChargePaid IS NULL',
+  ];
+  for (const s of backfills) { try { db.exec(s); } catch (_) {} }
+
+  // Seed the Rate Card when empty, or when it only holds legacy rows (no Category).
+  try {
+    const cnt = db.prepare('SELECT COUNT(*) AS c FROM RateCard').get().c;
+    let doSeed = cnt === 0;
+    if (!doSeed) {
+      const cat = db.prepare('SELECT COUNT(*) AS c FROM RateCard WHERE Category IS NOT NULL').get().c;
+      if (cat === 0) { db.exec('DELETE FROM RateCard'); doSeed = true; }
+    }
+    if (doSeed) {
+      const ins = db.prepare(
+        `INSERT INTO RateCard (Category, Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsideLow, OutsideMid, OutsideHigh, OutsidePrice, UpdatedAt)
+         VALUES (@category, @spec, @sizeCode, @sizeInch, @label, @unit, @ourCost, @ourPrice, @outsideLow, @outsideMid, @outsideHigh, @outsideMid, datetime('now','localtime'))`
+      );
+      const seed = db.transaction((rows) => { for (const r of rows) ins.run(r); });
+      seed(RATECARD_SEED);
+      applied.push(`RateCard seed (${RATECARD_SEED.length} rows)`);
+    }
+  } catch (e) { failed.push({ name: 'RateCard seed', error: e.message }); }
+
+  // Backfill the bill-comparison snapshot for lines written before it existed.
+  // Best effort: no historical prices are kept, so the item's CURRENT cost/market
+  // is used. New invoices snapshot the real values at billing time.
+  try {
+    // Backfill any line missing EITHER the original snapshot OR the newer
+    // suggested-bill / pricing-source columns.
+    const legacy = db.prepare(`
+      SELECT ii.InvoiceItemID, ii.Qty, ii.Rate, ii.UnitCostAtBilling, ii.MarketBillRate, ii.PricingSource,
+             inv.Cost, inv.MarketMid, inv.SpecificationCode
+      FROM InvoiceItems ii LEFT JOIN Inventory inv ON ii.InventoryID = inv.InventoryID
+      WHERE ii.UnitCostAtBilling IS NULL OR ii.SuggestedBillRate IS NULL OR ii.PricingRuleApplied IS NULL`).all();
+    if (legacy.length) {
+      const { isFerrule } = require('./services/pricingEngine');
+      const upd = db.prepare(`UPDATE InvoiceItems SET
+        UnitCostAtBilling=@unitCost, OurBillRate=@ourRate, MarketBillRate=@market,
+        SuggestedBillRate=@suggested, PricingSource=@source, PricingRuleApplied=@rule,
+        ProfitAmount=@profit, MarginPercent=@margin, MarketGap=@gap, PriceFlag=@flag
+        WHERE InvoiceItemID=@id`);
+      const tx = db.transaction((rowsIn) => {
+        for (const r of rowsIn) {
+          // Prefer the already-snapshotted cost/market when present, else the item's current values.
+          const unitCost = r.UnitCostAtBilling != null ? r.UnitCostAtBilling : r.Cost;
+          const marketRate = r.MarketBillRate != null ? r.MarketBillRate : r.MarketMid;
+          const s = lineSnapshot({ unitCost, ourRate: r.Rate, marketRate, qty: r.Qty, source: r.PricingSource, ferrule: isFerrule(r.SpecificationCode) });
+          upd.run({
+            id: r.InvoiceItemID, unitCost: s.unitCostAtBilling, ourRate: s.ourBillRate, market: s.marketBillRate,
+            suggested: s.suggestedBillRate, source: s.pricingSource, rule: s.pricingRuleApplied,
+            profit: s.profitAmount, margin: s.marginPercent, gap: s.marketGap, flag: s.priceFlag,
+          });
+        }
+      });
+      tx(legacy);
+      applied.push(`bill snapshot backfill (${legacy.length} lines)`);
+    }
+  } catch (e) { failed.push({ name: 'bill snapshot backfill', error: e.message }); }
+
+  return { applied, skipped, failed };
 }
 
 /**
- * Apply all pending upgrades against an open node-adodb connection.
- * @param {{execute: Function}} connection
- * @returns {Promise<{applied:string[], skipped:string[], failed:Array<{name:string,error:string}>}>}
+ * Bring a database fully up to date: the idempotent baseline above, then every
+ * pending numbered migration from `migrations/`.
+ *
+ * @param {{_db: import('better-sqlite3').Database}} conn
+ * @param {object} [opts] forwarded to {@link applyPending} (dryRun, backup, log)
+ * @returns {Promise<{baseline:object, migrations:object}>}
  */
-async function ensureSchema(connection) {
-    const applied = [];
-    const skipped = [];
-    const failed = [];
-
-    for (const [name, ddl] of [...COLUMN_UPGRADES, ...TABLE_UPGRADES]) {
-        try {
-            await connection.execute(ddl);
-            applied.push(name);
-        } catch (err) {
-            if (isAlreadyExists(err.message)) {
-                skipped.push(name);
-            } else {
-                failed.push({ name, error: err.message });
-            }
-        }
-    }
-
-    // Indexes are best-effort: an existing index or legacy duplicate data must
-    // not fail the whole migration.
-    for (const [name, ddl] of INDEX_UPGRADES) {
-        try {
-            await connection.execute(ddl);
-            applied.push(name);
-        } catch (err) {
-            skipped.push(name);
-        }
-    }
-
-    // Backfill sensible defaults so derived reads are stable on old rows.
-    const backfills = [
-        "UPDATE Invoices SET AmountPaid = 0 WHERE AmountPaid IS NULL",
-        "UPDATE Invoices SET Discount = 0 WHERE Discount IS NULL",
-        "UPDATE Invoices SET RoundOff = 0 WHERE RoundOff IS NULL",
-        "UPDATE Inventory SET Cost = 0 WHERE Cost IS NULL",
-        "UPDATE Inventory SET MarketMid = 0 WHERE MarketMid IS NULL",
-    ];
-    for (const stmt of backfills) {
-        try { await connection.execute(stmt); } catch (_) { /* column may still be missing */ }
-    }
-
-    // Seed the Rate Card with the tiered, categorised research data. Seed when
-    // the table is empty, OR when it only holds the old per-foot seed (rows with
-    // no Category) — in which case we replace that placeholder data with the new
-    // tiered values. User-edited tiered rows (which have a Category) are kept.
-    try {
-        const cnt = await connection.query('SELECT COUNT(*) AS c FROM RateCard');
-        let doSeed = !(cnt[0] && cnt[0].c > 0);
-        if (!doSeed) {
-            const cat = await connection.query('SELECT COUNT(*) AS c FROM RateCard WHERE Category IS NOT NULL');
-            if (!(cat[0] && cat[0].c > 0)) {
-                await connection.execute('DELETE FROM RateCard');
-                doSeed = true;
-            }
-        }
-        if (doSeed) {
-            for (const r of RATECARD_SEED) {
-                const label = String(r.label).replace(/'/g, "''");
-                await connection.execute(
-                    `INSERT INTO RateCard (Category, Spec, SizeCode, SizeInch, Label, Unit, OurCost, OurPrice, OutsideLow, OutsideMid, OutsideHigh, OutsidePrice, UpdatedAt)
-                     VALUES ('${r.category}', '${r.spec}', '${r.sizeCode}', ${r.sizeInch}, '${label}', '${r.unit}', ${r.ourCost}, ${r.ourPrice}, ${r.outsideLow}, ${r.outsideMid}, ${r.outsideHigh}, ${r.outsideMid}, Now())`
-                );
-            }
-            applied.push(`RateCard tiered seed (${RATECARD_SEED.length} rows)`);
-        }
-    } catch (_) { /* RateCard table not present (creation failed) -> skip seeding */ }
-
-    return { applied, skipped, failed };
+async function migrateToLatest(conn, opts = {}) {
+  const baseline = await ensureSchema(conn);
+  const migrations = await applyPending(conn._db, opts);
+  return { baseline, migrations };
 }
 
 async function main() {
-    // Pass the x64 flag (second arg = true) to match server.js — otherwise
-    // `npm run migrate` can fail on 64-bit Node while the server works.
-    const connection = ADODB.open(
-        'Provider=Microsoft.ACE.OLEDB.12.0;Data Source=../HydraulicHoseRepair.accdb;Persist Security Info=False;',
-        true
-    );
-    console.log('Running schema upgrade...');
-    const summary = await ensureSchema(connection);
-    if (summary.applied.length) console.log('Applied:', summary.applied.join(', '));
-    if (summary.skipped.length) console.log('Already present:', summary.skipped.join(', '));
-    if (summary.failed.length) {
-        console.error('Failed:');
-        summary.failed.forEach((f) => console.error(`  - ${f.name}: ${f.error}`));
-        process.exitCode = 1;
-    }
-    console.log('Done.');
+  const dryRun = process.argv.includes('--dry-run');
+  console.log(dryRun ? 'Migration status (dry run)...' : 'Running SQLite schema bootstrap...');
+
+  const { baseline, migrations } = await migrateToLatest(connection, { dryRun, log: (m) => console.log(' ', m) });
+
+  if (baseline.applied.length) console.log('Baseline applied:', baseline.applied.join(', '));
+  if (baseline.failed.length) {
+    console.error('Baseline failed:');
+    baseline.failed.forEach((f) => console.error(`  - ${f.name}: ${f.error}`));
+    process.exitCode = 1;
+  }
+  if (migrations.applied.length) console.log('Migrations applied:', migrations.applied.join(', '));
+  else if (!dryRun) console.log('Migrations: nothing pending.');
+  if (migrations.drifted.length) process.exitCode = 1;
+
+  console.log('Done.');
 }
 
-module.exports = { ensureSchema };
+module.exports = { ensureSchema, migrateToLatest };
 
 if (require.main === module) {
-    main().catch((err) => {
-        console.error('Migration error:', err.message);
-        process.exit(1);
-    });
+  main().catch((err) => { console.error('Migration error:', err.message); process.exit(1); });
 }

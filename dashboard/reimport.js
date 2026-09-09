@@ -21,19 +21,12 @@
  *  quantities. It has been replaced by the datasheet-driven master.)
  */
 
-const path = require('path');
-const ADODB = require('node-adodb');
+const connection = require('./db');
 const { q, n } = require('./lib/sql');
 
-const DB = path.join(__dirname, '..', 'HydraulicHoseRepair.accdb');
 const MASTER = require('./data/shipment-HS25E1112W1.json');
 
 async function run() {
-  const connection = ADODB.open(
-    `Provider=Microsoft.ACE.OLEDB.12.0;Data Source=${DB};Persist Security Info=False;`,
-    true
-  );
-
   console.log('Clearing transactional tables and inventory...');
   for (const stmt of [
     'DELETE FROM StockMovements',

@@ -8,3 +8,17 @@ dashboard/node_modules/
 dashboard/.auth-secret
 # Uploaded import files (multer scratch dir)
 dashboard/uploads/
+
+# Daily database backups (generated at runtime; the live DB is the source of truth)
+dashboard/backups/
+backups/
+
+# SQLite transient sidecars (the DB itself, hydraulic.db, IS committed)
+hydraulic.db-wal
+hydraulic.db-shm
+hydraulic.db-journal
+
+# Server stdout, when started detached
+dashboard/server-out.log
+# Ad-hoc database copies taken by hand before a risky change
+hydraulic.db.bak-*

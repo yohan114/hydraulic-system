@@ -6,17 +6,21 @@
   "scripts": {
     "start": "node server.js",
     "migrate": "node migrate.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrate:status": "node migrate.js --dry-run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "better-sqlite3": "^11.8.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "multer": "^2.1.1",
-    "node-adodb": "^5.0.3",
     "xlsx": "^0.18.5"
+  },
+  "optionalDependencies": {
+    "puppeteer": "^24.0.0"
   }
 }

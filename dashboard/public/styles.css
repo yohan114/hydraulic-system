@@ -155,10 +155,25 @@ body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); colo
     border-bottom: 1px solid var(--line);
     background: radial-gradient(circle at 100% 0%, var(--orange-soft) 0%, transparent 40%), var(--paper);
 }
+/* Dark accent strip below the logo (restored from the old bill). */
 .page-header .workshop-tag {
-    margin-top: 6px; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
+    display: inline-block; margin-top: 6px;
+    background: var(--ink); color: #fff;
+    font-family: 'DM Mono', monospace; font-weight: 700;
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    padding: 4px 12px;
 }
-.page-header .workshop-tag::before { content: "▸ "; color: var(--orange); }
+.page-header .workshop-tag::before { content: "· "; color: var(--orange); }
+
+/* Bill-type badge on the printed page (right, under the REF). Prints. */
+.page-header .doc-badge .copy-badge {
+    margin-top: 8px; display: inline-block;
+    font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 3px;
+    background: var(--ink); color: #fff;
+}
+.page-header .doc-badge .copy-badge.outside { background: var(--orange); }
 
 .page-header .doc-badge { text-align: right; }
 .page-header .doc-badge .label { font-family: 'Bricolage Grotesque', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -.5px; line-height: 1; color: var(--ink); text-transform: uppercase; }
@@ -241,6 +256,23 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
 .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin: 28px 0 8px; page-break-inside: avoid; }
 .sig-block { text-align: center; padding-top: 32px; border-top: 1px solid var(--ink); font-family: 'DM Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--ink-soft); }
 
+/* Right-aligned e-signature: image above the dashed line, label below. Prints. */
+.signatures.sig-right { display: flex; justify-content: flex-end; margin: 24px 0 8px; page-break-inside: avoid; }
+.sig-sign { text-align: center; }
+.sig-sign img { max-height: 60px; margin: 0 auto 4px; display: block; }
+.sig-line { border-top: 1px dashed #94a3b8; width: 200px; margin: 0 auto 6px; }
+.sig-label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+
+/* Outside (customer) bill: hide the Unit + Length columns. */
+.items.outside-bill th.col-unit, .items.outside-bill td.col-unit,
+.items.outside-bill th.col-length, .items.outside-bill td.col-length { display: none; }
+
+/* Bill-type toggle in the toolbar (never prints). */
+.billtype-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.billtype-toggle .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.billtype-toggle .seg button { border: none; background: transparent; padding: 6px 14px; cursor: pointer; font-weight: 600; color: var(--muted); }
+.billtype-toggle .seg button.active { background: var(--orange); color: #fff; }
+
 .payment-block { display: grid; grid-template-columns: 1fr; border: 1px solid var(--line); margin-bottom: 14px; background: #fff; page-break-inside: avoid; }
 .payment-block > div { padding: 11px 14px; }
 .payment-block .key { font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 4px; }
@@ -256,12 +288,20 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
 .badge-partial { background: #fef3c7; color: #b45309; }
 .badge-unpaid { background: #fee2e2; color: #b91c1c; }
 .badge-cancelled { background: #e2e8f0; color: #475569; text-decoration: line-through; }
+.badge-revised { background: #ede9fe; color: #6d28d9; text-decoration: line-through; }
 
 /* Margin hint shown under a rate cell while billing */
 .margin-hint { font-size: 10px; margin-top: 2px; font-family: 'DM Mono', monospace; }
 .margin-hint.ok { color: #15803d; }
 .margin-hint.warn { color: #b91c1c; font-weight: 600; }
 .margin-hint.muted { color: #94a3b8; }
+
+/* Three-way pricing comparison badges under an invoice rate cell. */
+.pbadges { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.pbadge { font-size: 9.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; white-space: nowrap; line-height: 1.5; }
+.pbadge-cost { background: rgba(245, 158, 11, .14); color: #b45309; }
+.pbadge-market { background: rgba(37, 99, 235, .12); color: #1d4ed8; }
+.pbadge-suggested { background: rgba(16, 185, 129, .15); color: #047857; }
 
 /* Account controls in the sidebar */
 .sidebar-footer { padding: 14px 16px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
@@ -480,7 +520,62 @@ select.form-control option { color: initial; }
     [contenteditable="true"] { background: none !important; box-shadow: none !important; }
     input.cell, textarea.cell, input.tax-rate, input.disc-input { background: none !important; outline: none !important; border: none !important; resize: none; }
 
-    .page-header, .page-footer, .meta-strip, table.items th, table.totals tr.grand td, .section-num, .page-footer::before, .page-footer .contacts .ic, .page::before {
+    .page-header, .page-footer, .meta-strip, table.items th, table.totals tr.grand td, .section-num, .page-footer::before, .page-footer .contacts .ic, .page::before,
+    .page-header .workshop-tag, .page-header .doc-badge .copy-badge {
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
 }
+
+/* ----------------------------------------------------
+   Role-based visibility (Admin / Cashier / Viewer).
+   A `role-*` class on <html> hides controls the current role may not use.
+   Server-side checks are authoritative; this is only to declutter the UI.
+   ---------------------------------------------------- */
+html:not(.role-admin) .admin-only { display: none !important; }
+html.role-viewer .hide-from-viewer { display: none !important; }
+.account-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #a0aec0;
+  border: 1px solid rgba(160,174,192,0.4);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 6px;
+}
+
+/* Bill Comparison — warning chips */
+.bc-warn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.bc-warn { display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; }
+
+/* Job Profit Analysis — summary footer + nav badge */
+.jp-footer { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 20px; border-top: 2px solid var(--ink); background: var(--bg-color, #f8fafc); }
+.jp-foot-cell { flex: 1; min-width: 130px; display: flex; flex-direction: column; }
+.jp-foot-cell .k { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); }
+.jp-foot-cell .v { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.jp-foot-cell.jp-unpaid { min-width: 220px; }
+.jp-foot-cell.jp-unpaid .k { color: #dc2626; font-weight: 700; }
+.jp-foot-cell.jp-unpaid .v { font-size: 22px; font-weight: 800; color: #dc2626; }
+.nav-badge { background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 7px; margin-left: 6px; }
+
+/* Job Profit Analysis — the three numbered comparisons.
+   (1) our cost vs outside cost, (2) our price vs outside price,
+   (3) our cost vs our price. Each card is headed by a step chip. */
+.analysis-step { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); }
+.analysis-step .step-no { flex-shrink: 0; width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--primary), #4f46e5); align-self: center; }
+.analysis-step .step-title { font-size: 15px; font-weight: 600; color: var(--text-main); }
+.analysis-step .step-hint { font-size: 12.5px; font-weight: 400; color: var(--text-muted); }
+.analysis-sub { font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-muted); margin: 20px 0 8px; }
+.analysis-note { font-size: 12px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
+/* The bottom line of each comparison. */
+.table tr.analysis-total td { font-weight: 700; background: var(--secondary); border-top: 2px solid var(--border-color); }
+/* Signed money: green when it went our way, red when it did not. The KPI
+   selectors are listed explicitly because `.stat-details p` sets a colour and
+   would otherwise out-specify a bare `.pos` / `.neg`. */
+.pos, .stat-details p.pos { color: var(--success); }
+.neg, .stat-details p.neg { color: var(--danger); }
+.flat, .stat-details p.flat { color: var(--text-muted); }
+:root[data-theme="dark"] .pos, :root[data-theme="dark"] .stat-details p.pos { color: #34d399; }
+:root[data-theme="dark"] .neg, :root[data-theme="dark"] .stat-details p.neg { color: #f87171; }
+/* "est" provenance tag on an outside cost derived from market retail. */
+.basis-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; background: var(--secondary); color: var(--text-muted); border: 1px solid var(--border-color); }

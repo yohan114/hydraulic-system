@@ -15,6 +15,15 @@
  *    invoice, using Inventory.Cost.
  *  - Gross profit = revenue − COGS. Net profit additionally subtracts labour
  *    and other expenses (at the monthly level, or a per-job labour figure).
+ *
+ * The four money columns a job is analysed against:
+ *   OUR COST      what we actually paid to have the part on the shelf (landed).
+ *   OUTSIDE COST  what the same part would have cost us to buy from a local
+ *                 outside supplier instead — the market TRADE/wholesale band.
+ *   OUR PRICE     what we billed the customer.
+ *   OUTSIDE PRICE what a competing shop would have billed the customer — the
+ *                 market RETAIL band (Mid).
+ * See {@link jobProfitAnalysis} for the three comparisons built on them.
  */
 
 const { num, round2, sumMoney } = require('./money');
@@ -42,49 +51,153 @@ function jobProfit(p) {
 }
 
 /**
- * Monthly Profit & Loss.
- * @param {object} p
- * @param {number} p.revenue net-of-tax revenue for the period
- * @param {number} p.cogs cost of goods sold
- * @param {number} p.labour wages paid in the period
- * @param {number} p.expenses other expenses in the period
- * @returns {{revenue:number, cogs:number, grossProfit:number, labour:number,
- *   expenses:number, totalCosts:number, netProfit:number,
- *   grossMarginPct:(number|null), netMarginPct:(number|null)}}
+ * Percentage of `part` against `whole`, or null when there is no base to
+ * divide by (so the UI can print "—" rather than a misleading 0%).
+ * @param {number} part
+ * @param {number} whole
+ * @returns {number|null}
  */
-function monthlyPL(p) {
-  const revenue = round2(p && p.revenue);
-  const cogs = round2(p && p.cogs);
-  const labour = round2(p && p.labour);
-  const expenses = round2(p && p.expenses);
-  const grossProfit = round2(revenue - cogs);
-  const totalCosts = round2(cogs + labour + expenses);
-  const netProfit = round2(revenue - totalCosts);
-  return {
-    revenue,
-    cogs,
-    grossProfit,
-    labour,
-    expenses,
-    totalCosts,
-    netProfit,
-    grossMarginPct: revenue > 0 ? round2((grossProfit / revenue) * 100) : null,
-    netMarginPct: revenue > 0 ? round2((netProfit / revenue) * 100) : null,
-  };
+function pctOf(part, whole) {
+  return whole > 0 ? round2((part / whole) * 100) : null;
 }
 
 /**
- * Cash flow: money in (customer payments) vs out (labour + expenses).
- * @param {object} p
- * @param {number} p.paymentsIn
- * @param {number} p.labourOut
- * @param {number} p.expensesOut
- * @returns {{inflow:number, outflow:number, net:number}}
+ * Fallback ratio of the outside TRADE (buying) price to the outside RETAIL
+ * (Mid) price, used only when neither the item nor the Rate Card carries a
+ * real trade figure. 0.55 is the midpoint of the seeded Low/Mid bands.
+ * @type {number}
  */
-function cashFlow(p) {
-  const inflow = round2(p && p.paymentsIn);
-  const outflow = round2(num(p && p.labourOut) + num(p && p.expensesOut));
-  return { inflow, outflow, net: round2(inflow - outflow) };
+const DEFAULT_OUTSIDE_COST_RATIO = 0.55;
+
+/**
+ * The Low ÷ Mid ratio the shop's own Rate Card implies, as the median across
+ * every priced row. Using the operator's edited card (rather than a constant)
+ * means the derived outside cost tracks their real market view; the constant is
+ * only a last resort when the card is empty or unpriced.
+ * @param {Array<object>} rates
+ * @returns {number} ratio in (0, 1]
+ */
+function outsideCostRatio(rates) {
+  const ratios = (rates || [])
+    .map((r) => (num(r && r.outsideMid) > 0 ? num(r.outsideLow) / num(r.outsideMid) : 0))
+    .filter((x) => x > 0 && x <= 1)
+    .sort((a, b) => a - b);
+  if (!ratios.length) return DEFAULT_OUTSIDE_COST_RATIO;
+  const mid = Math.floor(ratios.length / 2);
+  return ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
+}
+
+/**
+ * Per-unit OUTSIDE COST for one invoice line, with the basis it came from so
+ * the UI can be honest about how firm the number is.
+ *
+ * Preference order: the item's own recorded trade price → the matched Rate Card
+ * Low band → the item's retail benchmark scaled by {@link outsideCostRatio}
+ * (flagged as `derived`) → nothing at all.
+ *
+ * @param {object} p
+ * @param {number} [p.marketLow] Inventory.MarketLow — outside trade price per unit
+ * @param {object|null} [p.rate] matched Rate Card row
+ * @param {number} [p.marketMid] outside retail price per unit for this line
+ * @param {number} [p.ratio] ratio from {@link outsideCostRatio}
+ * @returns {{unit:number, basis:('item'|'ratecard'|'derived'|'none')}}
+ */
+function outsideCostUnit(p) {
+  const marketLow = num(p && p.marketLow);
+  if (marketLow > 0) return { unit: round2(marketLow), basis: 'item' };
+
+  const rateLow = num(p && p.rate && p.rate.outsideLow);
+  if (rateLow > 0) return { unit: round2(rateLow), basis: 'ratecard' };
+
+  const marketMid = num(p && p.marketMid);
+  if (marketMid > 0) {
+    const ratio = num(p && p.ratio, DEFAULT_OUTSIDE_COST_RATIO) || DEFAULT_OUTSIDE_COST_RATIO;
+    return { unit: round2(marketMid * ratio), basis: 'derived' };
+  }
+  return { unit: 0, basis: 'none' };
+}
+
+/**
+ * Three-stage profit analysis for one job, in the order the shop reasons about
+ * it — buy, then sell, then bank the difference:
+ *
+ *   ① SOURCING  our cost vs outside cost — did importing beat buying locally?
+ *               Carries a side-by-side P&L (same billed revenue, only the cost
+ *               of the parts changes) so the gain shows up as profit, not just
+ *               as a cheaper purchase order.
+ *   ② PRICING   our price vs outside price — how far under the market we billed,
+ *               i.e. what the customer saved by coming to us.
+ *   ③ MARGIN    our cost vs our price — the profit actually earned on the job.
+ *
+ * They reconcile: advantage over a competing shop
+ *   = our profit − outside profit = sourcing gain − customer saving.
+ *
+ * @param {object} p
+ * @param {number} p.ourCost       Σ qty × our landed unit cost
+ * @param {number} p.ourPrice      Σ line amounts billed (net of tax)
+ * @param {number} p.outsideCost   Σ qty × outside trade unit price
+ * @param {number} p.outsidePrice  Σ qty × outside retail unit price
+ * @returns {{sourcing:object, pricing:object, margin:object, bridge:object}}
+ */
+function jobProfitAnalysis(p) {
+  const ourCost = round2(p && p.ourCost);
+  const ourPrice = round2(p && p.ourPrice);
+  const outsideCost = round2(p && p.outsideCost);
+  const outsidePrice = round2(p && p.outsidePrice);
+
+  // ① Buying: positive = we sourced cheaper than the outside market.
+  const sourcingGain = round2(outsideCost - ourCost);
+  // ② Selling: positive = we billed under the market, so the customer saved.
+  const customerSaving = round2(outsidePrice - ourPrice);
+  // ③ Earning: what is left on the job.
+  const grossProfit = round2(ourPrice - ourCost);
+  // What a competing shop would have earned on the same job.
+  const outsideProfit = round2(outsidePrice - outsideCost);
+  // The same job, our price, but with the parts bought outside.
+  const outsideSourcedProfit = round2(ourPrice - outsideCost);
+
+  return {
+    sourcing: {
+      ourCost,
+      outsideCost,
+      gain: sourcingGain,
+      gainPct: pctOf(sourcingGain, outsideCost),
+      verdict: sourcingGain > 0 ? 'gain' : sourcingGain < 0 ? 'loss' : 'even',
+      // Profit & loss compare: identical revenue, only the sourcing differs.
+      pl: {
+        revenue: ourPrice,
+        ourCost,
+        ourProfit: grossProfit,
+        ourMarginPct: pctOf(grossProfit, ourPrice),
+        outsideCost,
+        outsideProfit: outsideSourcedProfit,
+        outsideMarginPct: pctOf(outsideSourcedProfit, ourPrice),
+        profitDelta: sourcingGain,
+      },
+    },
+    pricing: {
+      ourPrice,
+      outsidePrice,
+      customerSaving,
+      customerSavingPct: pctOf(customerSaving, outsidePrice),
+      verdict: customerSaving > 0 ? 'below' : customerSaving < 0 ? 'above' : 'level',
+    },
+    margin: {
+      ourCost,
+      ourPrice,
+      grossProfit,
+      grossMarginPct: pctOf(grossProfit, ourPrice),
+      markupPct: ourCost > 0 ? round2((grossProfit / ourCost) * 100) : null,
+      verdict: grossProfit > 0 ? 'profit' : grossProfit < 0 ? 'loss' : 'break-even',
+    },
+    bridge: {
+      ourProfit: grossProfit,
+      outsideProfit,
+      advantage: round2(grossProfit - outsideProfit),
+      sourcingGain,
+      customerSaving,
+    },
+  };
 }
 
 /**
@@ -207,9 +320,12 @@ function compareLine(line, rate, tier) {
 
 module.exports = {
   FEET_PER_METRE,
+  DEFAULT_OUTSIDE_COST_RATIO,
   jobProfit,
-  monthlyPL,
-  cashFlow,
+  pctOf,
+  outsideCostRatio,
+  outsideCostUnit,
+  jobProfitAnalysis,
   materialCostOf,
   normaliseSpec,
   sizeInchFromCode,

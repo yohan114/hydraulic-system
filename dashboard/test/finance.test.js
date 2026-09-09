@@ -3,9 +3,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  DEFAULT_OUTSIDE_COST_RATIO,
   jobProfit,
-  monthlyPL,
-  cashFlow,
+  pctOf,
+  outsideCostRatio,
+  outsideCostUnit,
+  jobProfitAnalysis,
   materialCostOf,
   normaliseSpec,
   sizeInchFromCode,
@@ -15,6 +18,7 @@ const {
   compareLine,
 } = require('../lib/finance');
 const { RATECARD_SEED } = require('../lib/ratecardSeed');
+const { round2 } = require('../lib/money');
 
 test('jobProfit: gross and net with margins', () => {
   const r = jobProfit({ revenueExTax: 10000, materialCost: 6000, labourCost: 1500 });
@@ -32,19 +36,98 @@ test('jobProfit: zero revenue -> null margins, negatives allowed', () => {
   assert.equal(loss.grossMarginPct, -40);
 });
 
-test('monthlyPL: revenue - cogs - labour - expenses', () => {
-  const r = monthlyPL({ revenue: 500000, cogs: 300000, labour: 90000, expenses: 40000 });
-  assert.equal(r.grossProfit, 200000);
-  assert.equal(r.totalCosts, 430000);
-  assert.equal(r.netProfit, 70000);
-  assert.equal(r.grossMarginPct, 40);
-  assert.equal(r.netMarginPct, 14);
+test('pctOf: null when there is no base', () => {
+  assert.equal(pctOf(25, 200), 12.5);
+  assert.equal(pctOf(25, 0), null);
+  assert.equal(pctOf(-40, 100), -40);
 });
 
-test('cashFlow: in vs out', () => {
-  assert.deepEqual(cashFlow({ paymentsIn: 120000, labourOut: 90000, expensesOut: 15000 }), {
-    inflow: 120000, outflow: 105000, net: 15000,
-  });
+test('outsideCostRatio: median Low/Mid of the card, constant when empty', () => {
+  // Low/Mid of 0.4, 0.5, 0.6 -> median 0.5.
+  const rates = [
+    { outsideLow: 40, outsideMid: 100 },
+    { outsideLow: 50, outsideMid: 100 },
+    { outsideLow: 60, outsideMid: 100 },
+  ];
+  assert.equal(outsideCostRatio(rates), 0.5);
+  // Even count -> mean of the middle pair; unpriced rows are ignored.
+  assert.equal(outsideCostRatio([...rates.slice(0, 2), { outsideLow: 0, outsideMid: 0 }]), 0.45);
+  assert.equal(outsideCostRatio([]), DEFAULT_OUTSIDE_COST_RATIO);
+  assert.equal(outsideCostRatio(null), DEFAULT_OUTSIDE_COST_RATIO);
+  // The seeded card sits in a believable trade band.
+  const seeded = outsideCostRatio(RATECARD_SEED);
+  assert.ok(seeded > 0.3 && seeded < 0.8, `seeded ratio out of band: ${seeded}`);
+});
+
+test('outsideCostUnit: item price beats Rate Card beats a derived estimate', () => {
+  const rate = { outsideLow: 700, outsideMid: 1200 };
+
+  assert.deepEqual(outsideCostUnit({ marketLow: 640, rate, marketMid: 1200, ratio: 0.5 }), { unit: 640, basis: 'item' });
+  assert.deepEqual(outsideCostUnit({ rate, marketMid: 1200, ratio: 0.5 }), { unit: 700, basis: 'ratecard' });
+  assert.deepEqual(outsideCostUnit({ marketMid: 1200, ratio: 0.5 }), { unit: 600, basis: 'derived' });
+  // No ratio supplied -> the documented constant, still flagged as derived.
+  assert.deepEqual(outsideCostUnit({ marketMid: 1000 }), { unit: round2(1000 * DEFAULT_OUTSIDE_COST_RATIO), basis: 'derived' });
+  // Nothing to go on at all.
+  assert.deepEqual(outsideCostUnit({}), { unit: 0, basis: 'none' });
+  // A zero/blank Rate Card Low must not be mistaken for a real trade price.
+  assert.equal(outsideCostUnit({ rate: { outsideLow: 0 }, marketMid: 1000, ratio: 0.5 }).basis, 'derived');
+});
+
+test('jobProfitAnalysis: the three comparisons of a healthy job', () => {
+  // Bought at 4,000 what would have cost 6,000 locally; billed 9,000 where the
+  // market would have billed 12,000.
+  const a = jobProfitAnalysis({ ourCost: 4000, ourPrice: 9000, outsideCost: 6000, outsidePrice: 12000 });
+
+  // (1) buying
+  assert.equal(a.sourcing.gain, 2000);
+  assert.equal(a.sourcing.gainPct, 33.33);
+  assert.equal(a.sourcing.verdict, 'gain');
+  // (1) P&L compare — same revenue, only the sourcing changes.
+  assert.equal(a.sourcing.pl.revenue, 9000);
+  assert.equal(a.sourcing.pl.ourProfit, 5000);
+  assert.equal(a.sourcing.pl.outsideProfit, 3000);
+  assert.equal(a.sourcing.pl.profitDelta, 2000);
+  assert.equal(a.sourcing.pl.ourMarginPct, 55.56);
+  assert.equal(a.sourcing.pl.outsideMarginPct, 33.33);
+
+  // (2) selling
+  assert.equal(a.pricing.customerSaving, 3000);
+  assert.equal(a.pricing.customerSavingPct, 25);
+  assert.equal(a.pricing.verdict, 'below');
+
+  // (3) earning
+  assert.equal(a.margin.grossProfit, 5000);
+  assert.equal(a.margin.grossMarginPct, 55.56);
+  assert.equal(a.margin.markupPct, 125);
+  assert.equal(a.margin.verdict, 'profit');
+
+  // The three reconcile: advantage = sourcing gain − customer saving.
+  assert.equal(a.bridge.outsideProfit, 6000);
+  assert.equal(a.bridge.advantage, -1000);
+  assert.equal(a.bridge.advantage, round2(a.bridge.sourcingGain - a.bridge.customerSaving));
+});
+
+test('jobProfitAnalysis: losses and over-market pricing are named, not hidden', () => {
+  // Paid more than the local market, and billed above it too.
+  const a = jobProfitAnalysis({ ourCost: 7000, ourPrice: 6500, outsideCost: 5000, outsidePrice: 6000 });
+  assert.equal(a.sourcing.gain, -2000);
+  assert.equal(a.sourcing.verdict, 'loss');
+  assert.equal(a.pricing.customerSaving, -500);
+  assert.equal(a.pricing.verdict, 'above');
+  assert.equal(a.margin.grossProfit, -500);
+  assert.equal(a.margin.verdict, 'loss');
+  assert.equal(a.bridge.advantage, round2(a.bridge.sourcingGain - a.bridge.customerSaving));
+});
+
+test('jobProfitAnalysis: no benchmarks -> null percentages, never a fake 0%', () => {
+  const a = jobProfitAnalysis({ ourCost: 0, ourPrice: 0, outsideCost: 0, outsidePrice: 0 });
+  assert.equal(a.sourcing.gainPct, null);
+  assert.equal(a.pricing.customerSavingPct, null);
+  assert.equal(a.margin.grossMarginPct, null);
+  assert.equal(a.margin.markupPct, null);
+  assert.equal(a.margin.verdict, 'break-even');
+  assert.equal(a.sourcing.verdict, 'even');
+  assert.equal(a.pricing.verdict, 'level');
 });
 
 test('materialCostOf sums qty*cost accurately', () => {

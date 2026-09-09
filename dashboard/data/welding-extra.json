@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "source": "Outside-company shop price sheet — WELDING-EXTRA column (workshop photos / EC_Shipment_HS25E1112W1_Datasheet-3.xlsx)",
+    "note": "The sheet's WELDING-EXTRA column reads 'assembly-extra' (e.g. 1200-600): the first number is the full hose assembly charge, the second is the welding-extra charge. Welding Extra is an OPTIONAL additional labour charge for hose jobs that need welding work — billed as its own line, never merged into technical or crimping charges. LKR.",
+    "mode": "flat-per-job",
+    "capturedAt": "2026-07-13"
+  },
+  "sizes2Wire": ["1/4", "5/16", "3/8", "1/2", "5/8", "3/4", "1", "1-1/4"],
+  "sizes4Wire": ["1/2", "5/8", "3/4", "1", "1-1/4"],
+  "twoWire": {
+    "1/4":   { "assembly": 1200, "weldingExtra": 600 },
+    "5/16":  { "assembly": 1200, "weldingExtra": 600 },
+    "3/8":   { "assembly": 1200, "weldingExtra": 600 },
+    "1/2":   { "assembly": 1200, "weldingExtra": 600 },
+    "5/8":   { "assembly": 1400, "weldingExtra": 700 },
+    "3/4":   { "assembly": 1600, "weldingExtra": 800 },
+    "1":     { "assembly": 2400, "weldingExtra": 1200 },
+    "1-1/4": { "assembly": 2800, "weldingExtra": 1400 }
+  },
+  "fourWire": {
+    "1/2":   { "assembly": 1600, "weldingExtra": 800 },
+    "5/8":   { "assembly": 1800, "weldingExtra": 900 },
+    "3/4":   { "assembly": 2000, "weldingExtra": 1000 },
+    "1":     { "assembly": 2800, "weldingExtra": 1400 },
+    "1-1/4": { "assembly": 4000, "weldingExtra": 2000 }
+  }
+}
