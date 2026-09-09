@@ -31,9 +31,25 @@ async function fetchNextInvoiceNo() {
     }
 }
 
+/**
+ * The invoice being revised, or null in every other mode.
+ *
+ * Anything that resets the editor MUST clear this, or the next fresh invoice
+ * would silently post as a revision of whatever was last opened.
+ */
+let revising = null;
+
+/** Leave revise mode and put the Finalize button's own label back. */
+function clearRevising() {
+    revising = null;
+    const btn = document.getElementById('btnFinalize');
+    if (btn) btn.innerHTML = '<i class="ri-check-double-line"></i> Finalize Invoice (Deducts Stock)';
+}
+
 async function startNewInvoice() {
     currentInvoiceId = null;
     currentLoadedInvoice = null;
+    clearRevising();
     billType = 'inside'; // every new invoice starts as the full internal copy
     setInvoiceEditable(true);
     document.getElementById('invDate').value = new Date().toISOString().split('T')[0];
@@ -574,6 +590,11 @@ async function saveInvoice(status) {
     if (invoiceItems.length === 0) return toast('Add at least one item', 'error');
     if (savingInvoice) return; // guard against double-click creating duplicates
 
+    // In revise mode the same button issues a revision instead. It cannot reuse
+    // the path below: that sends the ORIGINAL's invoiceId, which /finalize
+    // rejects because the invoice is no longer a draft.
+    if (revising) return openReviseModal();
+
     const totals = calcInvoiceTotals();
     // The server recomputes every amount from these facts — client totals are
     // only a preview and are intentionally not sent as authoritative money.
@@ -657,6 +678,7 @@ function statusBadgeClass(status) {
     if (status === 'Draft') return 'badge-draft';
     if (status === 'Finalized') return 'badge-finalized';
     if (status === 'Cancelled') return 'badge-cancelled';
+    if (status === 'Revised') return 'badge-revised';
     return 'badge-ok';
 }
 
@@ -667,17 +689,27 @@ function renderHistory(data) {
     data.forEach((inv) => {
         const isFinalized = inv.Status === 'Finalized';
         const isCancelled = inv.Status === 'Cancelled';
+        const isRevised = inv.Status === 'Revised';
         const balance = Number(inv.Balance) || 0;
+        const paid = Number(inv.AmountPaid) || 0;
         const payBadge = isFinalized
             ? `<span class="badge ${paymentBadgeClass(inv.PaymentStatus)}">${inv.PaymentStatus}</span>`
             : '<span style="color:var(--text-muted)">—</span>';
         const safeNo = escAttr(inv.InvoiceNo).replace(/'/g, "\\'");
 
         let actions = `<button class="btn btn-secondary btn-text" onclick="viewInvoice(${inv.InvoiceID})">View</button>`;
-        if (isFinalized && balance > 0) {
-            actions += ` <button class="btn btn-text" style="color:var(--success)" onclick="openPaymentModal(${inv.InvoiceID}, '${safeNo}')">Payment</button>`;
+        // The modal opens whenever there is money to see, not only money to
+        // take — otherwise a fully paid invoice has no route to its payments,
+        // and voiding one would be unreachable.
+        if (isFinalized && (balance > 0 || paid > 0)) {
+            actions += ` <button class="btn btn-text" style="color:var(--success)" onclick="openPaymentModal(${inv.InvoiceID}, '${safeNo}')">${balance > 0 ? 'Payment' : 'Payments'}</button>`;
         }
-        if (!isCancelled) {
+        if (isFinalized) {
+            actions += ` <button class="btn btn-text" style="color:#b45309" onclick="reviseInvoice(${inv.InvoiceID}, '${safeNo}')">Revise</button>`;
+        }
+        // A superseded invoice has already had its stock and ledger reversed —
+        // cancelling it again would be a second restoration.
+        if (!isCancelled && !isRevised) {
             actions += ` <button class="btn btn-text" style="color:var(--danger)" onclick="cancelInvoice(${inv.InvoiceID}, '${safeNo}')">Cancel</button>`;
         }
 
@@ -748,11 +780,27 @@ const onHistorySearch = debounce(() => {
     loadHistory();
 }, 300);
 
-async function viewInvoice(id) {
+async function viewInvoice(id, opts = {}) {
     try {
         const res = await authFetch(`${API_URL}/invoices/${id}`);
         const inv = await res.json();
         if (inv.error) return toast(inv.error, 'error');
+
+        if (opts.revise) {
+            revising = {
+                id: inv.InvoiceID,
+                invoiceNo: inv.InvoiceNo,
+                grandTotal: Number(inv.GrandTotal) || 0,
+                amountPaid: Number(inv.AmountPaid) || 0,
+                // A revision bills on the same basis as the invoice it replaces.
+                // New invoices are untaxed, but a handful of May-2026 ones still
+                // carry SSCL/VAT and the server preserves their rates.
+                ssclRate: Number(inv.SSCLRate) || 0,
+                vatRate: Number(inv.VATRate) || 0,
+            };
+        } else {
+            clearRevising();
+        }
 
         currentInvoiceId = inv.InvoiceID;
         currentLoadedInvoice = inv; // so locked invoices render their stored totals (incl. legacy tax)
@@ -788,25 +836,52 @@ async function viewInvoice(id) {
             maxQty: null,
         }));
 
-        const locked = inv.Status === 'Finalized' || inv.Status === 'Cancelled';
+        // Anything that is not a draft is a posted fact. Written as "not Draft"
+        // rather than a list of locked statuses so a future status is locked by
+        // default instead of accidentally editable.
+        const locked = inv.Status !== 'Draft' && !revising;
         setInvoiceEditable(!locked);
         renderInvoiceItems();
 
-        if (locked) {
-            document.getElementById('invoice-save-actions').style.display = 'flex';
-            document.getElementById('btnSaveDraft').style.display = 'none';
-            document.getElementById('btnFinalize').style.display = 'none';
+        document.getElementById('invoice-save-actions').style.display = 'flex';
+        const btnDraft = document.getElementById('btnSaveDraft');
+        const btnFinal = document.getElementById('btnFinalize');
+        if (revising) {
+            btnDraft.style.display = 'none';
+            btnFinal.style.display = 'inline-flex';
+            btnFinal.innerHTML = '<i class="ri-file-copy-2-line"></i> Review revision';
+            document.getElementById('addItemBtnContainer').style.display = 'flex';
+        } else if (locked) {
+            btnDraft.style.display = 'none';
+            btnFinal.style.display = 'none';
             document.getElementById('addItemBtnContainer').style.display = 'none';
         } else {
-            document.getElementById('invoice-save-actions').style.display = 'flex';
-            document.getElementById('btnSaveDraft').style.display = 'inline-flex';
-            document.getElementById('btnFinalize').style.display = 'inline-flex';
+            btnDraft.style.display = 'inline-flex';
+            btnFinal.style.display = 'inline-flex';
             document.getElementById('addItemBtnContainer').style.display = 'flex';
         }
 
         showSection('new-invoice');
-        document.getElementById('invoice-view-title').textContent = `Viewing Invoice: ${inv.InvoiceNo} (${inv.Status})`;
+        const title = document.getElementById('invoice-view-title');
+        if (revising) {
+            title.textContent = `Revising ${inv.InvoiceNo} — correct the lines, then Review revision`;
+        } else if (inv.Status === 'Revised') {
+            const by = await supersededByNo(inv);
+            title.textContent = `Viewing Invoice: ${inv.InvoiceNo} (Revised${by ? ` — replaced by ${by}` : ''})`;
+        } else {
+            title.textContent = `Viewing Invoice: ${inv.InvoiceNo} (${inv.Status})`;
+        }
     } catch (e) { toast('Error loading invoice', 'error'); }
+}
+
+/** The number of the invoice that replaced this one, for the view title. */
+async function supersededByNo(inv) {
+    if (!inv.SupersededBy) return null;
+    try {
+        const res = await authFetch(`${API_URL}/invoices/${inv.SupersededBy}`);
+        const data = await res.json();
+        return data && data.InvoiceNo ? data.InvoiceNo : null;
+    } catch (_) { return null; }
 }
 
 // Download a server-rendered PDF of the current invoice (headless Chromium).
@@ -861,20 +936,68 @@ async function openPaymentModal(invoiceId, invoiceNo) {
         document.getElementById('pay-notes').value = '';
         document.getElementById('pay-date').value = new Date().toISOString().split('T')[0];
 
+        // A settled invoice still needs its payment history reachable — that is
+        // the only route to voiding one recorded in error. Show the list, hide
+        // the entry form.
+        const settled = !(data.balance > 0);
+        document.getElementById('pay-modal-title').textContent = settled ? 'Payments' : 'Record Payment';
+        document.getElementById('pay-entry').style.display = settled ? 'none' : '';
+        document.getElementById('pay-actions').style.display = settled ? 'none' : '';
+
         const hist = document.getElementById('pay-history');
         if (data.payments && data.payments.length) {
-            hist.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Previous payments</div>' +
-                data.payments.map((p) =>
-                    `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border-color)">
-                        <span>${formatDate(p.PaymentDate)} · ${p.Method || ''}</span>
-                        <strong>${formatCurrency(p.Amount)}</strong>
-                    </div>`
-                ).join('');
+            hist.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Payments recorded</div>' +
+                data.payments.map((p) => {
+                    const voided = !!p.VoidedAt;
+                    const strike = voided ? ' style="text-decoration:line-through"' : '';
+                    // type="button" matters: this markup lives inside the
+                    // payment form, so a default-type button would submit it.
+                    const action = voided
+                        ? `<span class="badge badge-cancelled" title="${escAttr(p.VoidReason || '')}">Voided</span>`
+                        : `<button type="button" class="btn btn-text" style="color:var(--danger)" onclick="voidPayment(${p.PaymentID})">Void</button>`;
+                    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border-color);${voided ? 'opacity:.55;' : ''}">
+                        <span${strike}>${formatDate(p.PaymentDate)} · ${escAttr(p.Method || '')}</span>
+                        <strong${strike}>${formatCurrency(p.Amount)}</strong>
+                        ${action}
+                    </div>`;
+                }).join('');
         } else {
             hist.innerHTML = '';
         }
         openModal('paymentModal');
     } catch (e) { toast(e.message || String(e), 'error'); }
+}
+
+/**
+ * Void a payment recorded in error. The row is kept and struck through; the
+ * money comes back off the invoice and its ledger entry is reversed.
+ */
+async function voidPayment(paymentId) {
+    const reason = await promptDialog({
+        title: 'Void this payment?',
+        message: 'The payment stays on the record, struck through, and its ledger entry is reversed. Why is it being voided?',
+        confirmText: 'Void payment',
+        danger: true,
+        placeholder: 'e.g. recorded against the wrong invoice',
+    });
+    if (reason === null) return;
+    if (!String(reason).trim()) return toast('A reason is required', 'error');
+    try {
+        const res = await authFetch(`${API_URL}/payments/${paymentId}/void`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Could not void the payment', 'error'); return; }
+        toast(`Voided — balance is now ${formatCurrency(data.balance)}`, 'success');
+        invalidateCache('invoices', 'dashboard');
+        // Re-open against the same invoice so the list, the balance and the
+        // entry form all reflect the void.
+        await openPaymentModal(data.invoiceId, document.getElementById('pay-invoice-no').textContent);
+        loadHistory();
+        loadDashboard();
+    } catch (err) { toast(err.message || String(err), 'error'); }
 }
 
 function setFullPayment() {
@@ -913,6 +1036,145 @@ async function submitPayment(e) {
         toast(err.message || String(err), 'error');
     } finally {
         submittingPayment = false;
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
+// ----------------------------------------------------
+// Revising a posted invoice
+//
+// A finalized invoice is never edited. Revise opens it in the editor so the
+// operator can correct the lines, then supersedes it: the original is reversed
+// out in full and a replacement is issued as INV/..../003-R1.
+// ----------------------------------------------------
+
+/** Open a finalized invoice in revise mode. */
+async function reviseInvoice(id, invoiceNo) {
+    await viewInvoice(id, { revise: true });
+    if (revising) {
+        toast(`Correcting ${invoiceNo}. Change the lines, then press Review revision.`, 'info');
+    }
+}
+
+/**
+ * The number the replacement will be given.
+ *
+ * Only the newest invoice in a chain can be revised, so incrementing this one's
+ * own suffix always lands on the right answer: -R1 becomes -R2, never -R1-R1.
+ * The server is authoritative; this is the label on the confirmation.
+ */
+function nextRevisionLabel(invoiceNo) {
+    const m = /^(.*?)-R(\d+)$/.exec(String(invoiceNo || ''));
+    return m ? `${m[1]}-R${Number(m[2]) + 1}` : `${invoiceNo}-R1`;
+}
+
+/**
+ * What the corrected bill will come to.
+ *
+ * The editor's own total is tax-free, because new invoices are. A revision of a
+ * legacy SSCL/VAT invoice keeps that invoice's rates, so the preview has to add
+ * them back or it would promise a lower figure than the server will produce.
+ */
+function revisedGrandTotal(totals) {
+    if (!revising || (!revising.ssclRate && !revising.vatRate)) return totals.grand;
+    const sscl = totals.subTotal * (revising.ssclRate / 100);
+    const preVat = totals.subTotal + sscl;
+    const grand = preVat + preVat * (revising.vatRate / 100) - totals.discount;
+    return totals.roundToRupee ? Math.round(grand) : Math.round(grand * 100) / 100;
+}
+
+/** Summarise what is about to happen, and collect the reason. */
+function openReviseModal() {
+    if (!revising) return;
+    const totals = calcInvoiceTotals();
+    document.getElementById('revise-invoice-no').textContent = revising.invoiceNo;
+    document.getElementById('revise-new-no').textContent = nextRevisionLabel(revising.invoiceNo);
+    document.getElementById('revise-old-total').textContent = formatCurrency(revising.grandTotal);
+    document.getElementById('revise-new-total').textContent = formatCurrency(revisedGrandTotal(totals));
+    document.getElementById('revise-reason').value = '';
+
+    // The carry-forward choice only means anything when money has been taken.
+    const carryRow = document.getElementById('revise-carry-row');
+    const carry = document.getElementById('revise-carry');
+    carry.checked = true;
+    if (revising.amountPaid > 0) {
+        carryRow.style.display = '';
+        document.getElementById('revise-paid').textContent = formatCurrency(revising.amountPaid);
+    } else {
+        carryRow.style.display = 'none';
+    }
+    openModal('reviseModal');
+}
+
+let submittingRevision = false;
+async function submitRevision(e) {
+    e.preventDefault();
+    if (submittingRevision || !revising) return;
+    const reason = document.getElementById('revise-reason').value.trim();
+    if (!reason) return toast('Say why the invoice is being revised', 'error');
+
+    const totals = calcInvoiceTotals();
+    const payload = {
+        reason,
+        carryPayments: document.getElementById('revise-carry').checked,
+        invoiceDate: document.getElementById('invDate').value,
+        billedToName: document.getElementById('billedToName') ? document.getElementById('billedToName').value : '',
+        billedToAddress: document.getElementById('billedToAddress') ? document.getElementById('billedToAddress').value : '',
+        deliveredToName: document.getElementById('deliveredToName') ? document.getElementById('deliveredToName').value : '',
+        deliveredToAddress: document.getElementById('deliveredToAddress') ? document.getElementById('deliveredToAddress').value : '',
+        discount: totals.discount,
+        roundToRupee: totals.roundToRupee,
+        items: invoiceItems.map((i) => ({
+            inventoryId: i.inventoryId,
+            description: i.desc,
+            unit: i.unit,
+            length: i.length,
+            qty: i.qty,
+            rate: i.rate,
+            cost: i.cost,
+            marketMid: i.marketMid,
+            pricingSource: i.source,
+        })),
+    };
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submittingRevision = true;
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+        const res = await authFetch(`${API_URL}/invoices/${revising.id}/revise`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) { toast(data.error || 'Revision failed', 'error'); return; }
+
+        closeModal('reviseModal');
+        clearRevising();
+        invalidateCache('dashboard', 'invoices', 'inventory');
+
+        let msg = `${data.originalInvoiceNo} replaced by ${data.invoiceNo}`;
+        if (data.difference > 0) msg += ` — ${formatCurrency(data.difference)} more`;
+        else if (data.difference < 0) msg += ` — ${formatCurrency(-data.difference)} less`;
+        toast(msg, 'success');
+
+        // The invoice can be correct while the ledger was not updated. Never let
+        // that pass as a clean success — it is invisible everywhere else.
+        if (data.ledgerErrors && data.ledgerErrors.length) {
+            toast(`The invoice was revised but the books were NOT updated: ${data.ledgerErrors.join(' ')}`, 'error');
+        }
+        if (data.refundDue > 0) {
+            toast(`${formatCurrency(data.refundDue)} was taken that the corrected bill does not cover — refund it.`, 'error');
+        } else if (data.balance > 0) {
+            toast(`${formatCurrency(data.balance)} still owed on ${data.invoiceNo}`, 'info');
+        }
+        loadDashboard();
+        showSection('history');
+        loadHistory();
+    } catch (err) {
+        toast(err.message || String(err), 'error');
+    } finally {
+        submittingRevision = false;
         if (submitBtn) submitBtn.disabled = false;
     }
 }

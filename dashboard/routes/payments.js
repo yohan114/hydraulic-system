@@ -5,6 +5,7 @@ const money = require('../lib/money');
 const sql = require('../lib/sql');
 const billing = require('../services/billing');
 const glPosting = require('../services/glPosting');
+const revision = require('../services/invoiceRevision');
 const { invoiceMutex } = require('../lib/mutex');
 const router = express.Router();
 
@@ -18,8 +19,9 @@ router.get('/api/invoices/:id/payments', async (req, res) => {
             payments = await connection.query(`SELECT * FROM Payments WHERE InvoiceID = ${id} ORDER BY PaymentID ASC`);
         } catch (_) { /* Payments table not migrated yet */ }
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
-        // Only a finalized invoice can carry an outstanding balance; drafts and
-        // cancelled invoices report zero so they never look like receivables.
+        // Only a finalized invoice can carry an outstanding balance; drafts,
+        // cancelled and superseded invoices report zero so they never look like
+        // receivables.
         const isFinalized = invoice[0].Status === 'Finalized';
         res.json({
             invoiceId: id,
@@ -64,7 +66,10 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
             );
             // Derive AmountPaid from the authoritative payment history rather than
             // incrementing the stored value, so it can never drift out of sync.
-            const sumRows = await connection.query(`SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ${id}`);
+            // Voided payments are excluded — the row stays for the audit trail,
+            // but the money is no longer standing against the invoice.
+            const sumRows = await connection.query(
+                `SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ${id} AND VoidedAt IS NULL`);
             const newPaid = money.round2(money.num(sumRows[0] && sumRows[0].total));
             const pay = billing.paymentStatus(invoice[0].GrandTotal, newPaid);
             await connection.execute(
@@ -90,6 +95,35 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
         res.json({ success: true, amountPaid: pay.amountPaid, balance: pay.balance, status: pay.status, posting });
     } catch (err) {
         res.status(err.httpStatus || 500).json({ error: 'Could not record payment. Ensure the database is migrated. ' + err.message });
+    }
+});
+
+
+// Void a payment recorded in error.
+//
+// The row is never deleted — money that moved is a fact even when it moved by
+// mistake. It is stamped, its journal is reversed, and the invoice's AmountPaid
+// is re-derived from what is still standing. This is also what unblocks Cancel:
+// an invoice can only be cancelled once nothing is paid against it.
+router.post('/api/payments/:id/void', async (req, res) => {
+    try {
+        const reason = String((req.body && req.body.reason) || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Say why the payment is being voided — the reason is kept on the record.' });
+
+        const result = await invoiceMutex.runExclusive(() => revision.voidPayment(sql.n(req.params.id), {
+            reason,
+            actor: (req.user && req.user.username) || null,
+        }));
+        res.locals.audit = {
+            entity: 'payment',
+            entityId: result.paymentId,
+            action: 'void',
+            before: { invoiceId: result.invoiceId, amount: result.amount },
+            after: { reason, amountPaid: result.amountPaid },
+        };
+        res.json({ success: true, ...result });
+    } catch (err) {
+        res.status(err.httpStatus || 500).json({ error: err.message });
     }
 });
 

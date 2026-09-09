@@ -288,6 +288,7 @@ table.totals tr.grand td:last-child { font-family: 'DM Mono', monospace; font-si
 .badge-partial { background: #fef3c7; color: #b45309; }
 .badge-unpaid { background: #fee2e2; color: #b91c1c; }
 .badge-cancelled { background: #e2e8f0; color: #475569; text-decoration: line-through; }
+.badge-revised { background: #ede9fe; color: #6d28d9; text-decoration: line-through; }
 
 /* Margin hint shown under a rate cell while billing */
 .margin-hint { font-size: 10px; margin-top: 2px; font-family: 'DM Mono', monospace; }

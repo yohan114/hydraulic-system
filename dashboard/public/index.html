@@ -721,6 +721,7 @@
                                 <option value="All">All statuses</option>
                                 <option value="Finalized">Finalized</option>
                                 <option value="Draft">Draft</option>
+                                <option value="Revised">Revised</option>
                                 <option value="Cancelled">Cancelled</option>
                             </select>
                             <button class="btn btn-secondary" onclick="exportAllInvoices()"><i class="ri-file-excel-line"></i> Export All to Excel</button>
@@ -2025,7 +2026,7 @@
     <div id="paymentModal" class="modal no-print">
         <div class="modal-content" style="max-width: 480px;">
             <div class="modal-header">
-                <h2>Record Payment</h2>
+                <h2 id="pay-modal-title">Record Payment</h2>
                 <button class="close-btn" onclick="closeModal('paymentModal')"><i class="ri-close-line"></i></button>
             </div>
             <div class="modal-body">
@@ -2036,36 +2037,82 @@
                         <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Grand Total</span><span id="pay-grand-total">Rs. 0.00</span></div>
                         <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">Outstanding Balance</span><strong id="pay-balance" style="color:var(--danger)">Rs. 0.00</strong></div>
                     </div>
-                    <div class="form-group row">
-                        <div class="col">
-                            <label>Amount (Rs.)</label>
-                            <input type="number" id="pay-amount" class="form-control" step="0.01" min="0.01" required>
+                    <!-- Hidden when the invoice is settled: the modal is then a
+                         read-only payment history with Void controls. -->
+                    <div id="pay-entry">
+                        <div class="form-group row">
+                            <div class="col">
+                                <label>Amount (Rs.)</label>
+                                <input type="number" id="pay-amount" class="form-control" step="0.01" min="0.01">
+                            </div>
+                            <div class="col">
+                                <label>Method</label>
+                                <select id="pay-method" class="form-control">
+                                    <option value="Cash">Cash</option>
+                                    <option value="Bank Transfer">Bank Transfer</option>
+                                    <option value="Cheque">Cheque</option>
+                                    <option value="Card">Card</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="col">
-                            <label>Method</label>
-                            <select id="pay-method" class="form-control">
-                                <option value="Cash">Cash</option>
-                                <option value="Bank Transfer">Bank Transfer</option>
-                                <option value="Cheque">Cheque</option>
-                                <option value="Card">Card</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-group row">
-                        <div class="col">
-                            <label>Date</label>
-                            <input type="date" id="pay-date" class="form-control">
-                        </div>
-                        <div class="col">
-                            <label>Notes (optional)</label>
-                            <input type="text" id="pay-notes" class="form-control">
+                        <div class="form-group row">
+                            <div class="col">
+                                <label>Date</label>
+                                <input type="date" id="pay-date" class="form-control">
+                            </div>
+                            <div class="col">
+                                <label>Notes (optional)</label>
+                                <input type="text" id="pay-notes" class="form-control">
+                            </div>
                         </div>
                     </div>
                     <div id="pay-history" style="margin-top:8px;"></div>
-                    <div class="modal-actions">
+                    <div class="modal-actions" id="pay-actions">
                         <button type="button" class="btn btn-secondary" onclick="setFullPayment()">Pay Full Balance</button>
                         <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Revise Invoice Modal -->
+    <div id="reviseModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2>Revise invoice</h2>
+                <button class="close-btn" onclick="closeModal('reviseModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="reviseForm" onsubmit="submitRevision(event)">
+                    <div style="background: var(--secondary); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Replacing</span><strong id="revise-invoice-no">—</strong></div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--text-muted)">Was</span><span id="revise-old-total">Rs. 0.00</span></div>
+                        <div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted)">Now</span><strong id="revise-new-total">Rs. 0.00</strong></div>
+                    </div>
+                    <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;">
+                        The original is kept in full and marked <strong>Revised</strong>. Its stock comes back,
+                        its ledger entry is reversed, and a replacement is issued as
+                        <strong id="revise-new-no">—</strong>.
+                    </p>
+                    <div class="form-group">
+                        <label>Why is it being revised?</label>
+                        <input type="text" id="revise-reason" class="form-control" required
+                               placeholder="e.g. crimping charge was left off">
+                    </div>
+                    <div class="form-group" id="revise-carry-row">
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+                            <input type="checkbox" id="revise-carry" checked>
+                            <span>Move the <strong id="revise-paid">Rs. 0.00</strong> already paid onto the new invoice</span>
+                        </label>
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            Untick only if the money is being refunded.
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('reviseModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Issue revision</button>
                     </div>
                 </form>
             </div>

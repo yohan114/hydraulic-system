@@ -117,6 +117,14 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
   const sign = assetDataUri('signature.png');
   const copyBadge = outside ? 'OUTSIDE BILL — Customer Copy' : 'INTERNAL BILL — Company Copy';
 
+  // A superseded or void invoice must never be mistaken for a live one once it
+  // is off the screen and on paper in someone's hand.
+  const voidBanner = invoice.Status === 'Revised'
+    ? 'NOT VALID — this invoice has been revised and replaced'
+    : invoice.Status === 'Cancelled'
+      ? 'CANCELLED — this invoice is void'
+      : null;
+
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invoice.InvoiceNo || 'Invoice')}</title>
 <style>
   * { box-sizing: border-box; }
@@ -164,8 +172,11 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
   .footer .ic { width: 15px; height: 15px; border-radius: 50%; background: ${ACCENT}; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #fff; margin-top: 1px; }
   .footer .vat { text-align: right; letter-spacing: 1.5px; font-size: 9px; white-space: nowrap; }
   .footer .vat .k { color: ${ACCENT}; display: block; margin-bottom: 2px; }
+  .voided { background: #7f1d1d; color: #fff; text-align: center; font-weight: 800; letter-spacing: 2px;
+            text-transform: uppercase; font-size: 12px; padding: 8px 12px; }
 </style></head><body>
   <div class="sheet">
+  ${voidBanner ? `<div class="voided">${esc(voidBanner)}</div>` : ''}
   <div class="wrap">
     <div class="head">
       <div class="brand">
