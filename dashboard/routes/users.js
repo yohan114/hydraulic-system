@@ -96,8 +96,24 @@ router.put('/api/users/:id', async (req, res) => {
             sets.push(`PasswordHash = ${sql.q(hash)}`);
         }
         if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+        sets.push('AuthVersion = COALESCE(AuthVersion, 1) + 1');
         sets.push('UpdatedAt = Now()');
         await connection.execute(`UPDATE Users SET ${sets.join(', ')} WHERE UserID = ${id}`);
+
+        try {
+            if (role) {
+                const roleRow = connection._db.prepare('SELECT RoleID FROM Roles WHERE Name = ?').get(role);
+                if (roleRow) {
+                    connection._db.prepare('DELETE FROM UserRoles WHERE UserID = ?').run(id);
+                    connection._db.prepare('INSERT INTO UserRoles (UserID, RoleID) VALUES (?, ?)').run(id, roleRow.RoleID);
+                }
+            }
+            connection._db.prepare(`
+                UPDATE Sessions SET RevokedAt = datetime('now', 'localtime'), RevokedReason = 'role_or_password_updated'
+                WHERE UserID = ? AND RevokedAt IS NULL
+            `).run(id);
+        } catch (_) {}
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -430,9 +430,10 @@ router.post('/api/invoices/finalize', async (req, res) => {
                 usedExistingDraft = true;
             } else {
                 invoiceNo = await getNextInvoiceNo(invDate);
+                const paymentStatus = ownership.isInternal ? 'Not Applicable' : 'Unpaid';
                 await connection.execute(
                     `INSERT INTO Invoices (${invoiceHeaderColumns()}, Status, AmountPaid, PaymentStatus, CreatedAt, FinalizedAt)
-                     VALUES (${invoiceHeaderValues(body, totals, invoiceNo, ownership)}, 'Finalized', 0, 'Unpaid', Now(), Now())`
+                     VALUES (${invoiceHeaderValues(body, totals, invoiceNo, ownership)}, 'Finalized', 0, '${paymentStatus}', Now(), Now())`
                 );
                 try {
                     invoiceId = await resolveInvoiceIdByNo(invoiceNo);
@@ -459,8 +460,9 @@ router.post('/api/invoices/finalize', async (req, res) => {
                 }
 
                 if (usedExistingDraft) {
+                    const paymentStatus = ownership.isInternal ? 'Not Applicable' : 'Unpaid';
                     await connection.execute(
-                        `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(invDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, Status = 'Finalized', PaymentStatus = 'Unpaid', FinalizedAt = Now(), CustomerID = ${ownership.customerId != null ? ownership.customerId : 'NULL'}, MachineID = ${ownership.machineId != null ? ownership.machineId : 'NULL'}, IsInternal = ${ownership.isInternal ? 1 : 0} WHERE InvoiceID = ${invoiceId}`
+                        `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(invDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, Status = 'Finalized', PaymentStatus = '${paymentStatus}', FinalizedAt = Now(), CustomerID = ${ownership.customerId != null ? ownership.customerId : 'NULL'}, MachineID = ${ownership.machineId != null ? ownership.machineId : 'NULL'}, IsInternal = ${ownership.isInternal ? 1 : 0} WHERE InvoiceID = ${invoiceId}`
                     );
                 }
 
@@ -561,6 +563,8 @@ router.post('/api/invoices/:id/revise', async (req, res) => {
             // Every movement applied, so a failure can unwind exactly what landed.
             const applied = [];
             let newId = null;
+            let creditId = null;
+            let excessCash = 0;
             try {
                 // 1. Give the original's stock back.
                 for (const [invId, qty] of returnedById) {
@@ -673,13 +677,42 @@ router.post('/api/invoices/:id/revise', async (req, res) => {
                                 ${sql.q(`Carried from ${original.InvoiceNo}`)}, Now(), ${sql.n(p.PaymentID)})`);
                         const last = await connection.query(
                             `SELECT PaymentID FROM Payments WHERE InvoiceID = ${newId} ORDER BY PaymentID DESC LIMIT 1`);
-                        if (last.length) carriedIds.push(last[0].PaymentID);
+                        if (last.length) {
+                            carriedIds.push(last[0].PaymentID);
+                            try {
+                                connection._db.prepare(`
+                                    INSERT INTO ReceiptAllocations (PaymentID, InvoiceID, Amount, AllocatedAt, AllocatedBy)
+                                    VALUES (?, ?, ?, ?, ?)
+                                `).run(last[0].PaymentID, newId, Math.min(amount, totals.grandTotal), paidOn, actor || 'system');
+                            } catch (_) {}
+                        }
                         carriedTotal = money.round2(carriedTotal + amount);
                     }
                     const pay = billing.paymentStatus(totals.grandTotal, carriedTotal);
                     await connection.execute(
                         `UPDATE Invoices SET AmountPaid = ${carriedTotal}, PaymentStatus = ${sql.q(pay.status)}
                          WHERE InvoiceID = ${newId}`);
+                }
+
+                // If downward revision created excess cash (refundDue > 0), record CustomerCredit liability (T10)
+                excessCash = carryPayments
+                    ? money.round2(Math.max(0, carriedTotal - totals.grandTotal))
+                    : money.round2(paidBefore);
+                if (excessCash > 0 && original.CustomerID) {
+                    try {
+                        const creditInfo = connection._db.prepare(`
+                            INSERT INTO CustomerCredits (CustomerID, SourceType, SourceID, OriginalAmount, RemainingAmount, Status, Notes, CreatedAt, CreatedBy)
+                            VALUES (?, 'revision', ?, ?, ?, 'open', ?, datetime('now', 'localtime'), ?)
+                        `).run(
+                            original.CustomerID,
+                            newId,
+                            excessCash,
+                            excessCash,
+                            `Excess cash from downward revision of ${original.InvoiceNo} to ${newNo}`,
+                            actor
+                        );
+                        creditId = creditInfo.lastInsertRowid;
+                    } catch (_) {}
                 }
 
                 // 8. LAST: reverse the original's journals.
@@ -718,8 +751,15 @@ router.post('/api/invoices/:id/revise', async (req, res) => {
                 return {
                     original, newId, newNo, newRevisionNo, invoiceDate, openPayments,
                     originalReversal, paymentReversals, totals, paidBefore, carriedTotal, carriedIds,
+                    creditId, creditAmount: excessCash,
                 };
             } catch (workErr) {
+                if (creditId != null) {
+                    try { connection._db.prepare('DELETE FROM CustomerCredits WHERE CreditID = ?').run(creditId); } catch (_) {}
+                }
+                if (newId != null) {
+                    try { connection._db.prepare('DELETE FROM ReceiptAllocations WHERE InvoiceID = ?').run(newId); } catch (_) {}
+                }
                 // Undo the steps in reverse. Nothing has reached the ledger yet —
                 // step 8 is the last thing in the try, deliberately — so this is
                 // a pure data unwind and the books never learn anything happened.
@@ -842,6 +882,8 @@ router.post('/api/invoices/:id/revise', async (req, res) => {
             refundDue: carryPayments
                 ? money.round2(Math.max(0, result.carriedTotal - totals.grandTotal))
                 : money.round2(result.paidBefore),
+            creditId: result.creditId || null,
+            creditAmount: result.creditAmount || 0,
             balance: status.balance,
             paymentStatus: status.status,
             totals,

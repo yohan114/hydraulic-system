@@ -15,6 +15,7 @@ const connection = require('./db');
 const { runStartupBackup } = require('./lib/backup');
 const { auditMiddleware } = require('./lib/audit');
 const { router: authRouter, requireAuth, viewerReadOnlyGuard } = require('./routes/auth');
+const { authorizeEndpoint, fieldScrubber } = require('./lib/endpointAuthorization');
 
 const PORT = process.env.PORT || 9999;
 if (process.env.NODE_ENV === 'production' && process.env.BILLING_AUTH === 'off') {
@@ -35,6 +36,12 @@ app.use((req, res, next) => {
   if (req.path === '/api/auth/login' || req.path === '/api/auth/status') return next();
   return requireAuth(req, res, next);
 });
+
+// Centralized endpoint policy authorization & default-deny
+app.use(authorizeEndpoint);
+
+// Sensitive field scrubber (masks cost data from unauthorized roles)
+app.use(fieldScrubber);
 
 // Role gate: viewers are read-only (writes are refused). requireAuth above has
 // already populated req.user, so this can see the caller's role.
@@ -62,6 +69,7 @@ app.use(require('./routes/ledger'));
 app.use(require('./routes/procurement'));
 app.use(require('./routes/jobs'));
 app.use(require('./routes/controls'));
+app.use(require('./routes/credits'));
 
 async function start() {
   try {

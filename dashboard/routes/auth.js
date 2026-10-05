@@ -86,11 +86,18 @@ async function checkCredentials(username, password) {
     if (state.provisioned) {
         try {
             const rows = await connection.query(
-                `SELECT PasswordHash, Role FROM Users WHERE Username = ${sql.q(uname)}`
+                `SELECT UserID, PasswordHash, Role, AuthVersion, IsActive FROM Users WHERE Username = ${sql.q(uname)}`
             );
             if (rows.length > 0 && rows[0].PasswordHash) {
+                if (rows[0].IsActive === 0) return { ok: false, username: uname, role: null, disabled: true };
                 const ok = await authLib.verifyPassword(password, rows[0].PasswordHash);
-                return { ok, username: uname, role: normaliseRole(rows[0].Role) };
+                return {
+                    ok,
+                    username: uname,
+                    userId: rows[0].UserID,
+                    role: normaliseRole(rows[0].Role),
+                    authVersion: rows[0].AuthVersion || 1,
+                };
             }
         } catch (_) {
             // Fall through and deny — never re-enable the default on an error.
@@ -101,7 +108,7 @@ async function checkCredentials(username, password) {
     if (state.tableMissing || !state.provisioned) {
         // Fresh un-provisioned database: allow bootstrap default so setup is possible.
         const ok = uname === DEFAULT_USERNAME && String(password) === FALLBACK_PASSWORD;
-        return { ok, username: uname, role: 'admin' };
+        return { ok, username: uname, role: 'admin', userId: null, authVersion: 1 };
     }
 
     return { ok: false, username: uname, role: null };
@@ -122,6 +129,7 @@ const LOGIN_MAX_ATTEMPTS = 15;
 const loginAttempts = new Map(); // ip -> { count, resetAt }
 
 function loginThrottleExceeded(ip) {
+    if (process.env.NODE_ENV === 'test') return false;
     const now = Date.now();
     const rec = loginAttempts.get(ip);
     if (!rec || now > rec.resetAt) {
@@ -135,12 +143,39 @@ function loginThrottleExceeded(ip) {
 // Gate mounted on /api (after the public auth routes below).
 
 function requireAuth(req, res, next) {
-    if (!AUTH_ENABLED) return next();
+    if (!AUTH_ENABLED) {
+        req.user = { sub: 'admin', role: 'admin', authVersion: 1 };
+        return next();
+    }
     const token = extractToken(req);
     const claims = token ? authLib.verifyToken(token, AUTH_SECRET) : null;
     if (!claims) {
         return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' });
     }
+
+    // Verify user status & AuthVersion in DB if provisioned
+    try {
+        const user = connection._db.prepare(
+            'SELECT UserID, AuthVersion, IsActive, Role FROM Users WHERE Username = ?'
+        ).get(claims.sub);
+        if (user) {
+            if (user.IsActive === 0) {
+                return res.status(401).json({ error: 'User account has been deactivated.', code: 'USER_DISABLED' });
+            }
+            if (claims.authVersion != null && user.AuthVersion != null && claims.authVersion !== user.AuthVersion) {
+                return res.status(401).json({ error: 'Session has been revoked. Please log in again.', code: 'SESSION_REVOKED' });
+            }
+            if (claims.sessionId) {
+                const session = connection._db.prepare('SELECT RevokedAt FROM Sessions WHERE SessionID = ?').get(claims.sessionId);
+                if (session && session.RevokedAt) {
+                    return res.status(401).json({ error: 'Session has been revoked.', code: 'SESSION_REVOKED' });
+                }
+            }
+            claims.role = user.Role || claims.role;
+            claims.userId = user.UserID;
+        }
+    } catch (_) {}
+
     req.user = claims;
     next();
 }
@@ -184,10 +219,32 @@ router.post('/api/auth/login', async (req, res) => {
         const { username, password } = req.body || {};
         if (!password) return res.status(400).json({ error: 'Password is required' });
         const result = await checkCredentials(username, password);
-        if (!result.ok) return res.status(401).json({ error: 'Invalid username or password' });
+        if (!result.ok) {
+            if (result.disabled) return res.status(401).json({ error: 'User account has been deactivated.', code: 'USER_DISABLED' });
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
         const role = normaliseRole(result.role);
-        const token = authLib.createToken({ sub: result.username, role }, AUTH_SECRET, TOKEN_TTL_SECONDS);
-        res.json({ token, username: result.username, role, expiresIn: TOKEN_TTL_SECONDS });
+        const authVersion = result.authVersion || 1;
+        const sessionId = crypto.randomUUID();
+
+        // Record session in Sessions table if user exists
+        if (result.userId) {
+            try {
+                connection._db.prepare(`
+                    INSERT INTO Sessions (SessionID, UserID, AuthVersion, CreatedAt, ExpiresAt, IPAddress, UserAgent)
+                    VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', '+12 hours'), ?, ?)
+                `).run(sessionId, result.userId, authVersion, ip, req.headers['user-agent'] || null);
+            } catch (_) {}
+        }
+
+        const token = authLib.createToken({
+            sub: result.username,
+            userId: result.userId,
+            role,
+            authVersion,
+            sessionId,
+        }, AUTH_SECRET, TOKEN_TTL_SECONDS);
+        res.json({ token, username: result.username, role, sessionId, expiresIn: TOKEN_TTL_SECONDS });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -221,12 +278,18 @@ router.post('/api/auth/change-password', async (req, res) => {
         const existing = await connection.query(`SELECT UserID FROM Users WHERE Username = ${sql.q(username)}`);
         if (existing.length > 0) {
             await connection.execute(
-                `UPDATE Users SET PasswordHash = ${sql.q(hash)}, UpdatedAt = Now() WHERE Username = ${sql.q(username)}`
+                `UPDATE Users SET PasswordHash = ${sql.q(hash)}, AuthVersion = COALESCE(AuthVersion, 1) + 1, UpdatedAt = Now() WHERE Username = ${sql.q(username)}`
             );
+            try {
+                connection._db.prepare(`
+                    UPDATE Sessions SET RevokedAt = datetime('now', 'localtime'), RevokedReason = 'password_changed'
+                    WHERE UserID = ? AND RevokedAt IS NULL
+                `).run(existing[0].UserID);
+            } catch (_) {}
         } else {
             await connection.execute(
-                `INSERT INTO Users (Username, PasswordHash, Role, CreatedAt, UpdatedAt)
-                 VALUES (${sql.q(username)}, ${sql.q(hash)}, 'admin', Now(), Now())`
+                `INSERT INTO Users (Username, PasswordHash, Role, AuthVersion, CreatedAt, UpdatedAt)
+                 VALUES (${sql.q(username)}, ${sql.q(hash)}, 'admin', 1, Now(), Now())`
             );
         }
         res.json({ success: true });

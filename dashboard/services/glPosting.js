@@ -57,6 +57,7 @@ const ACC = {
   SUNDRY: '6200',
   OTHER_EXPENSE: '6300',
   INTERNAL_WORK: '6900',
+  CUSTOMER_CREDIT: '2400',
 };
 
 // A line is technical/crimping labour rather than a part.
@@ -257,8 +258,69 @@ function reverseInvoice(invoiceId, opts = {}) {
   return ledgerSvc.reverseEntry(journalId, opts);
 }
 
+/**
+ * Post a customer credit liability (e.g. from downward revision overpayment).
+ * Cash in till was preserved, so:
+ * Dr Cash (1110)
+ * Cr Customer Credits (2400)
+ */
+function postCustomerCredit(creditId, opts = {}) {
+  const db = connection._db;
+  const c = db.prepare('SELECT * FROM CustomerCredits WHERE CreditID = ?').get(creditId);
+  if (!c) throw new ledgerSvc.LedgerError(`CustomerCredit ${creditId} not found`, 404);
+  const amount = money.round2(c.OriginalAmount);
+  if (amount <= 0) return null;
+
+  const date = String(opts.date || c.CreatedAt || '').slice(0, 10);
+  return ledgerSvc.postEntry({
+    date,
+    memo: `Customer credit #${c.CreditID} — ${c.Notes || 'overpayment'}`,
+    sourceType: 'customer_credit',
+    sourceID: creditId,
+    postedBy: opts.postedBy,
+    allowClosedPeriod: opts.allowClosedPeriod,
+    lines: [
+      { accountCode: ACC.CASH, debit: amount, memo: 'Overpayment held as credit liability' },
+      { accountCode: ACC.CUSTOMER_CREDIT, credit: amount, customerId: c.CustomerID, memo: `Credit #${c.CreditID}` },
+    ],
+  });
+}
+
+/**
+ * Post a physical cash or bank refund against a customer credit.
+ * Dr Customer Credits (2400)
+ * Cr Cash in Hand (1110) or Bank (1120)
+ */
+function postRefund(refundId, opts = {}) {
+  const db = connection._db;
+  const r = db.prepare('SELECT * FROM Refunds WHERE RefundID = ?').get(refundId);
+  if (!r) throw new ledgerSvc.LedgerError(`Refund ${refundId} not found`, 404);
+  const amount = money.round2(r.Amount);
+  if (amount <= 0) return null;
+
+  const cashAccount = /bank|transfer|cheque|card/i.test(r.PaymentMethod || '') ? ACC.BANK : ACC.CASH;
+  const date = String(r.RefundDate || '').slice(0, 10);
+  const entry = ledgerSvc.postEntry({
+    date,
+    memo: `Refund #${r.RefundID} for credit #${r.CreditID}`,
+    sourceType: 'refund',
+    sourceID: refundId,
+    postedBy: opts.postedBy,
+    allowClosedPeriod: opts.allowClosedPeriod,
+    lines: [
+      { accountCode: ACC.CUSTOMER_CREDIT, debit: amount, customerId: r.CustomerID, memo: `Refund #${r.RefundID}` },
+      { accountCode: cashAccount, credit: amount, memo: r.PaymentMethod || 'Cash' },
+    ],
+  });
+  if (entry && entry.journalId) {
+    db.prepare('UPDATE Refunds SET JournalID = ? WHERE RefundID = ?').run(entry.journalId, refundId);
+  }
+  return entry;
+}
+
 module.exports = {
   ACC, TECHNICAL_RE,
   splitRevenue, costOfLines, accountForExpense,
   postInvoice, postPayment, postExpense, postLabourPayment, postPurchase, reverseInvoice,
+  postCustomerCredit, postRefund,
 };

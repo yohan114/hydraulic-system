@@ -18,6 +18,10 @@ router.get('/api/invoices/:id/payments', async (req, res) => {
         try {
             payments = await connection.query(`SELECT * FROM Payments WHERE InvoiceID = ${id} ORDER BY PaymentID ASC`);
         } catch (_) { /* Payments table not migrated yet */ }
+        let allocations = [];
+        try {
+            allocations = await connection.query(`SELECT * FROM ReceiptAllocations WHERE InvoiceID = ${id} ORDER BY AllocationID ASC`);
+        } catch (_) {}
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
         // Only a finalized invoice can carry an outstanding balance; drafts,
         // cancelled and superseded invoices report zero so they never look like
@@ -31,6 +35,7 @@ router.get('/api/invoices/:id/payments', async (req, res) => {
             balance: isFinalized ? pay.balance : 0,
             status: isFinalized ? pay.status : invoice[0].Status,
             payments,
+            allocations,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -72,6 +77,19 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
             );
             const paymentId = insRes.lastInsertRowid;
 
+            try {
+                connection._db.prepare(`
+                    INSERT INTO ReceiptAllocations (PaymentID, InvoiceID, Amount, AllocatedAt, AllocatedBy)
+                    VALUES (?, ?, ?, ?, ?)
+                `).run(
+                    paymentId,
+                    id,
+                    amount,
+                    sql.dbDate(body.date) === 'NULL' ? new Date().toISOString().slice(0, 10) : String(body.date).slice(0, 10),
+                    (req.user && (req.user.sub || req.user.username)) || 'cashier'
+                );
+            } catch (_) {}
+
             // Derive AmountPaid from the authoritative payment history.
             const sumRows = await connection.query(
                 `SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ${id} AND VoidedAt IS NULL`);
@@ -85,6 +103,9 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
             try {
                 posting = glPosting.postPayment(paymentId, { postedBy: req.user && req.user.username });
             } catch (postErr) {
+                try {
+                    connection._db.prepare('DELETE FROM ReceiptAllocations WHERE PaymentID = ?').run(paymentId);
+                } catch (_) {}
                 await connection.execute(`DELETE FROM Payments WHERE PaymentID = ${paymentId}`);
                 const rollbackPaid = money.round2(money.num((await connection.query(
                     `SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ${id} AND VoidedAt IS NULL`))[0]?.total));

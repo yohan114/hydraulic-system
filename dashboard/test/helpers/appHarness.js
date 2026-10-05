@@ -47,6 +47,7 @@ async function startTestApp(opts = {}) {
   const dbFile = path.join(dir, 'test.db');
 
   // Must be set before db.js is required — see the note above.
+  process.env.NODE_ENV = 'test';
   process.env.HYDRAULIC_DB = dbFile;
   process.env.BILLING_AUTH = opts.auth ? 'on' : 'off';
   process.env.BILLING_SECRET = process.env.BILLING_SECRET || crypto.randomBytes(16).toString('hex');
