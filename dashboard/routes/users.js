@@ -15,7 +15,7 @@ const { requireRole, ROLES, FALLBACK_PASSWORD } = require('./auth');
 const router = express.Router();
 
 // Every endpoint here is admin-only.
-router.use(requireRole('admin'));
+router.use('/api/users', requireRole('admin'));
 
 function validRole(r) { return ROLES.includes(r); }
 
@@ -54,7 +54,7 @@ router.post('/api/users', async (req, res) => {
         const uname = String(username || '').trim();
         if (!uname) return res.status(400).json({ error: 'Username is required' });
         if (!password || String(password).length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
-        if (!validRole(role)) return res.status(400).json({ error: 'Role must be admin, cashier or viewer' });
+        if (!validRole(role)) return res.status(400).json({ error: 'Role must be admin, manager, cashier or viewer' });
 
         const existing = await connection.query(`SELECT UserID FROM Users WHERE Username = ${sql.q(uname)}`);
         if (existing.length > 0) return res.status(400).json({ error: 'A user with that name already exists' });
@@ -66,6 +66,17 @@ router.post('/api/users', async (req, res) => {
             `INSERT INTO Users (Username, PasswordHash, Role, CreatedAt, UpdatedAt)
              VALUES (${sql.q(uname)}, ${sql.q(hash)}, ${sql.q(role)}, Now(), Now())`
         );
+
+        try {
+            const newUserId = connection._db.prepare('SELECT UserID FROM Users WHERE Username = ?').get(uname)?.UserID;
+            if (newUserId) {
+                const roleRow = connection._db.prepare('SELECT RoleID FROM Roles WHERE Name = ?').get(role);
+                if (roleRow) {
+                    connection._db.prepare('INSERT OR IGNORE INTO UserRoles (UserID, RoleID) VALUES (?, ?)').run(newUserId, roleRow.RoleID);
+                }
+            }
+        } catch (_) {}
+
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -87,7 +98,7 @@ router.put('/api/users/:id', async (req, res) => {
 
         const sets = [];
         if (role !== undefined) {
-            if (!validRole(role)) return res.status(400).json({ error: 'Role must be admin, cashier or viewer' });
+            if (!validRole(role)) return res.status(400).json({ error: 'Role must be admin, manager, cashier or viewer' });
             sets.push(`Role = ${sql.q(role)}`);
         }
         if (newPassword) {

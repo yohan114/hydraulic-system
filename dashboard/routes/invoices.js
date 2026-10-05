@@ -16,7 +16,22 @@ const pdf = require('../services/pdf');
 const { buildInvoiceHtml } = require('../services/invoicePdf');
 const priceAnalysis = require('../services/priceAnalysis');
 const pricingEngine = require('../services/pricingEngine');
+const { sanitizeFormula } = require('../lib/sanitize');
+const auditLog = require('../lib/auditLog');
+const { checkIdempotency, recordIdempotency } = require('../lib/idempotency');
 const router = express.Router();
+
+function getScopedSiteFilter(req) {
+    if (!req.user || req.user.role === 'admin') return null;
+    try {
+        const uName = req.user.sub || req.user.username;
+        const userId = req.user.userId || (uName ? connection._db.prepare('SELECT UserID FROM Users WHERE Username = ?').get(uName)?.UserID : null);
+        if (!userId) return null;
+        const scopes = connection._db.prepare('SELECT SiteID FROM UserScopes WHERE UserID = ?').all(userId);
+        if (scopes && scopes.length > 0) return scopes.map((s) => s.SiteID);
+    } catch (_) {}
+    return null;
+}
 
 async function getNextInvoiceNo(dateStr) {
     const date = dateStr ? new Date(dateStr) : new Date();
@@ -76,6 +91,11 @@ router.get('/api/invoices', async (req, res) => {
         if (status && String(status).trim() && String(status) !== 'All') {
             conds.push(`Status = ${sql.q(status)}`);
         }
+        const allowedSites = getScopedSiteFilter(req);
+        if (allowedSites && allowedSites.length > 0) {
+            const siteList = allowedSites.map((s) => sql.q(s)).join(', ');
+            conds.push(`SiteID IN (${siteList})`);
+        }
         const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
         if (page === undefined) {
@@ -131,9 +151,9 @@ router.get('/api/invoices/export', async (req, res) => {
         const data = await connection.query(sqlStr);
 
         const formattedData = data.map((row) => ({
-            'Invoice Number': row.InvoiceNo,
-            'Description': row.ItemDescription,
-            'Unit': row.Unit,
+            'Invoice Number': sanitizeFormula(row.InvoiceNo),
+            'Description': sanitizeFormula(row.ItemDescription),
+            'Unit': sanitizeFormula(row.Unit),
             'Qty': row.Qty,
             'Rate': row.Rate,
             'Amount': row.Amount,
@@ -159,7 +179,12 @@ router.get('/api/invoices/:id', async (req, res) => {
     try {
         const id = sql.n(req.params.id);
         const invoice = await connection.query(`SELECT * FROM Invoices WHERE InvoiceID = ${id}`);
-        if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found' });
+        if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found', code: 'NOT_FOUND' });
+
+        const allowedSites = getScopedSiteFilter(req);
+        if (allowedSites && allowedSites.length > 0 && !allowedSites.includes(invoice[0].SiteID || 'main')) {
+            return res.status(404).json({ error: 'Invoice not found', code: 'NOT_FOUND' });
+        }
 
         const items = await connection.query(`
             SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
@@ -308,7 +333,7 @@ async function resolveOwnership(body) {
 // Column list + value tuple shared by draft insert and finalize.
 
 function invoiceHeaderColumns() {
-    return `InvoiceNo, InvoiceDate, PONo, PODate, DeliveryDate, BilledToName, BilledToAddress, DeliveredToName, DeliveredToAddress, SubTotal, SSCLRate, SSCLAmount, VATRate, VATAmount, Discount, RoundOff, GrandTotal, CustomerID, MachineID, IsInternal`;
+    return `InvoiceNo, InvoiceDate, PONo, PODate, DeliveryDate, BilledToName, BilledToAddress, DeliveredToName, DeliveredToAddress, SubTotal, SSCLRate, SSCLAmount, VATRate, VATAmount, Discount, RoundOff, GrandTotal, CustomerID, MachineID, IsInternal, SiteID`;
 }
 
 function invoiceHeaderValues(body, totals, invoiceNo, ownership = {}) {
@@ -316,7 +341,8 @@ function invoiceHeaderValues(body, totals, invoiceNo, ownership = {}) {
     const custId = ownership.customerId != null ? ownership.customerId : (body.customerId ? sql.n(body.customerId) : 'NULL');
     const machId = ownership.machineId != null ? ownership.machineId : (body.machineId ? sql.n(body.machineId) : 'NULL');
     const internal = ownership.isInternal != null ? (ownership.isInternal ? 1 : 0) : (body.isInternal ? 1 : 0);
-    return `${sql.q(invoiceNo)}, ${sql.dbDate(invDate)}, ${sql.q(body.poNo)}, ${sql.dbDate(body.poDate)}, ${sql.dbDate(body.deliveryDate)}, ${sql.q(body.billedToName)}, ${sql.q(body.billedToAddress)}, ${sql.q(body.deliveredToName)}, ${sql.q(body.deliveredToAddress)}, ${totals.subTotal}, ${totals.ssclRate}, ${totals.ssclAmount}, ${totals.vatRate}, ${totals.vatAmount}, ${totals.discount}, ${totals.roundOff}, ${totals.grandTotal}, ${custId}, ${machId}, ${internal}`;
+    const siteId = body.siteId ? sql.q(body.siteId) : "'main'";
+    return `${sql.q(invoiceNo)}, ${sql.dbDate(invDate)}, ${sql.q(body.poNo)}, ${sql.dbDate(body.poDate)}, ${sql.dbDate(body.deliveryDate)}, ${sql.q(body.billedToName)}, ${sql.q(body.billedToAddress)}, ${sql.q(body.deliveredToName)}, ${sql.q(body.deliveredToAddress)}, ${totals.subTotal}, ${totals.ssclRate}, ${totals.ssclAmount}, ${totals.vatRate}, ${totals.vatAmount}, ${totals.discount}, ${totals.roundOff}, ${totals.grandTotal}, ${custId}, ${machId}, ${internal}, ${siteId}`;
 }
 
 // Create or update a DRAFT invoice. Recomputes all money server-side.
@@ -385,6 +411,18 @@ router.post('/api/invoices/draft', async (req, res) => {
 
 router.post('/api/invoices/finalize', async (req, res) => {
     const body = req.body || {};
+    const key = req.headers['idempotency-key'] || body.idempotencyKey;
+    const actor = (req.user && (req.user.sub || req.user.username)) || 'anonymous';
+    if (key) {
+        const idemp = checkIdempotency(connection._db, key, actor, body);
+        if (idemp.match) {
+            if (idemp.mismatch) {
+                return res.status(409).json({ error: 'Payload does not match idempotency key.', code: 'IDEMPOTENCY_PAYLOAD_MISMATCH' });
+            }
+            return res.status(idemp.cached.status).json(idemp.cached.body);
+        }
+    }
+
     const items = normaliseItems(body.items);
 
     // Validate structure + customer before touching the database.
@@ -410,7 +448,12 @@ router.post('/api/invoices/finalize', async (req, res) => {
             // Stock validation inside the lock (avoids check/deduct races).
             const { stockById, nameById } = await loadStock(items);
             const stockCheck = billing.validateInvoice({ ...body, items }, { checkStock: true, stockById, nameById });
-            if (!stockCheck.ok) { const e = new Error(stockCheck.errors.join(' ')); e.httpStatus = 400; throw e; }
+            if (!stockCheck.ok) {
+                const e = new Error(stockCheck.errors.join(' '));
+                e.httpStatus = 409;
+                e.code = 'INSUFFICIENT_STOCK';
+                throw e;
+            }
 
             let invoiceId;
             let invoiceNo;
@@ -462,12 +505,23 @@ router.post('/api/invoices/finalize', async (req, res) => {
                 if (usedExistingDraft) {
                     const paymentStatus = ownership.isInternal ? 'Not Applicable' : 'Unpaid';
                     await connection.execute(
-                        `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(invDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, Status = 'Finalized', PaymentStatus = '${paymentStatus}', FinalizedAt = Now(), CustomerID = ${ownership.customerId != null ? ownership.customerId : 'NULL'}, MachineID = ${ownership.machineId != null ? ownership.machineId : 'NULL'}, IsInternal = ${ownership.isInternal ? 1 : 0} WHERE InvoiceID = ${invoiceId}`
+                        `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(invDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, Status = 'Finalized', PaymentStatus = '${paymentStatus}', FinalizedAt = Now(), CustomerID = ${ownership.customerId != null ? ownership.customerId : 'NULL'}, MachineID = ${ownership.machineId != null ? ownership.machineId : 'NULL'}, IsInternal = ${ownership.isInternal ? 1 : 0}, SiteID = ${body.siteId ? sql.q(body.siteId) : "'main'"} WHERE InvoiceID = ${invoiceId}`
                     );
                 }
 
                 // Post the sale to the ledger. If ledger posting fails, it throws and unwinds!
                 posting = glPosting.postInvoice(invoiceId, { postedBy: req.user && req.user.username });
+
+                // Transactional Business Audit (AUD-01, T26)
+                auditLog.recordBusinessAudit(connection._db, {
+                    actorId: actor,
+                    actorRole: req.user && req.user.role,
+                    action: 'finalize_invoice',
+                    entityType: 'Invoices',
+                    entityId: String(invoiceId),
+                    payloadAfter: { invoiceId, invoiceNo, totals, isInternal: ownership.isInternal },
+                    reason: 'Invoice finalization',
+                });
             } catch (workErr) {
                 try {
                     for (const d of applied) {
@@ -487,9 +541,13 @@ router.post('/api/invoices/finalize', async (req, res) => {
             return { invoiceId, invoiceNo, posting };
         });
 
-        res.json({ success: true, invoiceId: result.invoiceId, invoiceNo: result.invoiceNo, totals, posting: result.posting });
+        const resp = { success: true, invoiceId: result.invoiceId, invoiceNo: result.invoiceNo, totals, posting: result.posting };
+        if (key) {
+            recordIdempotency(connection._db, key, actor, 'finalize_invoice', body, 200, resp);
+        }
+        res.json(resp);
     } catch (err) {
-        res.status(err.httpStatus || 500).json({ error: err.message });
+        res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
     }
 });
 
@@ -988,9 +1046,10 @@ router.get('/api/invoices/:id/pdf', async (req, res) => {
             FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}`);
 
-        // billType is a display-only print preference (never stored).
-        const billType = req.query.billType === 'outside' ? 'outside' : 'inside';
-        const html = buildInvoiceHtml(invoice[0], items, { billType });
+        // billType / DocumentView preference
+        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
+        const billType = docView === 'CUSTOMER' ? 'outside' : 'inside';
+        const html = buildInvoiceHtml(invoice[0], items, { billType, documentView: docView });
         const buffer = await pdf.htmlToPdf(html);
         const safeNo = String(invoice[0].InvoiceNo || `invoice-${id}`).replace(/[^\w.-]+/g, '_');
         const suffix = billType === 'outside' ? '_customer' : '';
@@ -1000,6 +1059,26 @@ router.get('/api/invoices/:id/pdf', async (req, res) => {
     } catch (err) {
         console.error('PDF generation failed:', err.message);
         res.status(500).json({ error: 'Could not generate PDF. ' + err.message });
+    }
+});
+
+router.get('/api/invoices/:id/html', async (req, res) => {
+    try {
+        const id = sql.n(req.params.id);
+        const invoice = await connection.query(`SELECT * FROM Invoices WHERE InvoiceID = ${id}`);
+        if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found' });
+        const items = await connection.query(`
+            SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
+            FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
+            WHERE InvoiceItems.InvoiceID = ${id}`);
+
+        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
+        const billType = docView === 'CUSTOMER' ? 'outside' : 'inside';
+        const html = buildInvoiceHtml(invoice[0], items, { billType, documentView: docView });
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

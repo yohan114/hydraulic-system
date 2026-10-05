@@ -13,11 +13,14 @@
 
 const express = require('express');
 const xlsx = require('xlsx');
+const connection = require('../db');
 const money = require('../lib/money');
 const jobProfit = require('../services/jobProfit');
 const { buildExportModel, SUNDRY_RATE } = require('../services/jobProfitExport');
 const pdf = require('../services/pdf');
 const { buildJobProfitHtml } = require('../services/jobProfitPdf');
+const { sanitizeFormula } = require('../lib/sanitize');
+const auditLog = require('../lib/auditLog');
 const router = express.Router();
 
 function parseOpts(q) {
@@ -115,7 +118,7 @@ function put(ws, col, row, value, opts = {}) {
   } else {
     if (value == null || value === '') return;
     cell.t = 's';
-    cell.v = String(value);
+    cell.v = sanitizeFormula(String(value));
   }
   if (opts.z) cell.z = opts.z;
   ws[ref] = cell;
@@ -348,6 +351,18 @@ router.get('/api/job-profit/excel', async (req, res) => {
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, buildProfitSheet(model, periodLabel(opts)), 'Profit Analysis');
     const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    // Record Security Audit log (AUD-02, T27)
+    auditLog.recordSecurityAudit(connection._db, {
+      actorId: (req.user && (req.user.sub || req.user.username)) || 'anonymous',
+      actorRole: req.user && req.user.role,
+      action: 'export_download',
+      resource: '/api/job-profit/excel',
+      ip: req.ip || (req.socket && req.socket.remoteAddress),
+      rowCount: model.blocks.length,
+      details: { format: 'xlsx', blockCount: model.blocks.length },
+    });
+
     res.setHeader('Content-Disposition', 'attachment; filename="Job_Profit_Analysis.xlsx"');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buffer);

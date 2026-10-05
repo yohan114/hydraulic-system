@@ -7,6 +7,7 @@ const billing = require('../services/billing');
 const glPosting = require('../services/glPosting');
 const revision = require('../services/invoiceRevision');
 const { invoiceMutex } = require('../lib/mutex');
+const auditLog = require('../lib/auditLog');
 const router = express.Router();
 
 router.get('/api/invoices/:id/payments', async (req, res) => {
@@ -47,10 +48,23 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
     try {
         const id = sql.n(req.params.id);
         const body = req.body || {};
+
+        // T21: Protected extra fields submitted must be rejected
+        const FORBIDDEN_FIELDS = ['AmountPaid', 'amountPaid', 'IsInternal', 'isInternal', 'Status', 'status', 'Role', 'role'];
+        for (const f of FORBIDDEN_FIELDS) {
+            if (body[f] !== undefined) {
+                return res.status(400).json({
+                    error: `Protected field '${f}' cannot be supplied by the client. Server derives all payment totals and state.`,
+                    code: 'INVALID_PROTECTED_FIELD',
+                });
+            }
+        }
+
         const amount = money.round2(body.amount);
         if (!(amount > 0)) return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
 
         let posting = null;
+        let createdPaymentId = null;
         await invoiceMutex.runExclusive(async () => {
             const invoice = await connection.query(`SELECT GrandTotal, AmountPaid, Status, IsInternal FROM Invoices WHERE InvoiceID = ${id}`);
             if (invoice.length === 0) { const e = new Error('Invoice not found'); e.httpStatus = 404; throw e; }
@@ -76,6 +90,7 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
                  VALUES (${id}, ${amount}, ${sql.dbDate(body.date) === 'NULL' ? 'Now()' : sql.dbDate(body.date)}, ${sql.q(body.method || 'Cash')}, ${sql.q(body.notes)}, Now())`
             );
             const paymentId = insRes.lastInsertRowid;
+            createdPaymentId = paymentId;
 
             try {
                 connection._db.prepare(`
@@ -102,6 +117,17 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
             // Post the receipt atomically: if GL posting fails, unwind the payment
             try {
                 posting = glPosting.postPayment(paymentId, { postedBy: req.user && req.user.username });
+
+                // Transactional Business Audit (AUD-01, T26)
+                auditLog.recordBusinessAudit(connection._db, {
+                    actorId: (req.user && (req.user.sub || req.user.username)) || 'cashier',
+                    actorRole: req.user && req.user.role,
+                    action: 'payment_received',
+                    entityType: 'Payments',
+                    entityId: String(paymentId),
+                    payloadAfter: { paymentId, invoiceId: id, amount, method: body.method || 'Cash' },
+                    reason: body.notes || 'Customer invoice payment receipt',
+                });
             } catch (postErr) {
                 try {
                     connection._db.prepare('DELETE FROM ReceiptAllocations WHERE PaymentID = ?').run(paymentId);
@@ -120,9 +146,88 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
         const invoice = await connection.query(`SELECT GrandTotal, AmountPaid FROM Invoices WHERE InvoiceID = ${id}`);
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
 
-        res.json({ success: true, amountPaid: pay.amountPaid, balance: pay.balance, status: pay.status, posting });
+        res.json({ success: true, paymentId: createdPaymentId, amountPaid: pay.amountPaid, balance: pay.balance, status: pay.status, posting });
     } catch (err) {
-        res.status(err.httpStatus || 500).json({ error: 'Could not record payment. Ensure the database is migrated. ' + err.message });
+        res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
+    }
+});
+
+// Reallocate payment between invoices (T11)
+router.post('/api/payments/:id/reallocate', async (req, res) => {
+    try {
+        const paymentId = Number(req.params.id);
+        const body = req.body || {};
+        const targetInvoiceId = Number(body.targetInvoiceId);
+        if (!targetInvoiceId) return res.status(400).json({ error: 'targetInvoiceId is required.' });
+
+        const db = connection._db;
+        const payment = db.prepare('SELECT * FROM Payments WHERE PaymentID = ?').get(paymentId);
+        if (!payment) return res.status(404).json({ error: 'Payment not found.' });
+        if (payment.VoidedAt) return res.status(400).json({ error: 'Cannot reallocate a voided payment.' });
+
+        const sourceInvoiceId = payment.InvoiceID;
+        if (sourceInvoiceId === targetInvoiceId) {
+            return res.status(400).json({ error: 'Target invoice must be different from source invoice.' });
+        }
+
+        const sourceInv = db.prepare('SELECT * FROM Invoices WHERE InvoiceID = ?').get(sourceInvoiceId);
+        const targetInv = db.prepare('SELECT * FROM Invoices WHERE InvoiceID = ?').get(targetInvoiceId);
+        if (!sourceInv || !targetInv) return res.status(404).json({ error: 'Source or target invoice not found.' });
+        if (targetInv.Status !== 'Finalized') return res.status(400).json({ error: 'Target invoice must be Finalized.' });
+        if (targetInv.IsInternal === 1) return res.status(409).json({ error: 'Cannot reallocate payment to internal work.' });
+
+        const amount = body.amount != null ? money.round2(Number(body.amount)) : money.round2(payment.Amount);
+        if (!(amount > 0) || amount > payment.Amount + 0.005) {
+            return res.status(400).json({ error: 'Reallocation amount exceeds payment amount.' });
+        }
+
+        db.transaction(() => {
+            // Update Payments row to point to target invoice
+            db.prepare('UPDATE Payments SET InvoiceID = ? WHERE PaymentID = ?').run(targetInvoiceId, paymentId);
+
+            // Replace ReceiptAllocations
+            db.prepare('DELETE FROM ReceiptAllocations WHERE PaymentID = ?').run(paymentId);
+            db.prepare(`
+                INSERT INTO ReceiptAllocations (PaymentID, InvoiceID, Amount, AllocatedAt, AllocatedBy)
+                VALUES (?, ?, ?, datetime('now', 'localtime'), ?)
+            `).run(paymentId, targetInvoiceId, amount, (req.user && (req.user.sub || req.user.username)) || 'system');
+
+            // Re-derive source invoice balance
+            const srcSum = db.prepare('SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ? AND VoidedAt IS NULL').get(sourceInvoiceId);
+            const srcPaid = money.round2(money.num(srcSum && srcSum.total));
+            const srcPay = billing.paymentStatus(sourceInv.GrandTotal, srcPaid);
+            db.prepare('UPDATE Invoices SET AmountPaid = ?, PaymentStatus = ? WHERE InvoiceID = ?')
+              .run(srcPaid, srcPay.status, sourceInvoiceId);
+
+            // Re-derive target invoice balance
+            const tgtSum = db.prepare('SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ? AND VoidedAt IS NULL').get(targetInvoiceId);
+            const tgtPaid = money.round2(money.num(tgtSum && tgtSum.total));
+            const tgtPay = billing.paymentStatus(targetInv.GrandTotal, tgtPaid);
+            db.prepare('UPDATE Invoices SET AmountPaid = ?, PaymentStatus = ? WHERE InvoiceID = ?')
+              .run(tgtPaid, tgtPay.status, targetInvoiceId);
+
+            // Audit log
+            auditLog.recordBusinessAudit(db, {
+                actorId: (req.user && (req.user.sub || req.user.username)) || 'cashier',
+                actorRole: req.user && req.user.role,
+                action: 'payment_reallocated',
+                entityType: 'Payments',
+                entityId: String(paymentId),
+                payloadBefore: { invoiceId: sourceInvoiceId, amount: payment.Amount },
+                payloadAfter: { invoiceId: targetInvoiceId, amount },
+                reason: body.notes || `Reallocated from Invoice #${sourceInv.InvoiceNo} to #${targetInv.InvoiceNo}`,
+            });
+        })();
+
+        res.json({
+            success: true,
+            paymentId,
+            sourceInvoiceId,
+            targetInvoiceId,
+            amount,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

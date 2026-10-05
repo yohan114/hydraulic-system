@@ -106,4 +106,31 @@ async function backupBeforeMigration(db, label, opts = {}) {
   return dest;
 }
 
-module.exports = { runStartupBackup, backupBeforeMigration, filesToPrune, todayStamp, KEEP_DAYS };
+/**
+ * Verifies backup file integrity using SQLite's internal integrity check and foreign key check.
+ * @param {string} backupFile absolute path to backup sqlite db file
+ * @returns {{ ok: boolean, integrityResult: string, foreignKeysOk: boolean, fkErrors: any[] }}
+ */
+function verifyBackupIntegrity(backupFile) {
+  if (!fs.existsSync(backupFile)) {
+    throw new Error(`Backup file not found: ${backupFile}`);
+  }
+  const Database = require('better-sqlite3');
+  const tempDb = new Database(backupFile, { readonly: true });
+  try {
+    const integrity = tempDb.pragma('integrity_check');
+    const fkCheck = tempDb.pragma('foreign_key_check');
+    const ok = integrity.length === 1 && integrity[0].integrity_check === 'ok';
+    const foreignKeysOk = fkCheck.length === 0;
+    return {
+      ok: ok && foreignKeysOk,
+      integrityResult: integrity[0] ? integrity[0].integrity_check : 'unknown',
+      foreignKeysOk,
+      fkErrors: fkCheck
+    };
+  } finally {
+    tempDb.close();
+  }
+}
+
+module.exports = { runStartupBackup, backupBeforeMigration, verifyBackupIntegrity, filesToPrune, todayStamp, KEEP_DAYS };

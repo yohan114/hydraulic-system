@@ -70,6 +70,7 @@ app.use(require('./routes/procurement'));
 app.use(require('./routes/jobs'));
 app.use(require('./routes/controls'));
 app.use(require('./routes/credits'));
+app.use(require('./routes/reconciliation'));
 
 async function start() {
   try {

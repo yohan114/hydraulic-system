@@ -83,12 +83,16 @@ function outsideDesc(desc, unit) {
  * @returns {string}
  */
 function buildInvoiceHtml(invoice, items, opts = {}) {
-  const outside = opts.billType === 'outside';
+  const docView = opts.documentView || (opts.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
+  const outside = docView === 'CUSTOMER' || opts.billType === 'outside';
+  const isDetailed = docView === 'COMPANY_DETAILED';
+
   const rows = (items || []).map((it) => ({
     desc: it.ItemDescription || it.ProductName || '',
     unit: it.Unit || '',
     qty: money.num(it.Qty),
     rate: money.num(it.Rate),
+    cost: money.num(it.UnitCostAtBilling != null ? it.UnitCostAtBilling : it.Cost),
   }));
 
   const totals = billing.computeTotals({
@@ -99,6 +103,8 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
     roundToRupee: Math.abs(money.num(invoice.RoundOff)) > 0,
   });
 
+  const totalCost = money.round2(rows.reduce((a, r) => a + money.round2(r.qty * r.cost), 0));
+
   const itemRows = rows.map((r, i) => {
     const desc = outside ? outsideDesc(r.desc, r.unit) : r.desc;
     const qtyCell = outside ? `${r.qty}` : `${r.qty}${r.unit ? ' ' + esc(r.unit) : ''}`;
@@ -108,6 +114,7 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
       <td>${esc(desc)}</td>
       <td class="c">${qtyCell}</td>
       <td class="r">${fmt(r.rate)}</td>
+      ${isDetailed ? `<td class="r">${fmt(r.cost)}</td><td class="r">${fmt(money.round2(r.qty * r.cost))}</td>` : ''}
       <td class="r">${fmt(money.round2(r.qty * r.rate))}</td>
     </tr>`;
   }).join('');
@@ -115,7 +122,15 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
   const taxRow = (label, val) => `<tr><td>${label}</td><td class="r">${fmt(val)}</td></tr>`;
   const logo = assetDataUri('logo.png');
   const sign = assetDataUri('signature.png');
-  const copyBadge = outside ? 'OUTSIDE BILL — Customer Copy' : 'INTERNAL BILL — Company Copy';
+
+  const isInternal = !!invoice.IsInternal;
+  const copyBadge = isInternal
+    ? 'INTERNAL SERVICE / COST STATEMENT — Own Fleet'
+    : isDetailed
+      ? 'COMPANY DETAILED COPY — Internal Review'
+      : outside
+        ? 'OUTSIDE BILL — Customer Copy'
+        : 'INTERNAL BILL — Company Copy';
 
   // A superseded or void invoice must never be mistaken for a live one once it
   // is off the screen and on paper in someone's hand.
@@ -198,8 +213,8 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
     </div>
 
     <table class="items">
-      <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
-      <tbody>${itemRows || '<tr><td colspan="5" class="c">No items</td></tr>'}</tbody>
+      <thead><tr><th class="c">#</th><th>Description</th><th class="c">Qty</th><th class="r">Rate</th>${isDetailed ? '<th class="r">Unit Cost</th><th class="r">Total Cost</th>' : ''}<th class="r">Amount</th></tr></thead>
+      <tbody>${itemRows || `<tr><td colspan="${isDetailed ? 7 : 5}" class="c">No items</td></tr>`}</tbody>
     </table>
 
     <div class="totals"><table>
@@ -209,6 +224,7 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
       ${totals.discount ? taxRow('Discount', -totals.discount) : ''}
       ${totals.roundOff ? taxRow('Round Off', totals.roundOff) : ''}
       <tr class="grand"><td>Total Due</td><td class="r">${fmt(totals.grandTotal)}</td></tr>
+      ${isDetailed ? `<tr><td>Total Cost</td><td class="r">${fmt(totalCost)}</td></tr><tr><td>Gross Margin</td><td class="r">${fmt(totals.grandTotal - totalCost)}</td></tr>` : ''}
     </table></div>
 
     ${invoice.Notes ? `<div class="notes"><strong>Notes:</strong> ${esc(invoice.Notes)}</div>` : ''}

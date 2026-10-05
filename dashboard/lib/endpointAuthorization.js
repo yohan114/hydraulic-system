@@ -23,7 +23,8 @@ const ROLE_PERMISSIONS = {
     'inventory.read', 'inventory.adjust', 'inventory.cost.view',
     'journal.read', 'journal.create', 'journal.reverse',
     'period.close', 'period.reopen',
-    'report.financial.view', 'report.financial.export', 'report.operational.view',
+    'report.financial.view', 'report.financial.export', 'report.financial.reconcile', 'report.operational.view',
+    'audit.security.view',
     'customer.manage', 'supplier.manage', 'pricing.manage', 'job.manage', 'procurement.manage',
   ]),
   cashier: new Set([
@@ -60,6 +61,7 @@ const POLICIES = [
   { method: 'GET', pattern: /^\/api\/invoices\/export$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+\/pdf$/, permission: 'invoice.read' },
+  { method: 'GET', pattern: /^\/api\/invoices\/\d+\/html$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+\/compare$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+\/compare-export$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+\/revisions$/, permission: 'invoice.read' },
@@ -73,6 +75,7 @@ const POLICIES = [
   { method: 'GET', pattern: /^\/api\/invoices\/\d+\/payments$/, permission: 'receipt.read' },
   { method: 'POST', pattern: /^\/api\/invoices\/\d+\/payments$/, permission: 'receipt.create' },
   { method: 'POST', pattern: /^\/api\/payments\/\d+\/void$/, permission: 'receipt.correct' },
+  { method: 'POST', pattern: /^\/api\/payments\/\d+\/reallocate$/, permission: 'receipt.correct' },
 
   // --- Credits & Refunds ---
   { method: 'GET', pattern: /^\/api\/credits$/, permission: 'receipt.read' },
@@ -117,6 +120,7 @@ const POLICIES = [
   { method: 'POST', pattern: /^\/api\/ledger\/periods\/.*\/close$/, permission: 'period.close' },
   { method: 'POST', pattern: /^\/api\/ledger\/periods\/.*\/reopen$/, permission: 'period.reopen' },
   { method: 'POST', pattern: /^\/api\/ledger\/close-year$/, permission: 'period.close' },
+  { method: 'GET', pattern: /^\/api\/reconciliation(\/.*)?$/, permission: 'report.financial.reconcile' },
 
   // --- Assets & Controls ---
   { method: 'GET', pattern: /^\/api\/assets(\/.*)?$/, permission: 'report.financial.view' },

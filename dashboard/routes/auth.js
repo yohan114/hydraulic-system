@@ -13,7 +13,7 @@ const TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
 // The three roles, most→least privileged. Anything unrecognised is treated as
 // the built-in admin (covers legacy rows created before roles existed).
-const ROLES = ['admin', 'cashier', 'viewer'];
+const ROLES = ['admin', 'manager', 'cashier', 'viewer'];
 function normaliseRole(r) { return ROLES.includes(r) ? r : 'admin'; }
 
 // Persisted signing secret. Lives one level up from routes/ (repo dashboard/).
