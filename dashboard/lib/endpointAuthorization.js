@@ -84,6 +84,7 @@ const POLICIES = [
   { method: 'POST', pattern: /^\/api\/credits\/\d+\/refund\/approve$/, permission: 'refund.approve' },
   { method: 'POST', pattern: /^\/api\/credits\/\d+\/refund\/execute$/, permission: 'refund.execute' },
   { method: 'POST', pattern: /^\/api\/credits\/\d+\/refund$/, permission: 'refund.execute' },
+  { method: 'GET', pattern: /^\/api\/approvals$/, permission: 'receipt.read' },
 
   // --- Inventory & Stock ---
   { method: 'GET', pattern: /^\/api\/inventory$/, permission: 'inventory.read' },

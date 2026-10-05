@@ -428,7 +428,8 @@ function getOutsideDesc(item) {
 }
 
 function setBillType(type) {
-    billType = type === 'outside' ? 'outside' : 'inside';
+    billType = type === 'detailed' ? 'detailed' : type === 'outside' ? 'outside' : 'inside';
+    applyBillTypeUI();
     renderInvoiceItems();
 }
 
@@ -436,16 +437,29 @@ function setBillType(type) {
 // the printed copy badge. Display-only; nothing here is persisted.
 function applyBillTypeUI() {
     const outside = billType === 'outside';
+    const detailed = billType === 'detailed';
     const insideBtn = document.getElementById('billTypeInside');
     const outsideBtn = document.getElementById('billTypeOutside');
-    if (insideBtn) insideBtn.classList.toggle('active', !outside);
+    const detailedBtn = document.getElementById('billTypeDetailed');
+
+    if (insideBtn) insideBtn.classList.toggle('active', billType === 'inside');
     if (outsideBtn) outsideBtn.classList.toggle('active', outside);
+    if (detailedBtn) detailedBtn.classList.toggle('active', detailed);
+
     const table = document.getElementById('itemsTable');
-    if (table) table.classList.toggle('outside-bill', outside);
+    if (table) {
+        table.classList.toggle('outside-bill', outside);
+        table.classList.toggle('detailed-bill', detailed);
+    }
     const badge = document.getElementById('copyBadge');
     if (badge) {
-        badge.textContent = outside ? 'OUTSIDE BILL — Customer Copy' : 'INTERNAL BILL — Company Copy';
+        badge.textContent = detailed
+            ? 'COMPANY DETAILED COPY — Internal Review'
+            : outside
+                ? 'OUTSIDE BILL — Customer Copy'
+                : 'INTERNAL BILL — Company Copy';
         badge.classList.toggle('outside', outside);
+        badge.classList.toggle('detailed', detailed);
     }
 }
 
@@ -893,8 +907,9 @@ async function downloadInvoicePdf() {
     const original = btn ? btn.innerHTML : '';
     try {
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ri-loader-4-line"></i> Generating...'; }
-        // Pass the current bill-type so the PDF matches the on-screen view.
-        const res = await authFetch(`${API_URL}/invoices/${currentInvoiceId}/pdf?billType=${billType}`);
+        // Pass the current bill-type and document-view so the PDF matches the on-screen view.
+        const docView = billType === 'detailed' ? 'COMPANY_DETAILED' : billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED';
+        const res = await authFetch(`${API_URL}/invoices/${currentInvoiceId}/pdf?billType=${billType}&documentView=${docView}`);
         if (!res.ok) {
             let msg = 'Could not generate PDF.';
             try { const e = await res.json(); if (e.error) msg = e.error; } catch (_) {}
@@ -954,7 +969,10 @@ async function openPaymentModal(invoiceId, invoiceNo) {
                     // payment form, so a default-type button would submit it.
                     const action = voided
                         ? `<span class="badge badge-cancelled" title="${escAttr(p.VoidReason || '')}">Voided</span>`
-                        : `<button type="button" class="btn btn-text" style="color:var(--danger)" onclick="voidPayment(${p.PaymentID})">Void</button>`;
+                        : `<div style="display:flex;gap:4px;">
+                            <button type="button" class="btn btn-text" style="color:var(--primary);font-size:12px;padding:2px 6px;" onclick="openReallocatePaymentModal(${p.PaymentID}, ${p.Amount}, '${escAttr(invoiceNo)}')">Reallocate</button>
+                            <button type="button" class="btn btn-text" style="color:var(--danger);font-size:12px;padding:2px 6px;" onclick="voidPayment(${p.PaymentID})">Void</button>
+                           </div>`;
                     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border-color);${voided ? 'opacity:.55;' : ''}">
                         <span${strike}>${formatDate(p.PaymentDate)} · ${escAttr(p.Method || '')}</span>
                         <strong${strike}>${formatCurrency(p.Amount)}</strong>
@@ -998,6 +1016,44 @@ async function voidPayment(paymentId) {
         loadHistory();
         loadDashboard();
     } catch (err) { toast(err.message || String(err), 'error'); }
+}
+
+function openReallocatePaymentModal(paymentId, amount, invoiceNo) {
+    document.getElementById('realloc-payment-id').value = paymentId;
+    document.getElementById('realloc-source-invoice-id').value = currentInvoiceId;
+    document.getElementById('realloc-source-invoice-no').textContent = invoiceNo || `Invoice #${currentInvoiceId}`;
+    document.getElementById('realloc-max-amount').textContent = formatCurrency(amount);
+    document.getElementById('realloc-amount').value = amount;
+    document.getElementById('realloc-amount').max = amount;
+    document.getElementById('realloc-target-invoice-id').value = '';
+    document.getElementById('realloc-notes').value = '';
+    openModal('reallocatePaymentModal');
+}
+
+async function submitReallocatePayment(e) {
+    e.preventDefault();
+    const paymentId = document.getElementById('realloc-payment-id').value;
+    const targetInvoiceId = Number(document.getElementById('realloc-target-invoice-id').value);
+    const amount = Number(document.getElementById('realloc-amount').value);
+    const notes = document.getElementById('realloc-notes').value;
+
+    if (!targetInvoiceId) return toast('Please enter a valid target Invoice ID', 'error');
+    if (!(amount > 0)) return toast('Please enter a valid amount', 'error');
+
+    try {
+        const res = await authFetch(`${API_URL}/payments/${paymentId}/reallocate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetInvoiceId, amount, notes }),
+        });
+        const data = await res.json();
+        if (!res.ok) return toast(data.error || 'Could not reallocate payment', 'error');
+
+        closeModal('reallocatePaymentModal');
+        toast(`Payment reallocated successfully to Invoice #${data.targetInvoiceId}`, 'success');
+        openPaymentModal(currentInvoiceId, document.getElementById('realloc-source-invoice-no').textContent);
+        if (typeof loadHistory === 'function') loadHistory();
+    } catch (err) { toast(String(err), 'error'); }
 }
 
 function setFullPayment() {

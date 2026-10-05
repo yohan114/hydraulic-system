@@ -54,6 +54,31 @@ router.get('/api/credits', async (req, res) => {
   }
 });
 
+// 1b. List approvals (pending, approved, consumed, rejected)
+router.get('/api/approvals', async (req, res) => {
+  try {
+    const db = connection._db;
+    const status = req.query.status || null;
+    let query = `
+      SELECT a.*, c.CustomerID, cust.Name AS CustomerName, c.RemainingAmount AS CreditRemaining
+      FROM Approvals a
+      LEFT JOIN CustomerCredits c ON c.CreditID = CAST(a.TargetID AS INTEGER)
+      LEFT JOIN Customers cust ON cust.CustomerID = c.CustomerID
+      WHERE 1=1
+    `;
+    const params = [];
+    if (status) {
+      query += ' AND a.Status = ?';
+      params.push(status);
+    }
+    query += ' ORDER BY a.ApprovalID DESC';
+    const rows = db.prepare(query).all(...params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2. Get single credit detail
 router.get('/api/credits/:id', async (req, res) => {
   try {
