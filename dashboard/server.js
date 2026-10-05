@@ -17,6 +17,10 @@ const { auditMiddleware } = require('./lib/audit');
 const { router: authRouter, requireAuth, viewerReadOnlyGuard } = require('./routes/auth');
 
 const PORT = process.env.PORT || 9999;
+if (process.env.NODE_ENV === 'production' && process.env.BILLING_AUTH === 'off') {
+  console.error('FATAL: BILLING_AUTH cannot be set to "off" in production environment.');
+  process.exit(1);
+}
 const AUTH_ENABLED = process.env.BILLING_AUTH !== 'off';
 const FALLBACK_PASSWORD = process.env.BILLING_PASSWORD || 'admin123';
 
@@ -91,9 +95,12 @@ async function start() {
 
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(AUTH_ENABLED
-      ? `Authentication ON. Default login: admin / ${FALLBACK_PASSWORD} (change it in the app).`
-      : 'Authentication OFF (BILLING_AUTH=off).');
+    if (AUTH_ENABLED) {
+      const isCustom = !!process.env.BILLING_PASSWORD;
+      console.log(`Authentication ON. ${isCustom ? 'Configured password in use.' : 'Default admin password in use (change it in settings).'}`);
+    } else {
+      console.log('Authentication OFF (BILLING_AUTH=off).');
+    }
   }).on('error', (err) => {
     console.error('Failed to start server:', err.message);
     process.exit(1);

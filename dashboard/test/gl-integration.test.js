@@ -271,3 +271,41 @@ test('journal numbers run in sequence within a period', () => {
   assert.deepEqual(seqs, seqs.slice().sort((a, b) => a - b));
   assert.equal(new Set(nos).size, nos.length, 'journal numbers must be unique');
 });
+
+test('payments cannot be recorded against internal work (T02)', async () => {
+  const internalId = makeInvoice({
+    no: 'INT/REFUSE/1', date: '2026-08-25', internal: true,
+    lines: [{ desc: 'Internal seal', qty: 1, rate: 500, cost: 200 }],
+  });
+  const res = await app.post(`/api/invoices/${internalId}/payments`, {
+    amount: 500, method: 'Cash', date: '2026-08-25',
+  });
+  assert.equal(res.status, 409, 'direct API payment against internal work must be rejected with 409 Conflict');
+  assert.match(res.body.error, /internal company work/);
+});
+
+test('invoice finalization is atomic with GL posting (T07)', async () => {
+  const gl = require('../services/glPosting');
+  const originalPost = gl.postInvoice;
+  try {
+    // Inject GL posting failure
+    gl.postInvoice = () => {
+      throw new Error('injected ledger failure for atomicity test');
+    };
+
+    const res = await app.post('/api/invoices/finalize', {
+      invoiceDate: '2026-08-25',
+      billedToName: 'Atomic Customer',
+      items: [{ description: 'Hydraulic Hose', unit: 'm', qty: 1, rate: 1000, cost: 500 }],
+    });
+
+    assert.equal(res.status, 500);
+    assert.match(res.body.error, /injected ledger failure/);
+
+    const orphan = db.prepare("SELECT * FROM Invoices WHERE BilledToName = 'Atomic Customer'").get();
+    assert.equal(orphan, undefined, 'no un-posted invoice may survive in the database');
+  } finally {
+    gl.postInvoice = originalPost;
+  }
+});
+

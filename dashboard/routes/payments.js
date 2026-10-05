@@ -45,9 +45,15 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
         const amount = money.round2(body.amount);
         if (!(amount > 0)) return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
 
+        let posting = null;
         await invoiceMutex.runExclusive(async () => {
-            const invoice = await connection.query(`SELECT GrandTotal, AmountPaid, Status FROM Invoices WHERE InvoiceID = ${id}`);
+            const invoice = await connection.query(`SELECT GrandTotal, AmountPaid, Status, IsInternal FROM Invoices WHERE InvoiceID = ${id}`);
             if (invoice.length === 0) { const e = new Error('Invoice not found'); e.httpStatus = 404; throw e; }
+            if (invoice[0].IsInternal === 1) {
+                const e = new Error('Payments cannot be recorded against internal company work.');
+                e.httpStatus = 409;
+                throw e;
+            }
             if (invoice[0].Status !== 'Finalized') {
                 const e = new Error(`Payments can only be recorded against finalized invoices (this one is ${invoice[0].Status}).`);
                 e.httpStatus = 400;
@@ -60,14 +66,13 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
                 throw e;
             }
 
-            await connection.execute(
+            const insRes = await connection.execute(
                 `INSERT INTO Payments (InvoiceID, Amount, PaymentDate, Method, Notes, CreatedAt)
                  VALUES (${id}, ${amount}, ${sql.dbDate(body.date) === 'NULL' ? 'Now()' : sql.dbDate(body.date)}, ${sql.q(body.method || 'Cash')}, ${sql.q(body.notes)}, Now())`
             );
-            // Derive AmountPaid from the authoritative payment history rather than
-            // incrementing the stored value, so it can never drift out of sync.
-            // Voided payments are excluded — the row stays for the audit trail,
-            // but the money is no longer standing against the invoice.
+            const paymentId = insRes.lastInsertRowid;
+
+            // Derive AmountPaid from the authoritative payment history.
             const sumRows = await connection.query(
                 `SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ${id} AND VoidedAt IS NULL`);
             const newPaid = money.round2(money.num(sumRows[0] && sumRows[0].total));
@@ -75,22 +80,24 @@ router.post('/api/invoices/:id/payments', async (req, res) => {
             await connection.execute(
                 `UPDATE Invoices SET AmountPaid = ${newPaid}, PaymentStatus = ${sql.q(pay.status)} WHERE InvoiceID = ${id}`
             );
+
+            // Post the receipt atomically: if GL posting fails, unwind the payment
+            try {
+                posting = glPosting.postPayment(paymentId, { postedBy: req.user && req.user.username });
+            } catch (postErr) {
+                await connection.execute(`DELETE FROM Payments WHERE PaymentID = ${paymentId}`);
+                const rollbackPaid = money.round2(money.num((await connection.query(
+                    `SELECT SUM(Amount) AS total FROM Payments WHERE InvoiceID = ${id} AND VoidedAt IS NULL`))[0]?.total));
+                const rollbackPay = billing.paymentStatus(invoice[0].GrandTotal, rollbackPaid);
+                await connection.execute(
+                    `UPDATE Invoices SET AmountPaid = ${rollbackPaid}, PaymentStatus = ${sql.q(rollbackPay.status)} WHERE InvoiceID = ${id}`
+                );
+                throw postErr;
+            }
         });
 
         const invoice = await connection.query(`SELECT GrandTotal, AmountPaid FROM Invoices WHERE InvoiceID = ${id}`);
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
-
-        // Post the receipt. Internal jobs have no receivable, so glPosting
-        // returns null for them rather than inventing cash.
-        let posting = null;
-        try {
-            const last = await connection.query(
-                `SELECT PaymentID FROM Payments WHERE InvoiceID = ${id} ORDER BY PaymentID DESC LIMIT 1`);
-            if (last.length) posting = glPosting.postPayment(last[0].PaymentID, { postedBy: req.user && req.user.username });
-        } catch (postErr) {
-            console.error('Ledger posting failed for payment on invoice', id, '-', postErr.message);
-            posting = { error: postErr.message };
-        }
 
         res.json({ success: true, amountPaid: pay.amountPaid, balance: pay.balance, status: pay.status, posting });
     } catch (err) {

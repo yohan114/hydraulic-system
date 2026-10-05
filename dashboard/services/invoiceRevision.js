@@ -168,6 +168,7 @@ async function voidPayment(paymentId, opts = {}) {
   // not two: a crash between them would leave a voided payment still counted as
   // money against the invoice.
   const db = connection._db;
+  let reversal = null;
   const pay = db.transaction(() => {
     db.prepare('UPDATE Payments SET VoidedAt = ?, VoidedBy = ?, VoidReason = ? WHERE PaymentID = ?')
       .run(nowStamp(), opts.actor || null, opts.reason || null, money.num(paymentId));
@@ -177,16 +178,11 @@ async function voidPayment(paymentId, opts = {}) {
     const status = billing.paymentStatus(grandTotal, paid);
     db.prepare('UPDATE Invoices SET AmountPaid = ?, PaymentStatus = ? WHERE InvoiceID = ?')
       .run(status.amountPaid, status.status, invoiceId);
+
+    // Ledger reversal must commit atomically with the payment void (FIN-02).
+    reversal = reversePaymentJournal(paymentId, { postedBy: opts.actor, memo: `Payment voided — ${opts.reason || 'no reason given'}` });
     return status;
   })();
-
-  let reversal = null;
-  try {
-    reversal = reversePaymentJournal(paymentId, { postedBy: opts.actor, memo: `Payment voided — ${opts.reason || 'no reason given'}` });
-  } catch (err) {
-    console.error('Ledger reversal failed for payment', paymentId, '-', err.message);
-    reversal = { error: err.message };
-  }
 
   return {
     paymentId: money.num(paymentId),

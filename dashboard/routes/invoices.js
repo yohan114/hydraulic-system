@@ -271,14 +271,52 @@ async function insertItems(invoiceId, items, lineAmounts, carriedBasis) {
     }
 }
 
+// Helper to derive ownership and valid invoice date
+function effectiveInvoiceDate(date) {
+    const d = String(date || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    const now = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+}
+
+async function resolveOwnership(body) {
+    let customerId = body.customerId != null ? sql.n(body.customerId) : null;
+    let machineId = body.machineId != null ? sql.n(body.machineId) : null;
+    let isInternal = 0;
+
+    if (customerId) {
+        const cust = await connection.query(`SELECT CustomerID, Kind FROM Customers WHERE CustomerID = ${customerId}`);
+        if (cust.length > 0) {
+            isInternal = cust[0].Kind === 'internal' ? 1 : 0;
+        }
+    } else if (body.billedToName) {
+        const cust = await connection.query(`SELECT CustomerID, Kind FROM Customers WHERE Name = ${sql.q(String(body.billedToName).trim())}`);
+        if (cust.length > 0) {
+            customerId = cust[0].CustomerID;
+            isInternal = cust[0].Kind === 'internal' ? 1 : 0;
+        }
+    }
+
+    if (body.isInternal !== undefined) {
+        isInternal = body.isInternal ? 1 : 0;
+    }
+
+    return { customerId, machineId, isInternal };
+}
+
 // Column list + value tuple shared by draft insert and finalize.
 
 function invoiceHeaderColumns() {
-    return `InvoiceNo, InvoiceDate, PONo, PODate, DeliveryDate, BilledToName, BilledToAddress, DeliveredToName, DeliveredToAddress, SubTotal, SSCLRate, SSCLAmount, VATRate, VATAmount, Discount, RoundOff, GrandTotal`;
+    return `InvoiceNo, InvoiceDate, PONo, PODate, DeliveryDate, BilledToName, BilledToAddress, DeliveredToName, DeliveredToAddress, SubTotal, SSCLRate, SSCLAmount, VATRate, VATAmount, Discount, RoundOff, GrandTotal, CustomerID, MachineID, IsInternal`;
 }
 
-function invoiceHeaderValues(body, totals, invoiceNo) {
-    return `${sql.q(invoiceNo)}, ${sql.dbDate(body.invoiceDate)}, ${sql.q(body.poNo)}, ${sql.dbDate(body.poDate)}, ${sql.dbDate(body.deliveryDate)}, ${sql.q(body.billedToName)}, ${sql.q(body.billedToAddress)}, ${sql.q(body.deliveredToName)}, ${sql.q(body.deliveredToAddress)}, ${totals.subTotal}, ${totals.ssclRate}, ${totals.ssclAmount}, ${totals.vatRate}, ${totals.vatAmount}, ${totals.discount}, ${totals.roundOff}, ${totals.grandTotal}`;
+function invoiceHeaderValues(body, totals, invoiceNo, ownership = {}) {
+    const invDate = effectiveInvoiceDate(body.invoiceDate);
+    const custId = ownership.customerId != null ? ownership.customerId : (body.customerId ? sql.n(body.customerId) : 'NULL');
+    const machId = ownership.machineId != null ? ownership.machineId : (body.machineId ? sql.n(body.machineId) : 'NULL');
+    const internal = ownership.isInternal != null ? (ownership.isInternal ? 1 : 0) : (body.isInternal ? 1 : 0);
+    return `${sql.q(invoiceNo)}, ${sql.dbDate(invDate)}, ${sql.q(body.poNo)}, ${sql.dbDate(body.poDate)}, ${sql.dbDate(body.deliveryDate)}, ${sql.q(body.billedToName)}, ${sql.q(body.billedToAddress)}, ${sql.q(body.deliveredToName)}, ${sql.q(body.deliveredToAddress)}, ${totals.subTotal}, ${totals.ssclRate}, ${totals.ssclAmount}, ${totals.vatRate}, ${totals.vatAmount}, ${totals.discount}, ${totals.roundOff}, ${totals.grandTotal}, ${custId}, ${machId}, ${internal}`;
 }
 
 // Create or update a DRAFT invoice. Recomputes all money server-side.
@@ -300,6 +338,9 @@ router.post('/api/invoices/draft', async (req, res) => {
             roundToRupee: body.roundToRupee,
         });
 
+        const ownership = await resolveOwnership(body);
+        const invDate = effectiveInvoiceDate(body.invoiceDate);
+
         // The whole create/update runs under the mutex so the "is this still a
         // Draft?" guard is atomic with the header/item rewrite (otherwise a
         // concurrent finalize/cancel could be silently overwritten).
@@ -316,7 +357,7 @@ router.post('/api/invoices/draft', async (req, res) => {
                 }
                 const invoiceNo = existing[0].InvoiceNo;
                 await connection.execute(
-                    `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(body.invoiceDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal} WHERE InvoiceID = ${invId}`
+                    `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(invDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, CustomerID = ${ownership.customerId != null ? ownership.customerId : 'NULL'}, MachineID = ${ownership.machineId != null ? ownership.machineId : 'NULL'}, IsInternal = ${ownership.isInternal ? 1 : 0} WHERE InvoiceID = ${invId}`
                 );
                 await connection.execute(`DELETE FROM InvoiceItems WHERE InvoiceID = ${invId}`);
                 await insertItems(invId, items, totals.lineAmounts);
@@ -324,10 +365,10 @@ router.post('/api/invoices/draft', async (req, res) => {
             }
 
             // New draft -> allocate a number and insert.
-            const invoiceNo = await getNextInvoiceNo(body.invoiceDate);
+            const invoiceNo = await getNextInvoiceNo(invDate);
             await connection.execute(
                 `INSERT INTO Invoices (${invoiceHeaderColumns()}, Status, AmountPaid, PaymentStatus, CreatedAt)
-                 VALUES (${invoiceHeaderValues(body, totals, invoiceNo)}, 'Draft', 0, 'Unpaid', Now())`
+                 VALUES (${invoiceHeaderValues(body, totals, invoiceNo, ownership)}, 'Draft', 0, 'Unpaid', Now())`
             );
             const invoiceId = await resolveInvoiceIdByNo(invoiceNo);
             await insertItems(invoiceId, items, totals.lineAmounts);
@@ -359,10 +400,11 @@ router.post('/api/invoices/finalize', async (req, res) => {
         roundToRupee: body.roundToRupee,
     });
 
-    // The whole finalize (stock check -> insert -> deduct -> lock) and its
-    // compensation run inside a single mutex critical section so that:
-    //  - two invoices can't both pass the stock check on the same units, and
-    //  - a mid-way failure is unwound before any other stock writer can run.
+    const ownership = await resolveOwnership(body);
+    const invDate = effectiveInvoiceDate(body.invoiceDate);
+
+    // The whole finalize (stock check -> insert -> deduct -> lock -> GL post) and its
+    // compensation run inside a single mutex critical section.
     try {
         const result = await invoiceMutex.runExclusive(async () => {
             // Stock validation inside the lock (avoids check/deduct races).
@@ -386,27 +428,22 @@ router.post('/api/invoices/finalize', async (req, res) => {
                 invoiceId = invId;
                 invoiceNo = existing[0].InvoiceNo;
                 usedExistingDraft = true;
-                // NOTE: the header is left as 'Draft' here — it is only flipped to
-                // 'Finalized' as the very last step, so a failure mid-deduction
-                // leaves a recoverable draft rather than a half-finalized invoice.
             } else {
-                invoiceNo = await getNextInvoiceNo(body.invoiceDate);
+                invoiceNo = await getNextInvoiceNo(invDate);
                 await connection.execute(
                     `INSERT INTO Invoices (${invoiceHeaderColumns()}, Status, AmountPaid, PaymentStatus, CreatedAt, FinalizedAt)
-                     VALUES (${invoiceHeaderValues(body, totals, invoiceNo)}, 'Finalized', 0, 'Unpaid', Now(), Now())`
+                     VALUES (${invoiceHeaderValues(body, totals, invoiceNo, ownership)}, 'Finalized', 0, 'Unpaid', Now(), Now())`
                 );
                 try {
                     invoiceId = await resolveInvoiceIdByNo(invoiceNo);
                 } catch (resolveErr) {
-                    // Remove the orphan header we just inserted before failing.
                     try { await connection.execute(`DELETE FROM Invoices WHERE InvoiceNo = ${sql.q(invoiceNo)}`); } catch (_) {}
                     throw resolveErr;
                 }
             }
 
-            // Track deductions in memory so compensation reverses EXACTLY what was
-            // applied, regardless of where a failure occurs.
             const applied = [];
+            let posting = null;
             try {
                 if (usedExistingDraft) await connection.execute(`DELETE FROM InvoiceItems WHERE InvoiceID = ${invoiceId}`);
                 await insertItems(invoiceId, items, totals.lineAmounts);
@@ -418,18 +455,18 @@ router.post('/api/invoices/finalize', async (req, res) => {
                         inventoryId: item.inventoryId, invoiceId, type: 'OUT', qtyChange: -qty,
                         notes: `Invoice Finalized ${invoiceNo}`,
                     });
-                    applied.push({ inventoryId: item.inventoryId, qty }); // record right after the deduction lands
+                    applied.push({ inventoryId: item.inventoryId, qty });
                 }
 
-                // Lock the invoice as the final step (existing draft only; a new
-                // invoice was already inserted as Finalized above).
                 if (usedExistingDraft) {
                     await connection.execute(
-                        `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(body.invoiceDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, Status = 'Finalized', PaymentStatus = 'Unpaid', FinalizedAt = Now() WHERE InvoiceID = ${invoiceId}`
+                        `UPDATE Invoices SET InvoiceDate = ${sql.dbDate(invDate)}, PONo = ${sql.q(body.poNo)}, PODate = ${sql.dbDate(body.poDate)}, DeliveryDate = ${sql.dbDate(body.deliveryDate)}, BilledToName = ${sql.q(body.billedToName)}, BilledToAddress = ${sql.q(body.billedToAddress)}, DeliveredToName = ${sql.q(body.deliveredToName)}, DeliveredToAddress = ${sql.q(body.deliveredToAddress)}, SubTotal = ${totals.subTotal}, SSCLRate = ${totals.ssclRate}, SSCLAmount = ${totals.ssclAmount}, VATRate = ${totals.vatRate}, VATAmount = ${totals.vatAmount}, Discount = ${totals.discount}, RoundOff = ${totals.roundOff}, GrandTotal = ${totals.grandTotal}, Status = 'Finalized', PaymentStatus = 'Unpaid', FinalizedAt = Now(), CustomerID = ${ownership.customerId != null ? ownership.customerId : 'NULL'}, MachineID = ${ownership.machineId != null ? ownership.machineId : 'NULL'}, IsInternal = ${ownership.isInternal ? 1 : 0} WHERE InvoiceID = ${invoiceId}`
                     );
                 }
+
+                // Post the sale to the ledger. If ledger posting fails, it throws and unwinds!
+                posting = glPosting.postInvoice(invoiceId, { postedBy: req.user && req.user.username });
             } catch (workErr) {
-                // Compensate inside the lock: reverse exactly the deductions applied.
                 try {
                     for (const d of applied) {
                         await connection.execute(`UPDATE Inventory SET Qty = Qty + ${money.num(d.qty)} WHERE InventoryID = ${sql.n(d.inventoryId)}`);
@@ -439,29 +476,16 @@ router.post('/api/invoices/finalize', async (req, res) => {
                     if (!usedExistingDraft) {
                         await connection.execute(`DELETE FROM Invoices WHERE InvoiceID = ${invoiceId}`);
                     }
-                    // Existing drafts keep Status='Draft' (never flipped), so they
-                    // remain a recoverable, editable draft with consistent stock.
                 } catch (compErr) {
                     console.error('Finalize compensation failed:', compErr);
                 }
                 throw workErr;
             }
 
-            return { invoiceId, invoiceNo };
+            return { invoiceId, invoiceNo, posting };
         });
 
-        // Post the sale to the ledger. A posting problem must not un-finalize an
-        // invoice that is already saved and has already moved stock, so it is
-        // reported alongside the success rather than thrown.
-        let posting = null;
-        try {
-            posting = glPosting.postInvoice(result.invoiceId, { postedBy: req.user && req.user.username });
-        } catch (postErr) {
-            console.error('Ledger posting failed for', result.invoiceNo, '-', postErr.message);
-            posting = { error: postErr.message };
-        }
-
-        res.json({ success: true, invoiceId: result.invoiceId, invoiceNo: result.invoiceNo, totals, posting });
+        res.json({ success: true, invoiceId: result.invoiceId, invoiceNo: result.invoiceNo, totals, posting: result.posting });
     } catch (err) {
         res.status(err.httpStatus || 500).json({ error: err.message });
     }
@@ -568,11 +592,22 @@ router.post('/api/invoices/:id/revise', async (req, res) => {
                 const finalizedAt = original.FinalizedAt
                     ? sql.q(String(original.FinalizedAt))
                     : 'Now()';
+                const carriedOwnership = {
+                    customerId: original.CustomerID,
+                    machineId: original.MachineID,
+                    isInternal: original.IsInternal,
+                };
+                const extraCarriedCols = ['JobID', 'TechChargePaid'];
+                const extraCarriedVals = [
+                    original.JobID != null ? sql.n(original.JobID) : 'NULL',
+                    original.TechChargePaid != null ? sql.n(original.TechChargePaid) : 'NULL'
+                ];
+
                 await connection.execute(
                     `INSERT INTO Invoices (${invoiceHeaderColumns()}, Status, AmountPaid, PaymentStatus, CreatedAt, FinalizedAt,
-                        RevisionOf, RevisionNo, ${revision.CARRIED_COLUMNS.join(', ')})
-                     VALUES (${invoiceHeaderValues({ ...body, invoiceDate }, totals, newNo)}, 'Finalized', 0, 'Unpaid', Now(), ${finalizedAt},
-                        ${id}, ${newRevisionNo}, ${revision.carriedValues(original).join(', ')})`
+                        RevisionOf, RevisionNo, ${extraCarriedCols.join(', ')})
+                     VALUES (${invoiceHeaderValues({ ...body, invoiceDate }, totals, newNo, carriedOwnership)}, 'Finalized', 0, 'Unpaid', Now(), ${finalizedAt},
+                        ${id}, ${newRevisionNo}, ${extraCarriedVals.join(', ')})`
                 );
                 newId = await resolveInvoiceIdByNo(newNo);
                 await insertItems(newId, items, totals.lineAmounts, originalCosts);

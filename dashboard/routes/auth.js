@@ -49,8 +49,13 @@ async function provisioningState() {
     try {
         const rows = await connection.query('SELECT COUNT(*) AS c FROM Users');
         return { provisioned: ((rows[0] && rows[0].c) || 0) > 0, tableMissing: false };
-    } catch (_) {
-        return { provisioned: false, tableMissing: true };
+    } catch (err) {
+        // Only a clean "no such table: Users" indicates a fresh, un-migrated database.
+        if (err && err.message && /no such table:\s*Users/i.test(err.message)) {
+            return { provisioned: false, tableMissing: true };
+        }
+        // Any other database error (locked, disk error, permission, corruption) must fail closed.
+        return { provisioned: false, tableMissing: false, error: err ? err.message : 'Unknown database error' };
     }
 }
 
@@ -66,13 +71,19 @@ async function hasProvisionedUser() {
 //   - Once ANY user exists, only stored (hashed) credentials are accepted; the
 //     built-in default is disabled and a lookup error denies access rather than
 //     falling back to it.
+//   - If a database error occurs, access is denied immediately (fails CLOSED).
 //   - The default admin/admin123 is accepted ONLY to bootstrap a database that
 //     has no users yet (empty or un-migrated Users table).
 async function checkCredentials(username, password) {
     const uname = String(username || '').trim() || DEFAULT_USERNAME;
-    const { provisioned } = await provisioningState();
+    const state = await provisioningState();
 
-    if (provisioned) {
+    if (state.error) {
+        // Database lookup failure — fail closed, never allow bootstrap fallback.
+        return { ok: false, username: uname, role: null, dbError: state.error };
+    }
+
+    if (state.provisioned) {
         try {
             const rows = await connection.query(
                 `SELECT PasswordHash, Role FROM Users WHERE Username = ${sql.q(uname)}`
@@ -87,9 +98,13 @@ async function checkCredentials(username, password) {
         return { ok: false, username: uname, role: null }; // unknown user / lookup failed -> deny
     }
 
-    // No users provisioned yet: allow the bootstrap default so setup is possible.
-    const ok = uname === DEFAULT_USERNAME && String(password) === FALLBACK_PASSWORD;
-    return { ok, username: uname, role: 'admin' };
+    if (state.tableMissing || !state.provisioned) {
+        // Fresh un-provisioned database: allow bootstrap default so setup is possible.
+        const ok = uname === DEFAULT_USERNAME && String(password) === FALLBACK_PASSWORD;
+        return { ok, username: uname, role: 'admin' };
+    }
+
+    return { ok: false, username: uname, role: null };
 }
 
 
@@ -223,5 +238,5 @@ router.post('/api/auth/change-password', async (req, res) => {
 
 module.exports = {
     router, requireAuth, requireRole, viewerReadOnlyGuard, roleOf,
-    hasProvisionedUser, AUTH_ENABLED, FALLBACK_PASSWORD, ROLES,
+    hasProvisionedUser, provisioningState, checkCredentials, AUTH_ENABLED, FALLBACK_PASSWORD, ROLES,
 };
