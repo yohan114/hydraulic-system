@@ -44,14 +44,35 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 
-// Auth gate: every /api route requires a valid token except the two public
-// auth endpoints. Static assets (non-/api paths) are always served.
+// Lightweight cookie parsing middleware for HttpOnly session authentication
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (!cookieHeader) return cookies;
+  const pairs = cookieHeader.split(';');
+  for (let i = 0; i < pairs.length; i++) {
+    const idx = pairs[i].indexOf('=');
+    if (idx !== -1) {
+      const key = pairs[i].slice(0, idx).trim();
+      const val = pairs[i].slice(idx + 1).trim();
+      try { cookies[key] = decodeURIComponent(val); } catch (_) { cookies[key] = val; }
+    }
+  }
+  return cookies;
+}
+
+app.use((req, res, next) => {
+  req.cookies = parseCookies(req.headers.cookie);
+  next();
+});
+
+// Auth gate: every /api route requires a valid token except public auth endpoints.
+// Static assets (non-/api paths) are always served.
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api/')) return next();
-  if (req.path === '/api/auth/login' || req.path === '/api/auth/status') return next();
+  if (req.path === '/api/auth/login' || req.path === '/api/auth/status' || req.path === '/api/auth/logout') return next();
   return requireAuth(req, res, next);
 });
 

@@ -230,7 +230,10 @@ mkdir -p /var/www/certbot
 mkdir -p /etc/nginx/conf.d
 
 if [ -f "${DEPLOY_DIR}/cloudflare-ips.conf" ]; then
-    cp -f "${DEPLOY_DIR}/cloudflare-ips.conf" /etc/nginx/conf.d/cloudflare-ips.conf
+    # Only copy if real_ip_header is not already defined in /etc/nginx
+    if ! grep -rq "real_ip_header" /etc/nginx/ 2>/dev/null; then
+        cp -f "${DEPLOY_DIR}/cloudflare-ips.conf" /etc/nginx/conf.d/cloudflare-ips.conf
+    fi
 fi
 
 NGINX_TARGET="/etc/nginx/sites-available/hydraulic-system"
