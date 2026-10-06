@@ -1,59 +1,317 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Hydraulic System - Ubuntu/Debian VPS Automated Setup Script
+# Hydraulic System - Hardened Production VPS Automated Setup Script
+# Compatible with: Ubuntu 20.04 / 22.04 / 24.04 LTS, Debian 11 / 12
+#
 # Usage:
 #   chmod +x setup-vps.sh
-#   sudo ./setup-vps.sh
+#   sudo ./setup-vps.sh [--domain <billing.yourdomain.com>] [--email <admin@email.com>]
 # ==============================================================================
 
 set -euo pipefail
 
-echo "============================================================"
-echo " Starting Hydraulic System VPS Setup"
-echo "============================================================"
+DOMAIN=""
+ADMIN_EMAIL=""
 
-# 1. Update system packages
-echo "[1/6] Updating system packages..."
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --domain)
+            DOMAIN="$2"
+            shift 2
+            ;;
+        --email)
+            ADMIN_EMAIL="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: sudo ./setup-vps.sh [--domain <billing.yourdomain.com>] [--email <admin@email.com>]"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: This script must be run as root (use sudo ./setup-vps.sh)."
+    exit 1
+fi
+
+DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "${DEPLOY_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${APP_DIR}/.." && pwd)"
+CALLING_USER="${SUDO_USER:-$(whoami)}"
+CALLING_HOME="$(eval echo ~${CALLING_USER})"
+
+echo "=================================================================="
+echo "    Hydraulic Hose Repair System: Hardened Production Setup"
+echo "=================================================================="
+echo " Application Directory : ${APP_DIR}"
+echo " Calling User          : ${CALLING_USER}"
+[ -n "${DOMAIN}" ] && echo " Domain Name           : ${DOMAIN}"
+echo "=================================================================="
+echo ""
+
+# ------------------------------------------------------------------------------
+# 1. System Package Updates & Core Security Tools
+# ------------------------------------------------------------------------------
+echo "[1/10] Updating system packages and installing security utilities..."
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl wget git build-essential ufw sqlite3
+apt-get install -y \
+    curl \
+    wget \
+    git \
+    build-essential \
+    ufw \
+    fail2ban \
+    sqlite3 \
+    nginx \
+    certbot \
+    python3-certbot-nginx \
+    cron \
+    logrotate \
+    openssl \
+    ca-certificates
 
-# 2. Install Node.js 20 LTS (if not installed)
-if ! command -v node &> /dev/null; then
-    echo "[2/6] Installing Node.js 20 LTS..."
+# ------------------------------------------------------------------------------
+# 2. Chromium / Puppeteer System Dependencies (for Invoice & PDF Engine)
+# ------------------------------------------------------------------------------
+echo "[2/10] Installing Chromium dependencies for headless PDF rendering..."
+apt-get install -y \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libc6 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm1 \
+    libgcc1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libstdc++6 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxss1 \
+    libxtst6 \
+    xdg-utils 2>/dev/null || true
+
+# ------------------------------------------------------------------------------
+# 3. Node.js 20 LTS & PM2 Process Supervisor
+# ------------------------------------------------------------------------------
+if ! command -v node >/dev/null 2>&1; then
+    echo "[3/10] Installing Node.js 20 LTS (NodeSource)..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y nodejs
 else
-    echo "[2/6] Node.js is already installed: $(node -v)"
+    echo "[3/10] Node.js is already installed: $(node -v)"
 fi
 
-# 3. Install PM2 globally
-if ! command -v pm2 &> /dev/null; then
-    echo "[3/6] Installing PM2 process manager..."
+if ! command -v pm2 >/dev/null 2>&1; then
+    echo "[3/10] Installing PM2 process supervisor..."
     npm install -g pm2
 fi
 
-# 4. Setup Firewall (UFW)
-echo "[4/6] Configuring firewall rules (SSH, HTTP, HTTPS)..."
-ufw allow OpenSSH || true
+# Configure PM2 log rotation so disk space is preserved
+pm2 install pm2-logrotate >/dev/null 2>&1 || true
+pm2 set pm2-logrotate:max_size 10M >/dev/null 2>&1 || true
+pm2 set pm2-logrotate:retain 7 >/dev/null 2>&1 || true
+
+# ------------------------------------------------------------------------------
+# 4. Production Environment & Cryptographic Secret Minting
+# ------------------------------------------------------------------------------
+echo "[4/10] Configuring production environment and authentication keys..."
+ENV_FILE="${APP_DIR}/.env"
+
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "       Generating cryptographically secure 256-bit token secret..."
+    SECRET_KEY="$(openssl rand -hex 32)"
+    cat <<EOF > "${ENV_FILE}"
+# Production Configuration (Generated by setup-vps.sh)
+PORT=9999
+NODE_ENV=production
+TRUST_PROXY=1
+BILLING_AUTH=on
+BILLING_SECRET=${SECRET_KEY}
+EOF
+    echo "       Created ${ENV_FILE}"
+else
+    echo "       Existing .env detected. Ensuring TRUST_PROXY and BILLING_AUTH are set..."
+    if ! grep -q "^TRUST_PROXY=" "${ENV_FILE}"; then
+        echo "TRUST_PROXY=1" >> "${ENV_FILE}"
+    fi
+    if ! grep -q "^BILLING_AUTH=" "${ENV_FILE}"; then
+        echo "BILLING_AUTH=on" >> "${ENV_FILE}"
+    fi
+fi
+
+# Lock down permissions: readable only by owner
+chmod 600 "${ENV_FILE}"
+chown "${CALLING_USER}:${CALLING_USER}" "${ENV_FILE}" 2>/dev/null || true
+
+# ------------------------------------------------------------------------------
+# 5. Database File Permission Hardening
+# ------------------------------------------------------------------------------
+echo "[5/10] Hardening SQLite database permissions..."
+for dbfile in "${PROJECT_ROOT}/hydraulic.db" "${APP_DIR}/hydraulic.db"; do
+    if [ -f "${dbfile}" ]; then
+        chmod 640 "${dbfile}"* 2>/dev/null || true
+        chown "${CALLING_USER}:${CALLING_USER}" "${dbfile}"* 2>/dev/null || true
+    fi
+done
+
+# ------------------------------------------------------------------------------
+# 6. Firewall Configuration (UFW)
+# ------------------------------------------------------------------------------
+echo "[6/10] Configuring UFW firewall rules..."
+ufw default deny incoming || true
+ufw default allow outgoing || true
+ufw limit OpenSSH || ufw allow OpenSSH || true
 ufw allow 80/tcp || true
 ufw allow 443/tcp || true
 ufw --force enable || true
 
-# 5. Project Dependencies
-echo "[5/6] Installing application dependencies..."
-cd "$(dirname "$0")/.."
+# ------------------------------------------------------------------------------
+# 7. Fail2ban Intrusion Defense (SSH & API Login Brute-force Banning)
+# ------------------------------------------------------------------------------
+echo "[7/10] Configuring Fail2ban anti-intrusion filters..."
+mkdir -p /etc/fail2ban/filter.d
+
+if [ -f "${DEPLOY_DIR}/fail2ban/hydraulic-login.conf" ]; then
+    cp -f "${DEPLOY_DIR}/fail2ban/hydraulic-login.conf" /etc/fail2ban/filter.d/hydraulic-login.conf
+fi
+
+if [ -f "${DEPLOY_DIR}/fail2ban/jail.local" ]; then
+    cp -f "${DEPLOY_DIR}/fail2ban/jail.local" /etc/fail2ban/jail.local
+fi
+
+systemctl enable fail2ban >/dev/null 2>&1 || true
+systemctl restart fail2ban || true
+
+# ------------------------------------------------------------------------------
+# 8. Nginx Reverse Proxy & Cloudflare Real-IP Configuration
+# ------------------------------------------------------------------------------
+echo "[8/10] Configuring Nginx reverse proxy..."
+mkdir -p /var/www/certbot
+mkdir -p /etc/nginx/conf.d
+
+if [ -f "${DEPLOY_DIR}/cloudflare-ips.conf" ]; then
+    cp -f "${DEPLOY_DIR}/cloudflare-ips.conf" /etc/nginx/conf.d/cloudflare-ips.conf
+fi
+
+NGINX_TARGET="/etc/nginx/sites-available/hydraulic-system"
+cp -f "${DEPLOY_DIR}/nginx.conf" "${NGINX_TARGET}"
+
+if [ -n "${DOMAIN}" ]; then
+    sed -i "s/server_name _;/server_name ${DOMAIN};/g" "${NGINX_TARGET}"
+fi
+
+ln -sf "${NGINX_TARGET}" /etc/nginx/sites-enabled/hydraulic-system
+rm -f /etc/nginx/sites-enabled/default
+
+if nginx -t; then
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl reload nginx || systemctl restart nginx
+    echo "       Nginx configuration loaded successfully."
+else
+    echo "WARNING: Nginx syntax check failed. Please review ${NGINX_TARGET}."
+fi
+
+# Optional automated SSL if domain is provided
+if [ -n "${DOMAIN}" ] && [ -n "${ADMIN_EMAIL}" ]; then
+    echo "       Requesting Let's Encrypt SSL certificate for ${DOMAIN}..."
+    certbot --nginx -d "${DOMAIN}" --non-interactive --agree-tos -m "${ADMIN_EMAIL}" --redirect || {
+        echo "WARNING: Certbot was unable to issue certificate. Ensure DNS A record for ${DOMAIN} points to this VPS."
+    }
+fi
+
+# ------------------------------------------------------------------------------
+# 9. Automated Daily Backup Cron Schedule
+# ------------------------------------------------------------------------------
+echo "[9/10] Scheduling automated daily database backups..."
+BACKUP_RUNNER="/usr/local/bin/hydraulic-backup.sh"
+
+if [ -f "${DEPLOY_DIR}/backup-cron.sh" ]; then
+    cp -f "${DEPLOY_DIR}/backup-cron.sh" "${BACKUP_RUNNER}"
+    chmod +x "${BACKUP_RUNNER}"
+fi
+
+cat <<EOF > /etc/cron.d/hydraulic-backup
+# Automated daily backup of Hydraulic System SQLite Database
+30 23 * * * root ${BACKUP_RUNNER}
+EOF
+chmod 644 /etc/cron.d/hydraulic-backup
+systemctl reload cron 2>/dev/null || systemctl restart cron 2>/dev/null || true
+
+# ------------------------------------------------------------------------------
+# 10. Application Dependencies & PM2 Supervisor Boot
+# ------------------------------------------------------------------------------
+echo "[10/10] Installing production dependencies and launching PM2..."
+cd "${APP_DIR}"
 npm install --omit=dev
 
-# 6. PM2 Startup Configuration
-echo "[6/6] Configuring PM2 process..."
-mkdir -p logs
-pm2 start ecosystem.config.js --env production || pm2 restart hydraulic-system
-pm2 save
-pm2 startup systemd -u "$(whoami)" --hp "$HOME" || true
+mkdir -p logs backups
+chown -R "${CALLING_USER}:${CALLING_USER}" logs backups 2>/dev/null || true
 
-echo "============================================================"
-echo " Setup Completed Successfully!"
-echo " Hydraulic System is running via PM2."
-echo " Check status with: pm2 status"
-echo " View logs with  : pm2 logs hydraulic-system"
-echo "============================================================"
+# Start or reload via PM2
+if pm2 list | grep -q "hydraulic-system"; then
+    pm2 reload ecosystem.config.js --env production
+else
+    pm2 start ecosystem.config.js --env production
+fi
+
+pm2 save
+pm2 startup systemd -u "${CALLING_USER}" --hp "${CALLING_HOME}" >/dev/null 2>&1 || true
+
+# Sleep 2s for boot and verify local health endpoint
+sleep 2
+echo ""
+echo "Performing local service health check..."
+if curl -sf http://127.0.0.1:9999/api/auth/status >/dev/null; then
+    HEALTH_STATUS="ONLINE (HTTP 200 OK)"
+else
+    HEALTH_STATUS="STARTING (Will be active shortly)"
+fi
+
+SERVER_IP="$(curl -s4 ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')"
+
+echo ""
+echo "=================================================================="
+echo "       HYDRAULIC SYSTEM PRODUCTION SETUP COMPLETED!              "
+echo "=================================================================="
+echo " Service Health      : ${HEALTH_STATUS}"
+echo " Local Port          : http://127.0.0.1:9999"
+if [ -n "${DOMAIN}" ]; then
+    echo " Access URL          : http://${DOMAIN} (or https://${DOMAIN})"
+else
+    echo " Access URL          : http://${SERVER_IP}"
+fi
+echo ""
+echo " Management Commands:"
+echo "   pm2 status                  Check running service status"
+echo "   pm2 logs hydraulic-system   View live application logs"
+echo "   sudo fail2ban-client status Check active intrusion jails"
+echo "   sudo /usr/local/bin/hydraulic-backup.sh   Run manual verified backup"
+echo "   sudo ./deploy/restore-vps.sh Emergency database restore tool"
+echo ""
+if [ -z "${DOMAIN}" ]; then
+    echo " SSL Setup (When your domain DNS points to ${SERVER_IP}):"
+    echo "   sudo certbot --nginx -d billing.yourshop.com"
+fi
+echo "=================================================================="
