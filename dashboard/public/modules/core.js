@@ -236,7 +236,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const authed = await initAuth();
     if (authed) {
-        loadDashboard();
+        const hash = window.location.hash.replace(/^#/, '');
+        const initial = (hash && document.getElementById(hash)) ? hash : 'dashboard';
+        if (initial === 'new-invoice') startNewInvoice();
+        showSection(initial, false);
         prefetchData(); // warm caches so tab switches are instant
     }
 
@@ -333,7 +336,10 @@ async function doLogin(e) {
         document.getElementById('loginPassword').value = '';
         hideLogin();
         await initAuth();
-        loadDashboard();
+        const hash = window.location.hash.replace(/^#/, '');
+        const target = (hash && document.getElementById(hash)) ? hash : 'dashboard';
+        if (target === 'new-invoice') startNewInvoice();
+        showSection(target, false);
         prefetchData();
         toast(`Welcome back, ${data.username || 'admin'}`, 'success');
     } catch (err) {
@@ -401,22 +407,51 @@ function initNavigation() {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const target = e.currentTarget.dataset.target;
-            showSection(target);
             // Reaching the invoice page from the sidebar always starts a fresh
             // invoice, so a previously-viewed draft can't be overwritten by
             // accident. (viewInvoice() opens the page via showSection directly.)
             if (target === 'new-invoice') startNewInvoice();
-
-            navItems.forEach((nav) => nav.classList.remove('active'));
-            e.currentTarget.classList.add('active');
+            showSection(target, true);
             closeSidebar(); // dismiss the mobile drawer after choosing a page
         });
     });
+
+    // Support browser Back / Forward buttons and direct URL hash changes
+    window.addEventListener('hashchange', () => {
+        const hash = window.location.hash.replace(/^#/, '');
+        showSection(hash || 'dashboard', false);
+    });
 }
 
-function showSection(sectionId) {
+function showSection(sectionId, updateHash = true) {
+    if (!sectionId || !document.getElementById(sectionId)) {
+        sectionId = 'dashboard';
+    }
+
     document.querySelectorAll('.page-section').forEach((sec) => sec.classList.remove('active'));
-    document.getElementById(sectionId).classList.add('active');
+    const targetSection = document.getElementById(sectionId);
+    if (targetSection) targetSection.classList.add('active');
+
+    // Keep active highlight in sidebar navigation in sync
+    document.querySelectorAll('.nav-item').forEach((nav) => {
+        if (nav.dataset.target === sectionId) {
+            nav.classList.add('active');
+        } else {
+            nav.classList.remove('active');
+        }
+    });
+
+    // Update browser URL hash so the address bar reflects the current section
+    if (updateHash) {
+        const currentHash = window.location.hash.replace(/^#/, '');
+        if (currentHash !== sectionId) {
+            if (window.history && window.history.pushState) {
+                window.history.pushState(null, '', '#' + sectionId);
+            } else {
+                window.location.hash = sectionId;
+            }
+        }
+    }
 
     const titles = {
         'dashboard': 'Dashboard',
