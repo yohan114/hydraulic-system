@@ -2,7 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { filesToPrune, todayStamp, KEEP_DAYS } = require('../lib/backup');
+const { filesToPrune, todayStamp, KEEP_DAYS, takeOnDemandBackup, verifyBackupIntegrity, startDailyBackupScheduler } = require('../lib/backup');
+const Database = require('better-sqlite3');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 test('filesToPrune keeps the newest N and drops the rest, oldest first', () => {
   const names = [
@@ -37,4 +41,35 @@ test('todayStamp formats local date as YYYY-MM-DD', () => {
 
 test('KEEP_DAYS is 7', () => {
   assert.strictEqual(KEEP_DAYS, 7);
+});
+
+test('takeOnDemandBackup creates an intact verified backup', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-test-'));
+  const dbFile = path.join(tmpDir, 'test.db');
+  const db = new Database(dbFile);
+  try {
+    db.exec("CREATE TABLE Test (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO Test VALUES (1, 'alpha');");
+    const res = await takeOnDemandBackup(db, { dir: path.join(tmpDir, 'backups'), label: 'unit-test' });
+    assert.ok(fs.existsSync(res.file));
+    assert.strictEqual(res.integrity.ok, true);
+    assert.strictEqual(res.integrity.foreignKeysOk, true);
+    assert.strictEqual(res.integrity.integrityResult, 'ok');
+  } finally {
+    db.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('startDailyBackupScheduler returns an active timer that can be stopped', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-sched-'));
+  const dbFile = path.join(tmpDir, 'test.db');
+  const db = new Database(dbFile);
+  try {
+    const timer = startDailyBackupScheduler(db, { intervalMs: 100000 });
+    assert.ok(timer);
+    clearInterval(timer);
+  } finally {
+    db.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });

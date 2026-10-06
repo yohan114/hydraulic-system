@@ -133,4 +133,81 @@ function verifyBackupIntegrity(backupFile) {
   }
 }
 
-module.exports = { runStartupBackup, backupBeforeMigration, verifyBackupIntegrity, filesToPrune, todayStamp, KEEP_DAYS };
+/**
+ * Creates an on-demand verified snapshot and runs integrity checks.
+ * Throws if backup creation or integrity check fails.
+ *
+ * @param {import('better-sqlite3').Database} db open database handle
+ * @param {object} [opts]
+ * @param {string} [opts.label='manual'] custom tag for the file name
+ * @param {string} [opts.dir] backup directory
+ * @returns {Promise<{file: string, size: number, integrity: object}>}
+ */
+async function takeOnDemandBackup(db, opts = {}) {
+  const dbPath = db.name;
+  const dir = opts.dir || path.join(path.dirname(dbPath), 'backups');
+  fs.mkdirSync(dir, { recursive: true });
+
+  const now = opts.now || new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${todayStamp(now)}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  const safe = String(opts.label || 'manual').replace(/[^A-Za-z0-9._-]/g, '-');
+  const dest = path.join(dir, `snapshot-${stamp}-${safe}.db`);
+
+  await db.backup(dest);
+
+  const stats = fs.statSync(dest);
+  const integrity = verifyBackupIntegrity(dest);
+  if (!integrity.ok) {
+    throw new Error(`Backup integrity check failed: ${integrity.integrityResult}`);
+  }
+
+  return {
+    file: dest,
+    size: stats.size,
+    integrity
+  };
+}
+
+/**
+ * Starts a background interval that triggers runStartupBackup whenever
+ * the local calendar date rolls over, keeping long-running server instances backed up.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {object} [opts]
+ * @param {number} [opts.intervalMs=3600000] interval in ms (default: 1 hour)
+ * @returns {NodeJS.Timeout}
+ */
+function startDailyBackupScheduler(db, opts = {}) {
+  const intervalMs = opts.intervalMs || 3600000; // 1 hour
+  let lastChecked = todayStamp();
+
+  const timer = setInterval(async () => {
+    const today = todayStamp();
+    if (today !== lastChecked) {
+      lastChecked = today;
+      try {
+        const res = await runStartupBackup(db, opts);
+        if (res.file) {
+          console.log(`[BackupScheduler] Daily snapshot taken: ${res.file}`);
+        }
+      } catch (err) {
+        console.warn(`[BackupScheduler] Daily snapshot error: ${err.message}`);
+      }
+    }
+  }, intervalMs);
+
+  if (timer.unref) timer.unref(); // Do not block process exit
+  return timer;
+}
+
+module.exports = {
+  runStartupBackup,
+  backupBeforeMigration,
+  verifyBackupIntegrity,
+  takeOnDemandBackup,
+  startDailyBackupScheduler,
+  filesToPrune,
+  todayStamp,
+  KEEP_DAYS
+};

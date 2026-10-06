@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "migrate": "node migrate.js",
+    "backup": "node backup-cli.js",
     "test": "node --test",
     "migrate:status": "node migrate.js --dry-run"
   },

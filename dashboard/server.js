@@ -12,7 +12,7 @@ const path = require('path');
 
 const { migrateToLatest } = require('./migrate');
 const connection = require('./db');
-const { runStartupBackup } = require('./lib/backup');
+const { runStartupBackup, startDailyBackupScheduler } = require('./lib/backup');
 const { auditMiddleware } = require('./lib/audit');
 const { router: authRouter, requireAuth, viewerReadOnlyGuard } = require('./routes/auth');
 const { authorizeEndpoint, fieldScrubber } = require('./lib/endpointAuthorization');
@@ -98,6 +98,7 @@ async function start() {
     const b = await runStartupBackup(connection._db);
     if (b.file) console.log(`Backup: wrote ${b.file}${b.pruned.length ? ` (pruned ${b.pruned.length} old)` : ''}`);
     else if (b.skipped) console.log("Backup: today's snapshot already present.");
+    startDailyBackupScheduler(connection._db);
   } catch (e) {
     console.warn('Backup skipped:', e.message);
   }
