@@ -60,8 +60,9 @@ const ACC = {
   CUSTOMER_CREDIT: '2400',
 };
 
-// A line is technical/crimping labour rather than a part.
-const TECHNICAL_RE = /technical charge|crimping|welding/i;
+// A line is technical/crimping/welding/lathe labour rather than a part.
+const TECHNICAL_RE = /technical charge|crimping|welding|lathe/i;
+const NON_TECHNICAL_RE = /fitting|rod|sundr/i;
 
 /** Split an invoice's billed value between parts and technical labour. */
 function splitRevenue(lines) {
@@ -69,7 +70,8 @@ function splitRevenue(lines) {
   let technical = 0;
   for (const l of lines) {
     const amount = money.round2(money.num(l.Qty) * money.num(l.Rate));
-    if (TECHNICAL_RE.test(l.ItemDescription || '')) technical = money.round2(technical + amount);
+    const desc = String(l.ItemDescription || '');
+    if (TECHNICAL_RE.test(desc) && !NON_TECHNICAL_RE.test(desc)) technical = money.round2(technical + amount);
     else parts = money.round2(parts + amount);
   }
   return { parts, technical };

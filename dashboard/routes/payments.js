@@ -13,7 +13,7 @@ const router = express.Router();
 router.get('/api/invoices/:id/payments', async (req, res) => {
     try {
         const id = sql.n(req.params.id);
-        const invoice = await connection.query(`SELECT GrandTotal, AmountPaid, Status FROM Invoices WHERE InvoiceID = ${id}`);
+        const invoice = await connection.query(`SELECT GrandTotal, AmountPaid, Status, IsInternal FROM Invoices WHERE InvoiceID = ${id}`);
         if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found' });
         let payments = [];
         try {
@@ -23,9 +23,10 @@ router.get('/api/invoices/:id/payments', async (req, res) => {
         try {
             allocations = await connection.query(`SELECT * FROM ReceiptAllocations WHERE InvoiceID = ${id} ORDER BY AllocationID ASC`);
         } catch (_) {}
+        const isInternal = Boolean(invoice[0].IsInternal);
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
-        // Only a finalized invoice can carry an outstanding balance; drafts,
-        // cancelled and superseded invoices report zero so they never look like
+        // Only a finalized external invoice can carry an outstanding balance; drafts,
+        // cancelled, superseded and internal fleet invoices report zero so they never look like
         // receivables.
         const isFinalized = invoice[0].Status === 'Finalized';
         res.json({
@@ -33,8 +34,8 @@ router.get('/api/invoices/:id/payments', async (req, res) => {
             invoiceStatus: invoice[0].Status,
             grandTotal: money.round2(invoice[0].GrandTotal),
             amountPaid: pay.amountPaid,
-            balance: isFinalized ? pay.balance : 0,
-            status: isFinalized ? pay.status : invoice[0].Status,
+            balance: isFinalized && !isInternal ? pay.balance : 0,
+            status: isFinalized ? (isInternal ? 'Internal' : pay.status) : invoice[0].Status,
             payments,
             allocations,
         });

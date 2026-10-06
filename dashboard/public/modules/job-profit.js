@@ -275,7 +275,7 @@ function jpRenderFooter(t) {
         <div class="jp-foot-cell"><span class="k">2 · Customer Saving</span><span class="v" style="color:${jpProfitColor(t.customerSaving)};">${formatCurrency(t.customerSaving)}</span></div>
         <div class="jp-foot-cell"><span class="k">3 · Gross Profit</span><span class="v" style="color:${jpProfitColor(t.grossProfit)};">${formatCurrency(t.grossProfit)}</span></div>
         <div class="jp-foot-cell"><span class="k">Overall Margin</span><span class="v">${jpFmtPct(t.margin)}</span></div>
-        <div class="jp-foot-cell jp-unpaid"><span class="k">Total UNPAID Technical Charges</span><span class="v">${formatCurrency(t.unpaidTech)}</span></div>`;
+        <div class="jp-foot-cell jp-unpaid"><span class="k">Total UNPAID Labour Charges</span><span class="v">${formatCurrency(t.unpaidTech)}</span></div>`;
 }
 
 async function toggleLabourPaid(invoiceNo, currentlyPaid) {

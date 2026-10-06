@@ -63,6 +63,8 @@ function outsideDesc(desc, unit) {
   const dl = d.toLowerCase();
   const u = String(unit || '').toLowerCase();
   if (dl.includes('crimping')) return d;
+  if (dl.includes('welding')) return 'Welding charge';
+  if (dl.includes('lathe')) return d;
   if (dl.includes('technical charge')) return 'Service charge';
   if (u === 'm' || u === 'ft') return 'Hydraulic hose supply & fitting';
   if (dl.includes('bsp straight') || d.includes('22611')) return 'Union fitting (BSP Straight)';

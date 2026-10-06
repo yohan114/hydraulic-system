@@ -32,10 +32,14 @@ const finance = require('../lib/finance');
 const sql = require('../lib/sql');
 const { loadRateCardSafe, matchLineRate } = require('./ratecard');
 
-// A line is part of the labour pool if its description is a technical or
-// crimping charge (case-insensitive).
-const TECH_RE = /technical charge|crimping/i;
-function isTechCharge(desc) { return TECH_RE.test(String(desc || '')); }
+// A line is part of the labour pool if its description is a technical,
+// crimping, welding, or lathe charge (case-insensitive), excluding parts.
+const LABOUR_RE = /technical|crimp|weld|lathe/i;
+const NON_LABOUR_RE = /fitting|rod|sundr/i;
+function isTechCharge(desc) {
+  const d = String(desc || '');
+  return LABOUR_RE.test(d) && !NON_LABOUR_RE.test(d);
+}
 
 function emptyTotals() {
   return {
@@ -109,8 +113,11 @@ async function jobProfitData(opts = {}) {
     const lines = (byInv.get(inv.InvoiceID) || []).map((it) => {
       const qty = money.num(it.Qty);
       const rate = money.num(it.Rate);
+      const isLabour = isTechCharge(it.ItemDescription || it.ProductName || '');
+      const rawMarketRate = money.num(it.MarketRate);
+      // For workshop labour lines with no separate outside benchmark, the billed rate is the market charge
+      const marketRate = isLabour && rawMarketRate === 0 ? rate : rawMarketRate;
       const unitCost = money.num(it.UnitCost);
-      const marketRate = money.num(it.MarketRate);
       const ourAmount = money.round2(qty * rate);
       const outsideAmount = money.round2(qty * marketRate);
       const ourCost = money.round2(qty * unitCost);
@@ -148,7 +155,7 @@ async function jobProfitData(opts = {}) {
         // Legacy field: our amount vs the outside amount (kept for the old
         // "Diff" column). Note this is a market gap, NOT a profit.
         diff: money.round2(ourAmount - outsideAmount),
-        isTech: isTechCharge(it.ItemDescription || ''),
+        isTech: isLabour,
       };
     });
 

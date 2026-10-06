@@ -2,8 +2,18 @@
 // ----------------------------------------------------
 // Modals
 // ----------------------------------------------------
-function openModal(id) { document.getElementById(id).classList.add('active'); }
-function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+if (typeof window.openModal !== 'function') {
+    window.openModal = function(id) {
+        const el = typeof id === 'string' ? document.getElementById(id) : id;
+        if (el) el.classList.add('active');
+    };
+}
+if (typeof window.closeModal !== 'function') {
+    window.closeModal = function(id) {
+        const el = typeof id === 'string' ? document.getElementById(id) : id;
+        if (el) el.classList.remove('active');
+    };
+}
 
 // ----------------------------------------------------
 // New Invoice
@@ -50,7 +60,9 @@ async function startNewInvoice() {
     currentInvoiceId = null;
     currentLoadedInvoice = null;
     clearRevising();
-    billType = 'inside'; // every new invoice starts as the full internal copy
+    manualBillTypeOverride = false;
+    selectedCustomerId = null;
+    selectedMachineId = null;
     setInvoiceEditable(true);
     document.getElementById('invDate').value = new Date().toISOString().split('T')[0];
 
@@ -67,7 +79,7 @@ async function startNewInvoice() {
     document.getElementById('invRoundToRupee').checked = false;
 
     invoiceItems = [];
-    renderInvoiceItems();
+    setBillType('outside', false);
 
     document.getElementById('invoice-save-actions').style.display = 'flex';
     document.getElementById('btnSaveDraft').style.display = 'inline-flex';
@@ -76,62 +88,81 @@ async function startNewInvoice() {
 
     document.getElementById('invoice-view-title').textContent = 'Create New Invoice';
 
-    await fetchNextInvoiceNo();
+    await Promise.all([fetchNextInvoiceNo(), ensureCustomerMasters()]);
 }
 
-// Modal select inventory — the query hits the server /inventory/search endpoint,
-// so it is debounced to fire one request after the user stops typing rather than
-// one per keystroke (the picker never loads the full inventory into a dropdown).
+// Modal select inventory — opens modal and searches automatically.
+function openSelectInventoryModal() {
+    const input = document.getElementById('modalInventorySearch');
+    if (input) input.value = '';
+    searchModalInventory();
+    openModal('selectInventoryModal');
+    setTimeout(() => {
+        const inp = document.getElementById('modalInventorySearch');
+        if (inp) inp.focus();
+    }, 150);
+}
+
 const debouncedModalSearch = debounce(() => searchModalInventory(), 250);
 
 async function searchModalInventory() {
-    const q = document.getElementById('modalInventorySearch').value;
+    const input = document.getElementById('modalInventorySearch');
+    const q = input ? input.value.trim() : '';
+    const tbody = document.getElementById('modal-inventory-tbody');
+    if (tbody && !tbody.innerHTML.trim()) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted);"><i class="ri-loader-4-line ri-spin"></i> Loading inventory items...</td></tr>';
+    }
     try {
         const res = await authFetch(`${API_URL}/inventory/search?q=${encodeURIComponent(q)}`);
         const data = await res.json();
-        modalSearchResults = data; // cache so we can pass just the id to the handler
-        const tbody = document.getElementById('modal-inventory-tbody');
+        if (!Array.isArray(data)) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger,#dc2626);">${escAttr(data.error || 'Failed to search inventory')}</td></tr>`;
+            return;
+        }
+        modalSearchResults = data;
+        if (!tbody) return;
         tbody.innerHTML = '';
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted);">No matching inventory items found.</td></tr>';
+            return;
+        }
         data.forEach((item) => {
-            // Escape display cells; the Add button passes only the numeric id, so
-            // product names containing " or ' can never break the markup.
-            // Show the SUGGESTED 80% bill (what the row will default to).
             const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
             tbody.innerHTML += `
                 <tr>
-                    <td>${escAttr(item.UniqueID)}</td>
-                    <td>${escAttr(item.ProductName)}</td>
-                    <td>${escAttr(item.SpecificationCode)}</td>
-                    <td>${item.Qty}</td>
-                    <td>${formatCurrency(suggested)}${item.SuggestedFloored ? ' <span style="color:#c2410c;font-size:10px;">(cost)</span>' : ''}</td>
-                    <td><button class="btn btn-primary" onclick="addInventoryFromModal(${item.InventoryID})">Add</button></td>
+                    <td><strong>${escAttr(item.UniqueID || '')}</strong></td>
+                    <td>${escAttr(item.ProductName || '')}</td>
+                    <td>${escAttr(item.SpecificationCode || '')}</td>
+                    <td class="num">${item.Qty != null ? item.Qty : 0}</td>
+                    <td class="num">${formatCurrency(suggested)}${item.SuggestedFloored ? ' <span style="color:#c2410c;font-size:10px;">(cost)</span>' : ''}</td>
+                    <td><button type="button" class="btn btn-primary" onclick="addInventoryFromModal(${item.InventoryID})">Add</button></td>
                 </tr>
             `;
         });
-    } catch (e) {}
+    } catch (e) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--danger,#dc2626);">${escAttr(e.message || 'Error searching inventory')}</td></tr>`;
+    }
 }
 
 function addInventoryFromModal(invId) {
-    const item = modalSearchResults.find((i) => i.InventoryID === invId);
+    const item = (modalSearchResults || []).find((i) => i.InventoryID === invId);
     if (!item) return;
-    // Default the billed rate to the SUGGESTED 80%-of-market-mid figure (floored at
-    // cost). The operator can still edit it before saving. Carry cost + market so
-    // the rate cell can show the three-way comparison badges.
     const suggested = item.SuggestedBill != null ? item.SuggestedBill : (item.Price || 0);
-    // Market price is the resolved priority-1 value (outside benchmark first, then
-    // the datasheet mid). Fall back to MarketMid for older responses.
     const market = item.MarketPrice != null ? item.MarketPrice : (item.MarketMid || 0);
+    const desc = item.SpecificationCode
+        ? `${item.ProductName} - ${item.SpecificationCode}`
+        : (item.ProductName || '');
     invoiceItems.push({
         id: nextItemId++,
         inventoryId: item.InventoryID,
-        desc: `${item.ProductName} - ${item.SpecificationCode}`,
-        unit: item.Unit,
-        length: item.Length,
+        desc,
+        unit: item.Unit || 'Nos',
+        length: item.Length || 0,
         qty: 1,
-        rate: suggested,
-        cost: item.Cost || 0,
-        marketMid: market,
-        suggested,
+        rate: round2(suggested),
+        cost: round2(item.Cost || 0),
+        marketMid: round2(market),
+        suggested: round2(suggested),
         source: item.MarketSource || 'inventory',
         maxQty: item.Qty,
     });
@@ -366,6 +397,65 @@ function addWeldingLine(e) {
     renderInvoiceItems();
 }
 
+// ----------------------------------------------------
+// Lathe Charge — workshop lathe work / turning / bushing labour. Added as its
+// own line ("Lathe Charge"); tracked under workshop labour.
+// ----------------------------------------------------
+function openLatheModal() {
+    const descEl = document.getElementById('lathe-desc');
+    const unitEl = document.getElementById('lathe-unit');
+    const qtyEl = document.getElementById('lathe-qty');
+    const rateEl = document.getElementById('lathe-rate');
+    if (descEl) descEl.value = 'Lathe Charge';
+    if (unitEl) unitEl.value = 'job';
+    if (qtyEl) qtyEl.value = 1;
+    if (rateEl) rateEl.value = 250;
+    updateLathePreview();
+    openModal('latheModal');
+}
+
+function updateLathePreview() {
+    const qty = Math.max(1, parseFloat(document.getElementById('lathe-qty')?.value) || 1);
+    const rate = Math.max(0, parseFloat(document.getElementById('lathe-rate')?.value) || 0);
+    const total = round2(qty * rate);
+    const desc = document.getElementById('lathe-desc')?.value || 'Lathe Charge';
+    const el = document.getElementById('lathe-preview');
+    if (!el) return;
+    el.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;">
+            <span style="color:var(--text-muted);">Labour item</span><strong style="text-align:right;">${escAttr(desc)}</strong>
+            <span style="color:var(--text-muted);">Quantity</span><strong class="num" style="text-align:right;">${qty}</strong>
+            <span style="color:var(--text-muted);">Rate</span><strong class="num" style="text-align:right;">${formatCurrency(rate)}</strong>
+        </div>
+        <div style="border-top:1px solid var(--border-color,#e5e7eb);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;">
+            <span style="font-weight:600;">Total Lathe Charge</span><strong class="num" style="font-size:16px;color:#047857;">${formatCurrency(total)}</strong>
+        </div>`;
+}
+
+function addLatheLine(e) {
+    if (e) e.preventDefault();
+    const desc = (document.getElementById('lathe-desc')?.value || 'Lathe Charge').trim();
+    const unit = document.getElementById('lathe-unit')?.value || 'job';
+    const qty = Math.max(1, parseFloat(document.getElementById('lathe-qty')?.value) || 1);
+    const rate = Math.max(0, parseFloat(document.getElementById('lathe-rate')?.value) || 0);
+    invoiceItems.push({
+        id: nextItemId++,
+        inventoryId: null,
+        desc: desc || 'Lathe Charge',
+        unit: unit || 'job',
+        length: 0,
+        qty,
+        rate: round2(rate),
+        cost: 0,
+        marketMid: round2(rate),
+        suggested: round2(rate),
+        source: 'lathe-charges',
+        maxQty: null,
+    });
+    closeModal('latheModal');
+    renderInvoiceItems();
+}
+
 function removeInvoiceItem(id) {
     invoiceItems = invoiceItems.filter((i) => i.id !== id);
     renderInvoiceItems();
@@ -416,6 +506,7 @@ function getOutsideDesc(item) {
     const unit = String(item.unit || '').toLowerCase();
     if (dl.includes('crimping')) return d;                       // already customer-friendly
     if (dl.includes('welding')) return 'Welding charge';
+    if (dl.includes('lathe')) return d;                          // already customer-friendly
     if (dl.includes('technical charge')) return 'Service charge';
     if (unit === 'm' || unit === 'ft') return 'Hydraulic hose supply & fitting';
     if (dl.includes('bsp straight') || d.includes('22611')) return 'Union fitting (BSP Straight)';
@@ -427,14 +518,145 @@ function getOutsideDesc(item) {
     return (i >= 0 ? d.slice(0, i) : d).trim();
 }
 
-function setBillType(type) {
+let manualBillTypeOverride = false;
+let selectedCustomerId = null;
+let selectedMachineId = null;
+let customerMastersLoaded = false;
+
+async function ensureCustomerMasters() {
+    if (customerMastersLoaded && typeof allCustomers !== 'undefined' && allCustomers.length) {
+        populateBilledToSuggestions();
+        return;
+    }
+    try {
+        const [cRes, mRes] = await Promise.all([
+            authFetch(`${API_URL}/customers`),
+            authFetch(`${API_URL}/machines`),
+        ]);
+        if (cRes.ok) allCustomers = await cRes.json();
+        if (mRes.ok) allMachines = await mRes.json();
+        customerMastersLoaded = true;
+        populateBilledToSuggestions();
+    } catch (e) {
+        console.warn('Could not load customers/machines masters for suggestions', e);
+    }
+}
+
+function populateBilledToSuggestions() {
+    const dl = document.getElementById('billedToSuggestions');
+    if (!dl) return;
+    dl.innerHTML = '';
+    if (typeof allCustomers !== 'undefined' && Array.isArray(allCustomers)) {
+        allCustomers.filter(c => c.Kind === 'external' && c.Active !== 0).forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.Name;
+            opt.label = `${c.Name} — Outside Customer`;
+            dl.appendChild(opt);
+        });
+    }
+    if (typeof allMachines !== 'undefined' && Array.isArray(allMachines)) {
+        allMachines.filter(m => m.Active !== 0).forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.Name;
+            opt.label = `${m.Name} — Company Fleet Machine`;
+            dl.appendChild(opt);
+        });
+    }
+    if (typeof allCustomers !== 'undefined' && Array.isArray(allCustomers)) {
+        allCustomers.filter(c => c.Kind === 'internal').forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.Name;
+            opt.label = `${c.Name} — Company Internal`;
+            dl.appendChild(opt);
+        });
+    }
+}
+
+function onBilledToInput(val) {
+    const clean = (val || '').trim();
+    if (!clean) {
+        selectedCustomerId = null;
+        selectedMachineId = null;
+        manualBillTypeOverride = false;
+        updateInvoiceTypeBadge(billType, false);
+        return;
+    }
+
+    const machs = (typeof allMachines !== 'undefined' && Array.isArray(allMachines)) ? allMachines : [];
+    const custs = (typeof allCustomers !== 'undefined' && Array.isArray(allCustomers)) ? allCustomers : [];
+
+    const matchedMachine = machs.find(m =>
+        m.Name.toLowerCase() === clean.toLowerCase() ||
+        (m.Code && m.Code.toLowerCase() === clean.toLowerCase())
+    );
+    const matchedCustomer = custs.find(c =>
+        c.Name.toLowerCase() === clean.toLowerCase()
+    );
+
+    const isFleetPattern = /^(HEX|SL|VR|PTR|FL|MG|ZA|ZB|48-)/i.test(clean) ||
+        /grease|service bay|standby|tractor|lathshop/i.test(clean);
+
+    if (matchedMachine || (matchedCustomer && matchedCustomer.Kind === 'internal') || isFleetPattern) {
+        selectedMachineId = matchedMachine ? matchedMachine.MachineID : null;
+        selectedCustomerId = (matchedCustomer && matchedCustomer.CustomerID) || (matchedMachine ? matchedMachine.CustomerID : 1);
+        if (!manualBillTypeOverride) {
+            setBillType('inside', false);
+        }
+        const addr = document.getElementById('billedToAddress');
+        if (addr && !addr.value.trim()) {
+            addr.value = 'Edward and Christie No. 64/9, Nawala Road, Nugegoda';
+        }
+    } else {
+        selectedMachineId = null;
+        selectedCustomerId = matchedCustomer ? matchedCustomer.CustomerID : null;
+        if (!manualBillTypeOverride) {
+            setBillType('outside', false);
+        }
+        if (matchedCustomer && matchedCustomer.Address) {
+            const addr = document.getElementById('billedToAddress');
+            if (addr && !addr.value.trim()) {
+                addr.value = matchedCustomer.Address;
+            }
+        }
+    }
+}
+
+function updateInvoiceTypeBadge(type, isManual = false) {
+    const badge = document.getElementById('detectedTypeBadge');
+    const hint = document.getElementById('detectedTypeHint');
+    if (!badge || !hint) return;
+    if (type === 'outside') {
+        badge.textContent = 'Customer Bill (Outside)';
+        badge.style.background = '#dcfce7';
+        badge.style.color = '#166534';
+        hint.innerHTML = isManual
+            ? '<i class="ri-checkbox-circle-line"></i> Customer Bill (Outside) · Cash on Hand enabled'
+            : '<i class="ri-checkbox-circle-line"></i> Outside Customer · Cash on Hand enabled';
+    } else if (type === 'detailed') {
+        badge.textContent = 'Company Detailed Copy';
+        badge.style.background = '#e0e7ff';
+        badge.style.color = '#3730a3';
+        hint.innerHTML = '<i class="ri-file-list-3-line"></i> Company Detailed Review · No Cash on Hand';
+    } else {
+        badge.textContent = 'Company Bill (Internal)';
+        badge.style.background = '#fef3c7';
+        badge.style.color = '#b45309';
+        hint.innerHTML = isManual
+            ? '<i class="ri-truck-line"></i> Company Fleet Bill · Internal Cost (No Cash in Hand)'
+            : '<i class="ri-truck-line"></i> Internal Fleet Machine · Internal Cost (No Cash in Hand)';
+    }
+}
+
+function setBillType(type, isManual = false) {
+    if (isManual) manualBillTypeOverride = true;
     billType = type === 'detailed' ? 'detailed' : type === 'outside' ? 'outside' : 'inside';
     applyBillTypeUI();
     renderInvoiceItems();
+    updateInvoiceTypeBadge(billType, isManual);
 }
 
 // Reflect billType in the toolbar toggle, the items-table column visibility, and
-// the printed copy badge. Display-only; nothing here is persisted.
+// the printed copy badge.
 function applyBillTypeUI() {
     const outside = billType === 'outside';
     const detailed = billType === 'detailed';
@@ -612,14 +834,18 @@ async function saveInvoice(status) {
     const totals = calcInvoiceTotals();
     // The server recomputes every amount from these facts — client totals are
     // only a preview and are intentionally not sent as authoritative money.
+    const isInternal = (billType === 'inside' || billType === 'detailed') ? 1 : 0;
     const payload = {
         invoiceId: currentInvoiceId || undefined,
         invoiceNo: document.getElementById('refInvoice').textContent.trim(),
         invoiceDate: document.getElementById('invDate').value,
-        billedToName: document.getElementById('billedToName') ? document.getElementById('billedToName').value : '',
+        billedToName: document.getElementById('billedToName') ? document.getElementById('billedToName').value.trim() : '',
         billedToAddress: document.getElementById('billedToAddress') ? document.getElementById('billedToAddress').value : '',
         deliveredToName: document.getElementById('deliveredToName') ? document.getElementById('deliveredToName').value : '',
         deliveredToAddress: document.getElementById('deliveredToAddress') ? document.getElementById('deliveredToAddress').value : '',
+        isInternal,
+        customerId: selectedCustomerId || undefined,
+        machineId: selectedMachineId || undefined,
         // No tax: SSCL/VAT are no longer billed. The server forces both rates to 0.
         discount: totals.discount,
         roundToRupee: totals.roundToRupee,
@@ -706,16 +932,19 @@ function renderHistory(data) {
         const isRevised = inv.Status === 'Revised';
         const balance = Number(inv.Balance) || 0;
         const paid = Number(inv.AmountPaid) || 0;
+        const isInternal = Boolean(inv.IsInternal);
         const payBadge = isFinalized
-            ? `<span class="badge ${paymentBadgeClass(inv.PaymentStatus)}">${inv.PaymentStatus}</span>`
+            ? (isInternal
+                ? '<span class="badge" style="background:#fef3c7;color:#b45309;">Internal Fleet</span>'
+                : `<span class="badge ${paymentBadgeClass(inv.PaymentStatus)}">${inv.PaymentStatus}</span>`)
             : '<span style="color:var(--text-muted)">—</span>';
         const safeNo = escAttr(inv.InvoiceNo).replace(/'/g, "\\'");
 
         let actions = `<button class="btn btn-secondary btn-text" onclick="viewInvoice(${inv.InvoiceID})">View</button>`;
         // The modal opens whenever there is money to see, not only money to
         // take — otherwise a fully paid invoice has no route to its payments,
-        // and voiding one would be unreachable.
-        if (isFinalized && (balance > 0 || paid > 0)) {
+        // and voiding one would be unreachable. Internal jobs never carry external receipts.
+        if (isFinalized && !isInternal && (balance > 0 || paid > 0)) {
             actions += ` <button class="btn btn-text" style="color:var(--success)" onclick="openPaymentModal(${inv.InvoiceID}, '${safeNo}')">${balance > 0 ? 'Payment' : 'Payments'}</button>`;
         }
         if (isFinalized) {
@@ -818,6 +1047,11 @@ async function viewInvoice(id, opts = {}) {
 
         currentInvoiceId = inv.InvoiceID;
         currentLoadedInvoice = inv; // so locked invoices render their stored totals (incl. legacy tax)
+        manualBillTypeOverride = false;
+        selectedCustomerId = inv.CustomerID || null;
+        selectedMachineId = inv.MachineID || null;
+        setBillType(inv.IsInternal ? 'inside' : 'outside', false);
+        ensureCustomerMasters();
         document.getElementById('refInvoice').textContent = inv.InvoiceNo;
         document.getElementById('invDate').value = inv.InvoiceDate ? inv.InvoiceDate.split('T')[0] : '';
         const billedToName = document.getElementById('billedToName');

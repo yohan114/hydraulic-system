@@ -87,9 +87,7 @@ const POLICIES = [
   { method: 'GET', pattern: /^\/api\/approvals$/, permission: 'receipt.read' },
 
   // --- Inventory & Stock ---
-  { method: 'GET', pattern: /^\/api\/inventory$/, permission: 'inventory.read' },
-  { method: 'GET', pattern: /^\/api\/inventory\/export$/, permission: 'inventory.read' },
-  { method: 'GET', pattern: /^\/api\/inventory\/\d+$/, permission: 'inventory.read' },
+  { method: 'GET', pattern: /^\/api\/inventory(\/.*)?$/, permission: 'inventory.read' },
   { method: 'POST', pattern: /^\/api\/inventory$/, permission: 'inventory.adjust' },
   { method: 'PUT', pattern: /^\/api\/inventory\/\d+$/, permission: 'inventory.adjust' },
   { method: 'POST', pattern: /^\/api\/inventory\/\d+\/purchase$/, permission: 'procurement.manage' },

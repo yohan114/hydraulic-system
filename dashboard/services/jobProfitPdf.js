@@ -56,12 +56,11 @@ function block(b) {
       <td class="r out">${l.outsideRate > 0 ? l.qty : ''}</td>
       <td class="r out">${l.outsideRate > 0 ? n2(l.outsideAmount) : ''}</td>
       ${first ? `<td class="r tot out"${span}>${n2(b.outsideTotal)}</td>` : ''}
-      ${first ? `<td class="r prof"${span}>${n2(b.invoiceTotal)}</td>` : ''}
       ${first ? `<td class="r prof strong"${span}>${n2(b.profit)}</td>` : ''}
       ${first ? `<td class="r prof strong"${span}>${pct1(b.profit, b.invoiceTotal)}</td>` : ''}
     </tr>`;
   }).join('');
-  return rows + '<tr class="gap"><td colspan="15"></td></tr>';
+  return rows + '<tr class="gap"><td colspan="14"></td></tr>';
 }
 
 /**
@@ -154,7 +153,7 @@ function buildJobProfitHtml(model, opts = {}) {
       <tr>
         <th class="g-cost" colspan="8">OUR COST</th>
         <th class="g-out" colspan="4">OUTSIDE COST</th>
-        <th class="g-prof" colspan="3">PROFIT</th>
+        <th class="g-prof" colspan="2">PROFIT</th>
       </tr>
       <tr>
         <th class="h-cost">Invoice Number</th><th class="h-cost">Description</th><th class="h-cost c">Unit</th>
@@ -162,10 +161,10 @@ function buildJobProfitHtml(model, opts = {}) {
         <th class="h-cost r">Total Our Cost</th><th class="h-cost c">Hose Size</th>
         <th class="h-out r">Rate (Outside)</th><th class="h-out r">Qty (Outside)</th>
         <th class="h-out r">Outside Cost</th><th class="h-out r">Total Outside Cost</th>
-        <th class="h-prof r">Invoice Total</th><th class="h-prof r">Profit</th><th class="h-prof r">Margin %</th>
+        <th class="h-prof r">Profit</th><th class="h-prof r">Margin %</th>
       </tr>
     </thead>
-    <tbody>${detail || '<tr><td colspan="15" class="c" style="color:#888;">No jobs in this period</td></tr>'}</tbody>
+    <tbody>${detail || '<tr><td colspan="14" class="c" style="color:#888;">No jobs in this period</td></tr>'}</tbody>
   </table>
 
   <h3 class="sec">SUMMARY</h3>
@@ -182,7 +181,7 @@ function buildJobProfitHtml(model, opts = {}) {
       </tr>
       <tr>
         <td>Total Material Cost</td><td class="r cost">${n2(totals.materialCost)}</td>
-        <td colspan="3" style="color:${C.muted};">parts only — excludes crimping, welding and sundry</td>
+        <td colspan="3" style="color:${C.muted};">parts only — excludes labour (crimping, welding, lathe, technical) and sundry</td>
       </tr>
       <tr>
         <td>Total Sundry (Electricity)</td><td class="r cost">${n2(totals.sundry)}</td>
@@ -191,14 +190,14 @@ function buildJobProfitHtml(model, opts = {}) {
     </tbody>
   </table>
 
-  <h3 class="sec">TECHNICAL / CRIMPING LABOUR</h3>
+  <h3 class="sec">LABOUR CHARGES (CRIMPING / WELDING / LATHE / TECHNICAL)</h3>
   <table class="sum">
     <thead><tr>
       <th class="h-cost">Invoice Number</th><th class="h-cost c">Date</th><th class="h-cost">Customer</th>
-      <th class="h-cost r">Technical Charge</th><th class="h-cost c">Status</th>
+      <th class="h-cost r">Labour Charge</th><th class="h-cost c">Status</th>
     </tr></thead>
     <tbody>
-      ${labourRows || '<tr><td colspan="5" class="c" style="color:#888;">No technical or crimping labour on these jobs</td></tr>'}
+      ${labourRows || '<tr><td colspan="5" class="c" style="color:#888;">No workshop labour on these jobs</td></tr>'}
       <tr class="total"><td colspan="3">TOTAL BILLED</td><td class="r">${n2(totals.techCharges)}</td><td></td></tr>
       <tr class="grand"><td colspan="3">TOTAL UNPAID</td><td class="r">${n2(totals.unpaidTech)}</td><td class="c">${totals.unpaidCount} job(s)</td></tr>
     </tbody>
@@ -210,7 +209,7 @@ function buildJobProfitHtml(model, opts = {}) {
       <tr><td>Date range (jobs in this report)</td><td class="r strong" colspan="2">${esc(rangeText)}</td></tr>
       <tr><td>Filter applied</td><td class="r" colspan="2">${esc(period)}</td></tr>
       <tr><td>Invoices / jobs</td><td class="r strong" colspan="2">${totals.count}</td></tr>
-      <tr><td>Jobs with technical / crimping labour</td><td class="r strong" colspan="2">${lab.jobs || 0}</td></tr>
+      <tr><td>Jobs with workshop labour</td><td class="r strong" colspan="2">${lab.jobs || 0}</td></tr>
       <tr><td>&nbsp;&nbsp;&nbsp;— labour paid</td><td class="r">${lab.paidCount || 0} job(s)</td><td class="r">${n2(lab.paidAmount)}</td></tr>
       <tr class="owed"><td>&nbsp;&nbsp;&nbsp;— labour UNPAID</td><td class="r strong">${lab.unpaidCount || 0} job(s)</td><td class="r strong">${n2(lab.unpaidAmount)}</td></tr>
       <tr class="total"><td>Total labour billed</td><td></td><td class="r">${n2(lab.billed)}</td></tr>

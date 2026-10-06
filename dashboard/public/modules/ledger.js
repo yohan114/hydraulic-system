@@ -59,7 +59,7 @@ function renderTrialBalance(d) {
             tb.innerHTML += `
                 <tr>
                     <td><a href="#" onclick="glOpenAccount('${escAttr(a.code)}');return false;"><strong>${escAttr(a.code)}</strong></a></td>
-                    <td>${escAttr(a.name)}</td>
+                    <td>${escAttr(a.name)}${a.code === '1110' ? ' <span class="badge" style="font-size:10px;background:#dcfce7;color:#166534;" title="Cash on Hand is sourced exclusively from outside customer bills">Outside Bills Only</span>' : ''}</td>
                     <td><span class="badge badge-ok">${escAttr(String(a.type).replace(/_/g, ' '))}</span></td>
                     <td class="num">${a.debitBalance ? formatCurrency(a.debitBalance) : '<span class="flat">—</span>'}</td>
                     <td class="num">${a.creditBalance ? formatCurrency(a.creditBalance) : '<span class="flat">—</span>'}</td>
@@ -206,8 +206,14 @@ async function glOpenAccount(code) {
         const res = await authFetch(`${API_URL}/ledger/account/${encodeURIComponent(code)}?${glRange()}`);
         const d = await res.json();
         if (!res.ok) return toast(d.error || 'Could not load the account', 'error');
+        const cashNote = code === '1110'
+            ? `<div class="card" style="padding:10px 14px;margin-bottom:12px;background:#f0fdf4;border-color:#bbf7d0;color:#166534;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;">
+                 <i class="ri-shield-check-line" style="font-size:16px;"></i>
+                 <span>Cash in Hand (1110) records only physical collections from outside customer bills. Company fleet jobs are internal workshop costs with zero cash impact.</span>
+               </div>`
+            : '';
         document.getElementById('glDetailTitle').textContent = `${d.account.code} — ${d.account.name}`;
-        document.getElementById('glDetailBody').innerHTML = `
+        document.getElementById('glDetailBody').innerHTML = cashNote + `
             <div class="table-responsive"><table class="table">
                 <thead><tr><th>Entry</th><th>Date</th><th>Memo</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
                 <tbody>${d.lines.map((l) => `

@@ -27,16 +27,16 @@ const money = require('../lib/money');
 const SUNDRY_RATE = 0.10;
 const SUNDRY_LABEL = 'Sundry (Electricity) Cost (10%)';
 
-// Crimping and welding are labour WE do in the shop. Both sides of the sheet
+// Crimping, welding, lathe and technical work are labour WE do in the shop. Both sides of the sheet
 // carry the OUTSIDE rate for them — the market charge is taken as the cost of
 // the labour, so these lines net to nothing in the comparison instead of
 // crediting us with an internal-cost margin on our own time. A "weld fitting"
 // is a part, not labour, and must keep its own separate cost and outside price.
-const LABOUR_RE = /crimp|weld/i;
+const LABOUR_RE = /technical|crimp|weld|lathe/i;
 const WELD_PART_RE = /weld(ed|ing)?\s*fitting/i;
 function isShopLabour(description) {
   const d = String(description || '');
-  return LABOUR_RE.test(d) && !WELD_PART_RE.test(d);
+  return LABOUR_RE.test(d) && !WELD_PART_RE.test(d) && !/fitting|rod|sundr/i.test(d);
 }
 
 // Inventory SpecificationCode is the bore in mm; show it the way the shop
@@ -68,21 +68,29 @@ function buildExportModel(data) {
 
   const blocks = invoices.map((inv) => {
     const lines = (inv.lines || []).map((l) => {
-      // Only mirror when there IS an outside rate to mirror; a labour line with
-      // no benchmark keeps its own cost rather than collapsing to zero.
-      const labour = isShopLabour(l.description) && money.num(l.outsideRate) > 0;
+      const isLabour = isShopLabour(l.description) || !!l.isTech;
+      // For labour lines, the market rate is taken as the outside benchmark.
+      // If no separate outside rate was set, the billed rate is the market charge.
+      const outsideRate = isLabour && money.num(l.outsideRate) === 0
+        ? money.num(l.ourBilledRate)
+        : money.num(l.outsideRate);
+      const outsideAmount = isLabour && money.num(l.outsideAmount) === 0
+        ? money.round2(money.num(l.qty) * outsideRate)
+        : money.num(l.outsideAmount);
+      const labour = isLabour && outsideRate > 0;
+
       return {
         description: l.description,
         unit: l.unit,
         qty: l.qty,
         // OUR COST side: what the part cost us, not what we billed — except for
-        // crimping and welding, which take the outside rate as their cost.
-        costRate: labour ? l.outsideRate : l.ourCostRate,
-        costAmount: labour ? l.outsideAmount : l.ourCost,
+        // labour (crimping, welding, lathe, technical), which takes the outside rate as its cost.
+        costRate: labour ? outsideRate : l.ourCostRate,
+        costAmount: labour ? outsideAmount : l.ourCost,
         // OUTSIDE COST side: what an outside company would have charged.
-        outsideRate: l.outsideRate,
-        outsideAmount: l.outsideAmount,
-        isTech: !!l.isTech,
+        outsideRate,
+        outsideAmount,
+        isTech: !!l.isTech || isLabour,
         isLabour: labour,
         isSundry: false,
       };
@@ -121,7 +129,7 @@ function buildExportModel(data) {
       outsideTotal,
       invoiceTotal,
       profit: money.round2(invoiceTotal - ourCost),
-      techCharges: inv.techCharges,
+      techCharges: inv.techCharges != null ? inv.techCharges : money.round2(lines.filter((l) => l.isTech || l.isLabour).reduce((a, l) => a + money.num(l.outsideAmount || l.costAmount), 0)),
       techPaid: !!inv.techPaid,
     };
   });
@@ -175,9 +183,9 @@ function buildExportModel(data) {
       invoiceTotal: sumOf('invoiceTotal'),
       profit: sumOf('profit'),
       materialCost,
-      techCharges: money.round2(totals.techCharges),
-      unpaidTech: money.round2(totals.unpaidTech),
-      unpaidCount: totals.unpaidCount || 0,
+      techCharges: money.round2(totals.techCharges != null ? totals.techCharges : sumRows(unpaid)),
+      unpaidTech: money.round2(totals.unpaidTech != null ? totals.unpaidTech : sumRows(owedRows)),
+      unpaidCount: totals.unpaidCount != null ? totals.unpaidCount : owedRows.length,
     },
   };
 }

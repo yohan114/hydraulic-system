@@ -248,7 +248,7 @@ function buildProfitSheet(model, periodText) {
   r += 1;
   put(ws, 'A', r, 'Total Material Cost');
   put(ws, 'B', r, totals.materialCost, { z: MONEY_FMT });
-  put(ws, 'C', r, '(parts only — excludes crimping, welding and sundry)');
+  put(ws, 'C', r, '(parts only — excludes labour (crimping, welding, lathe, technical) and sundry)');
   r += 1;
   put(ws, 'A', r, 'Total Sundry (Electricity)');
   put(ws, 'B', r, totals.sundry, { z: MONEY_FMT });
@@ -256,10 +256,10 @@ function buildProfitSheet(model, periodText) {
   r += 2;
 
   // --- What is still owed to the worker ---
-  put(ws, 'A', r, 'TECHNICAL / CRIMPING LABOUR');
+  put(ws, 'A', r, 'LABOUR CHARGES (CRIMPING / WELDING / LATHE / TECHNICAL)');
   merge(ws, 'A', r, 'E', r);
   r += 1;
-  ['Invoice Number', 'Date', 'Customer', 'Technical Charge', 'Status']
+  ['Invoice Number', 'Date', 'Customer', 'Labour Charge', 'Status']
     .forEach((t, i) => put(ws, String.fromCharCode(65 + i), r, t));
   r += 1;
 
@@ -283,7 +283,7 @@ function buildProfitSheet(model, periodText) {
     put(ws, 'D', r, totals.unpaidTech, { f: `SUMIF(E${labFirst}:E${labLast},"Unpaid",D${labFirst}:D${labLast})`, z: MONEY_FMT });
     put(ws, 'E', r, `${totals.unpaidCount} job(s)`);
   } else {
-    put(ws, 'A', r, 'No technical or crimping labour on these jobs.');
+    put(ws, 'A', r, 'No workshop labour on these jobs.');
   }
   r += 2;
 
@@ -372,4 +372,5 @@ router.get('/api/job-profit/excel', async (req, res) => {
   }
 });
 
+router.buildProfitSheet = buildProfitSheet;
 module.exports = router;

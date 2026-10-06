@@ -656,12 +656,12 @@
                     <div class="invoice-toolbar no-print">
                         <h2 id="invoice-view-title">New Invoice</h2>
                         <div class="header-actions">
-                            <span class="billtype-toggle" title="Outside = customer copy · Inside = standard copy · Detailed = company review with costs and margins">
+                            <span class="billtype-toggle" title="Outside = customer copy (Sales & Cash on Hand) · Inside = standard copy (Internal Fleet) · Detailed = company review with costs and margins">
                                 Document View:
                                 <span class="seg">
-                                    <button type="button" id="billTypeOutside" onclick="setBillType('outside')">Customer</button>
-                                    <button type="button" id="billTypeInside" class="active" onclick="setBillType('inside')">Company</button>
-                                    <button type="button" id="billTypeDetailed" onclick="setBillType('detailed')">Detailed Review</button>
+                                    <button type="button" id="billTypeOutside" onclick="setBillType('outside', true)">Customer</button>
+                                    <button type="button" id="billTypeInside" class="active" onclick="setBillType('inside', true)">Company</button>
+                                    <button type="button" id="billTypeDetailed" onclick="setBillType('detailed', true)">Detailed Review</button>
                                 </span>
                             </span>
                             <button class="btn" onclick="startNewInvoice()"><i class="ri-refresh-line"></i> Clear</button>
@@ -694,9 +694,16 @@
                                 <div class="section-head"><span class="section-num">01</span><span class="section-title">Parties</span><span class="section-line"></span></div>
                                 <div class="party-grid" style="grid-template-columns: 1fr;">
                                   <div class="party">
-                                    <div class="key">Billed To</div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:6px;">
+                                      <div class="key" style="margin-bottom:0;">Billed To</div>
+                                      <div id="billedToClassificationBadge" style="display:inline-flex;align-items:center;gap:6px;">
+                                        <span id="detectedTypeBadge" class="badge" style="font-size:11px;padding:2px 8px;font-weight:600;background:#dcfce7;color:#166534;">Customer Bill</span>
+                                        <span id="detectedTypeHint" style="font-size:11px;color:var(--text-muted);">Outside Customer · Cash in Hand enabled</span>
+                                      </div>
+                                    </div>
                                     <div class="body">
-                                      <input type="text" id="billedToName" class="cell left" placeholder="Customer Name" style="font-weight:600"><br>
+                                      <input type="text" id="billedToName" class="cell left" placeholder="Customer Name or Machine (e.g. Namal, HEX-41...)" list="billedToSuggestions" oninput="onBilledToInput(this.value)" autocomplete="off" style="font-weight:600"><br>
+                                      <datalist id="billedToSuggestions"></datalist>
                                       <textarea id="billedToAddress" class="cell left" placeholder="Address Details..." rows="3"></textarea>
                                     </div>
                                   </div>
@@ -721,11 +728,12 @@
                                   <tbody id="invItemsBody"></tbody>
                                 </table>
                                 <div class="add-buttons no-print" id="addItemBtnContainer">
-                                  <button type="button" onclick="openModal('selectInventoryModal')">+ Select from Inventory</button>
+                                  <button type="button" onclick="openSelectInventoryModal()">+ Select from Inventory</button>
                                   <button type="button" onclick="addCustomRow()">+ Add Custom Row</button>
                                   <button type="button" onclick="addStandardCharges()">+ Add Technical Charges</button>
                                   <button type="button" onclick="openCrimpingModal()">+ Add Crimping</button>
                                   <button type="button" onclick="openWeldingModal()">+ Add Welding Extra</button>
+                                  <button type="button" onclick="openLatheModal()">+ Add Lathe Charge</button>
                                 </div>
                               </div>
 
@@ -961,7 +969,7 @@
                     <!-- Technician charges from invoices -->
                     <div class="card" style="margin-top:24px; padding:0;">
                         <div class="widget-header" style="padding:16px 24px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                            <h2 style="font-size:15px;">Technician Charges (from invoices)</h2>
+                            <h2 style="font-size:15px;">Labour Charges (Crimping / Welding / Lathe / Technical) (from invoices)</h2>
                             <div style="display:flex; gap:20px; font-size:13px; flex-wrap:wrap;">
                                 <span style="color:var(--text-muted);">Total: <strong id="tech-stat-total" style="color:var(--text-main);">Rs. 0.00</strong></span>
                                 <span style="color:var(--text-muted);">Paid: <strong id="tech-stat-paid" style="color:#10b981;">Rs. 0.00</strong></span>
@@ -970,7 +978,7 @@
                         </div>
                         <div class="table-responsive">
                             <table class="table">
-                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Technical Charge</th><th>Status</th><th>Technician</th><th>Action</th></tr></thead>
+                                <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="num">Labour Charge</th><th>Status</th><th>Technician</th><th>Action</th></tr></thead>
                                 <tbody id="technical-tbody"></tbody>
                             </table>
                         </div>
@@ -1087,7 +1095,7 @@
                             <div><label style="font-size:12px;color:var(--text-muted);">Labour status</label>
                                 <select id="jp-status" class="form-control">
                                     <option value="all">All</option>
-                                    <option value="unpaid">Unpaid Technical Charges</option>
+                                    <option value="unpaid">Unpaid Labour Charges</option>
                                     <option value="paid">Paid</option>
                                 </select>
                             </div>
@@ -1100,7 +1108,7 @@
                         <div class="stat-card"><div class="stat-icon" style="background:rgba(37,99,235,.1);color:#2563eb;"><i class="ri-price-tag-3-line"></i></div><div class="stat-details"><h3>2 · Customer Saving (vs Outside Price)</h3><p id="jp-kpi-saving" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-saving-sub" style="font-size:12px;color:var(--text-muted);">—</span></div></div>
                         <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>3 · Gross Profit (Our Price − Our Cost)</h3><p id="jp-kpi-profit" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-margin" style="font-size:12px;color:var(--text-muted);">0% margin</span></div></div>
                         <div class="stat-card"><div class="stat-icon" style="background:rgba(245,158,11,.1);color:#f59e0b;"><i class="ri-swap-box-line"></i></div><div class="stat-details"><h3>Advantage vs an Outside Shop</h3><p id="jp-kpi-advantage" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-advantage-sub" style="font-size:12px;color:var(--text-muted);">—</span></div></div>
-                        <div class="stat-card" style="border-left:4px solid #dc2626;"><div class="stat-icon" style="background:rgba(220,38,38,.1);color:#dc2626;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Unpaid Technical Charges</h3><p id="jp-kpi-unpaid" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-unpaid-count" style="font-size:12px;color:var(--text-muted);">0 jobs</span></div></div>
+                        <div class="stat-card" style="border-left:4px solid #dc2626;"><div class="stat-icon" style="background:rgba(220,38,38,.1);color:#dc2626;"><i class="ri-tools-line"></i></div><div class="stat-details"><h3>Unpaid Labour Charges</h3><p id="jp-kpi-unpaid" style="font-size:20px;">Rs. 0.00</p><span id="jp-kpi-unpaid-count" style="font-size:12px;color:var(--text-muted);">0 jobs</span></div></div>
                     </div>
 
                     <!-- (1) BUYING — our cost vs outside cost, with the P&L compare -->
@@ -1833,9 +1841,12 @@
         <div class="modal-content" style="max-width: 900px;">
             <div class="modal-header">
                 <h2 id="glDetailTitle">Ledger</h2>
-                <button class="close-btn" onclick="closeModal('glDetailModal')"><i class="ri-close-line"></i></button>
+                <button class="close-btn" onclick="closeModal('glDetailModal')" title="Close (Esc)"><i class="ri-close-line"></i></button>
             </div>
             <div class="modal-body"><div id="glDetailBody"></div></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('glDetailModal')"><i class="ri-close-line"></i> Close</button>
+            </div>
         </div>
     </div>
 
@@ -2069,6 +2080,50 @@
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('weldingModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add to Invoice</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Lathe Charge Modal -->
+    <div id="latheModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>Add Lathe Charge</h2>
+                <button class="close-btn" onclick="closeModal('latheModal')"><i class="ri-close-line"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="latheForm" onsubmit="addLatheLine(event)">
+                    <div class="form-group">
+                        <label>Description / Work</label>
+                        <input type="text" id="lathe-desc" class="form-control" value="Lathe Charge" placeholder="e.g. Lathe Charge, Turning, Bushing...">
+                    </div>
+                    <div style="display:flex;gap:12px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>Unit</label>
+                            <select id="lathe-unit" class="form-control">
+                                <option value="job" selected>job</option>
+                                <option value="Nos">Nos</option>
+                                <option value="hrs">hrs</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>Quantity</label>
+                            <input type="number" id="lathe-qty" class="form-control" value="1" min="1" step="1" oninput="updateLathePreview()">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Rate (Rs.)</label>
+                        <input type="number" id="lathe-rate" class="form-control" value="250" min="0" step="0.01" oninput="updateLathePreview()">
+                    </div>
+                    <small style="color:var(--text-muted);display:block;margin-top:-6px;margin-bottom:10px;">Lathe labour charge, tracked under workshop labour.</small>
+                    <div class="form-group" style="background:var(--bg-color,#f8fafc);border:1px solid var(--border-color,#e5e7eb);border-radius:8px;padding:12px 14px;">
+                        <span id="lathe-preview" style="font-size:14px;"></span>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('latheModal')">Cancel</button>
                         <button type="submit" class="btn btn-primary">Add to Invoice</button>
                     </div>
                 </form>

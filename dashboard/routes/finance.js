@@ -146,12 +146,21 @@ router.get('/api/labour/technical', async (req, res) => {
     try {
         const [charges, payouts] = await Promise.all([
             connection.query(`
-                SELECT Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName,
+                SELECT Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName, Invoices.TechChargePaid,
                        SUM(InvoiceItems.Amount) AS TechAmount
                 FROM Invoices INNER JOIN InvoiceItems ON Invoices.InvoiceID = InvoiceItems.InvoiceID
-                WHERE Invoices.Status = 'Finalized' AND InvoiceItems.ItemDescription LIKE '%Technical%'
-                GROUP BY Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName
-                ORDER BY Invoices.InvoiceDate DESC
+                WHERE Invoices.Status = 'Finalized'
+                  AND (
+                      InvoiceItems.ItemDescription LIKE '%Technical%'
+                      OR InvoiceItems.ItemDescription LIKE '%Crimping%'
+                      OR InvoiceItems.ItemDescription LIKE '%Welding%'
+                      OR InvoiceItems.ItemDescription LIKE '%Lathe%'
+                  )
+                  AND InvoiceItems.ItemDescription NOT LIKE '%fitting%'
+                  AND InvoiceItems.ItemDescription NOT LIKE '%rod%'
+                  AND InvoiceItems.ItemDescription NOT LIKE '%sundr%'
+                GROUP BY Invoices.InvoiceID, Invoices.InvoiceNo, Invoices.InvoiceDate, Invoices.BilledToName, Invoices.TechChargePaid
+                ORDER BY Invoices.InvoiceDate DESC, Invoices.InvoiceID DESC
             `),
             connection.query(`
                 SELECT LabourPayments.*, Workers.Name AS WorkerName
@@ -172,15 +181,16 @@ router.get('/api/labour/technical', async (req, res) => {
             .map((c) => {
                 const amount = money.round2(c.TechAmount);
                 const p = paidBy[c.InvoiceID];
+                const isPaid = !!p || Boolean(c.TechChargePaid);
                 totalCharge += amount;
-                if (p) totalPaid += money.num(p.Amount);
+                if (isPaid) totalPaid += amount;
                 return {
                     invoiceId: c.InvoiceID,
                     invoiceNo: c.InvoiceNo,
                     invoiceDate: c.InvoiceDate,
                     billedToName: c.BilledToName,
                     amount,
-                    paid: !!p,
+                    paid: isPaid,
                     paidDate: p ? p.PaymentDate : null,
                     workerId: p ? p.WorkerID : null,
                     workerName: p ? p.WorkerName : null,
@@ -211,12 +221,25 @@ router.post('/api/labour/technical/:invoiceId/pay', async (req, res) => {
         if (inv.length === 0) return res.status(404).json({ error: 'Invoice not found' });
         if (inv[0].Status !== 'Finalized') return res.status(400).json({ error: 'Only finalized invoices have payable technical charges.' });
 
-        // Recompute the technical charge authoritatively from the line items.
+        // Recompute the technical/labour charge authoritatively from all labour line items.
         const agg = await connection.query(
-            `SELECT SUM(Amount) AS a FROM InvoiceItems WHERE InvoiceID = ${invoiceId} AND ItemDescription LIKE '%Technical%'`
+            `SELECT SUM(Amount) AS a FROM InvoiceItems
+             WHERE InvoiceID = ${invoiceId}
+               AND (
+                   ItemDescription LIKE '%Technical%'
+                   OR ItemDescription LIKE '%Crimping%'
+                   OR ItemDescription LIKE '%Welding%'
+                   OR ItemDescription LIKE '%Lathe%'
+               )
+               AND ItemDescription NOT LIKE '%fitting%'
+               AND ItemDescription NOT LIKE '%rod%'
+               AND ItemDescription NOT LIKE '%sundr%'`
         );
         const amount = money.round2(agg[0] && agg[0].a);
-        if (!(amount > 0)) return res.status(400).json({ error: 'This invoice has no technical charge to pay.' });
+        if (!(amount > 0)) return res.status(400).json({ error: 'This invoice has no technical or labour charge to pay.' });
+
+        // Mark invoice TechChargePaid = 1 so all modules stay in sync
+        await connection.execute(`UPDATE Invoices SET TechChargePaid = 1 WHERE InvoiceID = ${invoiceId}`);
 
         // Replace any prior marker for this invoice, then record the payout.
         await connection.execute(`DELETE FROM LabourPayments WHERE Notes LIKE '${TECH_TAG(invoiceId)} %'`);
@@ -238,6 +261,7 @@ router.post('/api/labour/technical/:invoiceId/pay', async (req, res) => {
 router.post('/api/labour/technical/:invoiceId/unpay', async (req, res) => {
     try {
         const invoiceId = sql.n(req.params.invoiceId);
+        await connection.execute(`UPDATE Invoices SET TechChargePaid = 0 WHERE InvoiceID = ${invoiceId}`);
         await connection.execute(`DELETE FROM LabourPayments WHERE Notes LIKE '${TECH_TAG(invoiceId)} %'`);
         res.json({ success: true });
     } catch (err) {

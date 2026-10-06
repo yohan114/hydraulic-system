@@ -63,11 +63,14 @@ async function resolveInvoiceIdByNo(invoiceNo) {
 // Attach derived balance/payment status without trusting stale columns.
 function enrichInvoices(rows) {
     return rows.map((inv) => {
+        const isInternal = Boolean(inv.IsInternal);
         const pay = billing.paymentStatus(inv.GrandTotal, inv.AmountPaid);
         return {
             ...inv,
-            Balance: inv.Status === 'Finalized' ? pay.balance : 0,
-            PaymentStatus: inv.Status === 'Finalized' ? pay.status : inv.Status,
+            Balance: inv.Status === 'Finalized' && !isInternal ? pay.balance : 0,
+            PaymentStatus: inv.Status === 'Finalized'
+                ? (isInternal ? 'Internal' : pay.status)
+                : inv.Status,
         };
     });
 }
@@ -193,8 +196,16 @@ router.get('/api/invoices/:id', async (req, res) => {
             WHERE InvoiceItems.InvoiceID = ${id}
         `);
 
+        const isInternal = Boolean(invoice[0].IsInternal);
         const pay = billing.paymentStatus(invoice[0].GrandTotal, invoice[0].AmountPaid);
-        res.json({ ...invoice[0], items, Balance: pay.balance, PaymentStatusDerived: pay.status });
+        res.json({
+            ...invoice[0],
+            items,
+            Balance: invoice[0].Status === 'Finalized' && !isInternal ? pay.balance : 0,
+            PaymentStatusDerived: invoice[0].Status === 'Finalized'
+                ? (isInternal ? 'Internal' : pay.status)
+                : invoice[0].Status,
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -320,6 +331,16 @@ async function resolveOwnership(body) {
         if (cust.length > 0) {
             customerId = cust[0].CustomerID;
             isInternal = cust[0].Kind === 'internal' ? 1 : 0;
+        }
+    }
+
+    // Also link MachineID if billedToName matches a machine
+    if (body.billedToName && machineId == null) {
+        const trimmed = String(body.billedToName).trim();
+        const mach = await connection.query(`SELECT MachineID, CustomerID FROM Machines WHERE Name = ${sql.q(trimmed)} OR Code = ${sql.q(trimmed)}`);
+        if (mach.length > 0) {
+            machineId = mach[0].MachineID;
+            if (!customerId) customerId = mach[0].CustomerID;
         }
     }
 

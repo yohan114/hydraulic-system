@@ -63,9 +63,13 @@ router.get('/api/inventory/low-stock', async (req, res) => {
 router.get('/api/inventory/search', async (req, res) => {
     try {
         const { q } = req.query;
-        if (!q) return res.json([]);
-        const safeQ = sql.esc(q);
-        const sqlStr = `SELECT * FROM Inventory WHERE UniqueID LIKE '%${safeQ}%' OR ProductName LIKE '%${safeQ}%' OR SpecificationCode LIKE '%${safeQ}%' OR Unit LIKE '%${safeQ}%'`;
+        let sqlStr;
+        if (!q || !String(q).trim()) {
+            sqlStr = 'SELECT * FROM Inventory ORDER BY ProductName ASC LIMIT 50';
+        } else {
+            const safeQ = sql.esc(String(q).trim());
+            sqlStr = `SELECT * FROM Inventory WHERE UniqueID LIKE '%${safeQ}%' OR ProductName LIKE '%${safeQ}%' OR SpecificationCode LIKE '%${safeQ}%' OR Unit LIKE '%${safeQ}%' ORDER BY ProductName ASC LIMIT 100`;
+        }
         const data = await connection.query(sqlStr);
         // Attach the suggested 70%-of-market-mid unit bill (floored at cost) so the
         // invoice picker can default the rate to it. Never below cost.

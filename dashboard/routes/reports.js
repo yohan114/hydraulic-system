@@ -13,7 +13,8 @@ router.get('/api/dashboard', async (req, res) => {
     try {
         // Sales-by-month and receivables are both derived from ONE finalized-
         // invoice scan; the recent lists are small TOP-N reads.
-        const finalizedSql = `SELECT FinalizedAt, GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized'`;
+        // Internal fleet jobs (IsInternal = 1) are internal workshop costs, not outside sales/receivables.
+        const finalizedSql = `SELECT FinalizedAt, GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized' AND COALESCE(IsInternal, 0) = 0`;
         // Low stock is now per-item: Qty at/below that item's ReorderLevel (default 5).
         const lowStockSql = `SELECT InventoryID, UniqueID, ProductName, SpecificationCode, Qty, Unit, COALESCE(ReorderLevel, 5) AS ReorderLevel
                              FROM Inventory WHERE Qty <= COALESCE(ReorderLevel, 5)
@@ -24,7 +25,7 @@ router.get('/api/dashboard', async (req, res) => {
             connection.query(lowStockSql).catch(() => connection.query('SELECT InventoryID, ProductName, Qty, Unit, 5 AS ReorderLevel FROM Inventory WHERE Qty <= 5')),
             connection.query("SELECT * FROM Invoices WHERE Status = 'Finalized' ORDER BY FinalizedAt DESC LIMIT 5"),
             connection.query('SELECT StockMovements.*, Inventory.ProductName FROM StockMovements LEFT JOIN Inventory ON StockMovements.InventoryID = Inventory.InventoryID ORDER BY MovementDate DESC LIMIT 5'),
-            connection.query(finalizedSql).catch(() => connection.query(`SELECT FinalizedAt, GrandTotal FROM Invoices WHERE Status = 'Finalized'`)),
+            connection.query(finalizedSql).catch(() => connection.query(`SELECT FinalizedAt, GrandTotal, AmountPaid FROM Invoices WHERE Status = 'Finalized' AND COALESCE(IsInternal, 0) = 0`)),
         ]);
 
         const salesByMonth = {};
@@ -65,7 +66,7 @@ router.get('/api/receivables', async (req, res) => {
     try {
         const data = await connection.query(
             `SELECT InvoiceID, InvoiceNo, InvoiceDate, BilledToName, GrandTotal, AmountPaid, FinalizedAt
-             FROM Invoices WHERE Status = 'Finalized' ORDER BY InvoiceDate ASC`
+             FROM Invoices WHERE Status = 'Finalized' AND COALESCE(IsInternal, 0) = 0 ORDER BY InvoiceDate ASC`
         );
         const rows = [];
         let outstandingTotal = 0;
@@ -107,7 +108,7 @@ async function priceAnalysis() {
                SUM(ii.Qty) AS QtySold, SUM(ii.Qty * ii.Rate) AS OurRevenue
         FROM ((InvoiceItems ii INNER JOIN Invoices inv ON ii.InvoiceID = inv.InvoiceID)
               INNER JOIN Inventory i ON ii.InventoryID = i.InventoryID)
-        WHERE inv.Status = 'Finalized'
+        WHERE inv.Status = 'Finalized' AND COALESCE(inv.IsInternal, 0) = 0
         GROUP BY ii.InventoryID, i.UniqueID, i.ProductName, i.SpecificationCode, i.Unit, i.Cost, i.MarketMid, i.Price
     `);
 
@@ -147,7 +148,7 @@ async function priceAnalysis() {
                SUM(ii.Qty * COALESCE(i.MarketMid, 0)) AS MarketRevenue
         FROM ((InvoiceItems ii INNER JOIN Invoices inv ON ii.InvoiceID = inv.InvoiceID)
               LEFT JOIN Inventory i ON ii.InventoryID = i.InventoryID)
-        WHERE inv.Status = 'Finalized'
+        WHERE inv.Status = 'Finalized' AND COALESCE(inv.IsInternal, 0) = 0
         GROUP BY substr(inv.InvoiceDate, 1, 7)
         ORDER BY Month ASC
     `);

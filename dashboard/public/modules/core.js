@@ -495,3 +495,47 @@ function setInvoiceEditable(editable) {
     if (invPaymentTerms) invPaymentTerms.contentEditable = editable ? 'true' : 'false';
 }
 
+
+// ----------------------------------------------------
+// Global Modal Management
+// ----------------------------------------------------
+function openModal(id) {
+    const el = typeof id === 'string' ? document.getElementById(id) : id;
+    if (!el) return;
+    el.classList.add('active');
+    document.body.classList.add('modal-open');
+    el.scrollTop = 0;
+    const body = el.querySelector('.modal-body');
+    if (body) body.scrollTop = 0;
+}
+
+function closeModal(id) {
+    const el = typeof id === 'string' ? document.getElementById(id) : id;
+    if (el) el.classList.remove('active');
+    if (!document.querySelector('.modal.active')) {
+        document.body.classList.remove('modal-open');
+    }
+}
+
+// Close on clicking backdrop (outside .modal-content)
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.classList && e.target.classList.contains('modal') && e.target.classList.contains('active')) {
+        if (e.target.id === 'confirmDialog') return;
+        closeModal(e.target);
+    }
+});
+
+// Close active modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'Esc') {
+        const activeModal = document.querySelector('.modal.active');
+        if (activeModal) {
+            if (activeModal.id === 'confirmDialog') {
+                if (typeof closeConfirmDialog === 'function') closeConfirmDialog(false);
+                else closeModal(activeModal);
+            } else {
+                closeModal(activeModal);
+            }
+        }
+    }
+});
