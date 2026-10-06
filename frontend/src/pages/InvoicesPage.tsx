@@ -20,8 +20,50 @@ import {
   Percent,
   X,
   Loader2,
-  DollarSign
+  DollarSign,
+  Flame,
+  Cog,
+  Settings2,
+  AlertTriangle,
 } from 'lucide-react';
+
+interface CrimpingRateRow {
+  size: string;
+  internalCostPerEnd: number;
+  market2Wire: number | null;
+  market4Wire: number | null;
+}
+
+interface WeldingRateRow {
+  size: string;
+  assembly2Wire: number | null;
+  weldingExtra2Wire: number | null;
+  assembly4Wire: number | null;
+  weldingExtra4Wire: number | null;
+}
+
+interface WeldingRatesData {
+  mode: string;
+  rows: WeldingRateRow[];
+}
+
+const LATHE_PRESETS = [
+  { label: 'Lathe Charge', desc: 'Lathe Charge', rate: 500, unit: 'job' },
+  { label: 'Bushing Machining', desc: 'Bushing Machining & Turning', rate: 850, unit: 'pcs' },
+  { label: 'Thread Repair', desc: 'Hydraulic Thread Repair / Re-threading', rate: 650, unit: 'job' },
+  { label: 'Pin Fabrication', desc: 'Hardened Pin Machining & Turning', rate: 1200, unit: 'pcs' },
+  { label: 'Cylinder Rod Polish', desc: 'Hydraulic Cylinder Rod Polishing', rate: 1500, unit: 'job' },
+  { label: 'Flange Facing', desc: 'Flange Surface Facing & Turning', rate: 950, unit: 'job' },
+];
+
+const TECH_PRESETS = [
+  { label: 'Standard Technical Fee', desc: 'Technical charges', rate: 1500, unit: 'Nos' },
+  { label: 'Site Diagnostics', desc: 'Site Hydraulic Diagnostics & Inspection', rate: 2500, unit: 'job' },
+  { label: 'Hose System Installation', desc: 'Hose Line Installation & System Proof Testing', rate: 2000, unit: 'job' },
+  { label: 'Emergency Breakdown', desc: 'Emergency Machine Breakdown Labour', rate: 3500, unit: 'job' },
+];
+
+const FALLBACK_SIZES = ['1/4', '5/16', '3/8', '1/2', '5/8', '3/4', '1', '1-1/4'];
 
 export const InvoicesPage: React.FC = () => {
   const { isManager, isAdmin, canWrite } = useAuth();
@@ -69,6 +111,39 @@ export const InvoicesPage: React.FC = () => {
   // Cancel prompt
   const [cancelPromptId, setCancelPromptId] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState<string>('');
+
+  // Workshop Services & Labour Modal state
+  const [isWorkshopModalOpen, setIsWorkshopModalOpen] = useState<boolean>(false);
+  const [workshopTab, setWorkshopTab] = useState<'crimping' | 'welding' | 'lathe' | 'tech'>('crimping');
+  const [crimpingRates, setCrimpingRates] = useState<CrimpingRateRow[]>([]);
+  const [weldingRates, setWeldingRates] = useState<WeldingRatesData | null>(null);
+  const [isLoadingWorkshopRates, setIsLoadingWorkshopRates] = useState<boolean>(false);
+
+  // Tab 1: Crimping state
+  const [crimpSize, setCrimpSize] = useState<string>('1/2');
+  const [crimpWire, setCrimpWire] = useState<'2-wire' | '4-wire'>('2-wire');
+  const [crimpEnds, setCrimpEnds] = useState<number>(2);
+  const [crimpBilledRate, setCrimpBilledRate] = useState<number | ''>('');
+  const [crimpCustomBilled, setCrimpCustomBilled] = useState<boolean>(false);
+
+  // Tab 2: Welding Extra state
+  const [weldSize, setWeldSize] = useState<string>('1/2');
+  const [weldWire, setWeldWire] = useState<'2-wire' | '4-wire'>('2-wire');
+  const [weldEnds, setWeldEnds] = useState<number>(1);
+  const [weldBilledRate, setWeldBilledRate] = useState<number | ''>('');
+  const [weldCustomBilled, setWeldCustomBilled] = useState<boolean>(false);
+
+  // Tab 3: Lathe Machining & Turning state
+  const [latheDesc, setLatheDesc] = useState<string>('Lathe Charge');
+  const [latheUnit, setLatheUnit] = useState<string>('job');
+  const [latheQty, setLatheQty] = useState<number>(1);
+  const [latheRate, setLatheRate] = useState<number>(500);
+
+  // Tab 4: Technical Service state
+  const [techDesc, setTechDesc] = useState<string>('Technical charges');
+  const [techUnit, setTechUnit] = useState<string>('Nos');
+  const [techQty, setTechQty] = useState<number>(1);
+  const [techRate, setTechRate] = useState<number>(1500);
 
   // Load Invoices
   const loadInvoices = useCallback(async () => {
@@ -172,50 +247,189 @@ export const InvoicesPage: React.FC = () => {
     setSearchResults([]);
   };
 
-  // Add quick workshop lines
-  const handleAddCrimping = () => {
+  // Load workshop rates from backend pricing engine
+  const loadWorkshopRates = useCallback(async () => {
+    setIsLoadingWorkshopRates(true);
+    try {
+      const [crimpRes, weldRes] = await Promise.all([
+        apiRequest<CrimpingRateRow[]>('/pricing/crimping').catch(() => []),
+        apiRequest<WeldingRatesData>('/pricing/welding-extra').catch(() => null),
+      ]);
+      if (Array.isArray(crimpRes) && crimpRes.length > 0) {
+        setCrimpingRates(crimpRes);
+      }
+      if (weldRes && Array.isArray(weldRes.rows) && weldRes.rows.length > 0) {
+        setWeldingRates(weldRes);
+      }
+    } catch (err) {
+      console.error('Failed to load workshop rates', err);
+    } finally {
+      setIsLoadingWorkshopRates(false);
+    }
+  }, []);
+
+  const handleOpenWorkshopModal = (tab: 'crimping' | 'welding' | 'lathe' | 'tech' = 'crimping') => {
+    setWorkshopTab(tab);
+    setIsWorkshopModalOpen(true);
+    if (crimpingRates.length === 0 || !weldingRates) {
+      loadWorkshopRates();
+    }
+  };
+
+  // Active crimping calculations
+  const activeCrimpingRow = useMemo(() => {
+    return crimpingRates.find((r) => r.size === crimpSize) || null;
+  }, [crimpingRates, crimpSize]);
+
+  const crimpMarketPerEnd = useMemo(() => {
+    if (!activeCrimpingRow) return null;
+    return crimpWire === '4-wire' ? activeCrimpingRow.market4Wire : activeCrimpingRow.market2Wire;
+  }, [activeCrimpingRow, crimpWire]);
+
+  useEffect(() => {
+    if (!crimpCustomBilled) {
+      if (crimpMarketPerEnd != null) {
+        setCrimpBilledRate(crimpMarketPerEnd);
+      } else {
+        setCrimpBilledRate('');
+      }
+    }
+  }, [crimpMarketPerEnd, crimpCustomBilled]);
+
+  // Active welding calculations
+  const activeWeldingRow = useMemo(() => {
+    return weldingRates?.rows?.find((r) => r.size === weldSize) || null;
+  }, [weldingRates, weldSize]);
+
+  const weldRatesForActive = useMemo(() => {
+    if (!activeWeldingRow) return { assembly: null, extra: null };
+    if (weldWire === '4-wire') {
+      return { assembly: activeWeldingRow.assembly4Wire, extra: activeWeldingRow.weldingExtra4Wire };
+    }
+    return { assembly: activeWeldingRow.assembly2Wire, extra: activeWeldingRow.weldingExtra2Wire };
+  }, [activeWeldingRow, weldWire]);
+
+  useEffect(() => {
+    if (!weldCustomBilled) {
+      if (weldRatesForActive.extra != null) {
+        setWeldBilledRate(weldRatesForActive.extra);
+      } else {
+        setWeldBilledRate('');
+      }
+    }
+  }, [weldRatesForActive, weldCustomBilled]);
+
+  const availableCrimpSizes = useMemo(() => {
+    return crimpingRates.length > 0 ? crimpingRates.map((r) => r.size) : FALLBACK_SIZES;
+  }, [crimpingRates]);
+
+  const availableWeldSizes = useMemo(() => {
+    return weldingRates && weldingRates.rows.length > 0 ? weldingRates.rows.map((r) => r.size) : FALLBACK_SIZES;
+  }, [weldingRates]);
+
+  // Add services to line items
+  const handleAddCrimpingService = () => {
+    const ends = Math.max(1, parseInt(String(crimpEnds), 10) || 1);
+    const internalCost = activeCrimpingRow ? Number(activeCrimpingRow.internalCostPerEnd) || 0 : 0;
+    const billed = crimpBilledRate !== '' ? Number(crimpBilledRate) : (crimpMarketPerEnd ?? 0);
+
+    if (!(billed > 0)) {
+      alert('Please enter a valid billed rate per end.');
+      return;
+    }
+
     const newItem: InvoiceLineItem = {
       id: Date.now() + Math.random(),
       inventoryId: null,
-      description: 'Crimping charge — standard hose assembly',
+      description: `Crimping charge — ${crimpSize}" (${crimpWire}, ${ends} end${ends === 1 ? '' : 's'})`,
       unit: 'end',
-      qty: 2,
-      rate: 450,
-      cost: 0,
-      marketMid: 450,
-      pricingSource: 'workshop-crimping',
+      qty: ends,
+      rate: round2(billed),
+      cost: round2(internalCost),
+      marketMid: crimpMarketPerEnd != null ? round2(crimpMarketPerEnd) : round2(billed),
+      pricingSource: 'crimping-charges',
     };
+
     setItems((prev) => [...prev, newItem]);
+    setIsWorkshopModalOpen(false);
   };
 
-  const handleAddWelding = () => {
+  const handleAddWeldingService = () => {
+    const ends = Math.max(1, parseInt(String(weldEnds), 10) || 1);
+    const perEnd = weldingRates?.mode === 'per-end';
+    const extraRate = weldRatesForActive.extra;
+    const billed = weldBilledRate !== '' ? Number(weldBilledRate) : (extraRate ?? 0);
+
+    if (!(billed > 0)) {
+      alert('Please enter a valid welding extra rate.');
+      return;
+    }
+
+    const qty = perEnd ? ends : 1;
     const newItem: InvoiceLineItem = {
       id: Date.now() + Math.random(),
       inventoryId: null,
-      description: 'Welding Extra labour',
-      unit: 'job',
-      qty: 1,
-      rate: 750,
+      description: `Welding Extra — ${weldWire} ${weldSize}"${perEnd ? '' : ` (${ends} end${ends === 1 ? '' : 's'})`}`,
+      unit: perEnd ? 'end' : 'job',
+      qty,
+      rate: round2(billed),
       cost: 0,
-      marketMid: 750,
-      pricingSource: 'workshop-welding',
+      marketMid: extraRate != null ? round2(extraRate) : round2(billed),
+      pricingSource: 'welding-extra',
     };
+
     setItems((prev) => [...prev, newItem]);
+    setIsWorkshopModalOpen(false);
   };
 
-  const handleAddLathe = () => {
+  const handleAddLatheService = () => {
+    const qty = Math.max(0.1, parseFloat(String(latheQty)) || 1);
+    const rate = Math.max(0, parseFloat(String(latheRate)) || 0);
+
+    if (rate <= 0) {
+      alert('Please enter a valid rate for lathe work.');
+      return;
+    }
+
     const newItem: InvoiceLineItem = {
       id: Date.now() + Math.random(),
       inventoryId: null,
-      description: 'Lathe machining & turning charge',
-      unit: 'job',
-      qty: 1,
-      rate: 1200,
+      description: (latheDesc || 'Lathe Charge').trim(),
+      unit: latheUnit || 'job',
+      qty,
+      rate: round2(rate),
       cost: 0,
-      marketMid: 1200,
-      pricingSource: 'workshop-lathe',
+      marketMid: round2(rate),
+      pricingSource: 'lathe-charges',
     };
+
     setItems((prev) => [...prev, newItem]);
+    setIsWorkshopModalOpen(false);
+  };
+
+  const handleAddTechnicalService = () => {
+    const qty = Math.max(0.1, parseFloat(String(techQty)) || 1);
+    const rate = Math.max(0, parseFloat(String(techRate)) || 0);
+
+    if (rate <= 0) {
+      alert('Please enter a valid technical service rate.');
+      return;
+    }
+
+    const newItem: InvoiceLineItem = {
+      id: Date.now() + Math.random(),
+      inventoryId: null,
+      description: (techDesc || 'Technical charges').trim(),
+      unit: techUnit || 'Nos',
+      qty,
+      rate: round2(rate),
+      cost: 0,
+      marketMid: round2(rate),
+      pricingSource: 'standard-charges',
+    };
+
+    setItems((prev) => [...prev, newItem]);
+    setIsWorkshopModalOpen(false);
   };
 
   const handleAddCustomLine = () => {
@@ -736,29 +950,44 @@ export const InvoicesPage: React.FC = () => {
                   <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                     <button
                       type="button"
-                      onClick={handleAddCrimping}
-                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-indigo-600 flex items-center gap-1 transition"
+                      onClick={() => handleOpenWorkshopModal('crimping')}
+                      className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5"
+                      title="Open unified workshop labour and services calculation modal"
                     >
-                      <Wrench className="w-3.5 h-3.5 text-indigo-500" /> + Crimping
+                      <Wrench className="w-3.5 h-3.5" /> + Workshop Services
                     </button>
                     <button
                       type="button"
-                      onClick={handleAddWelding}
+                      onClick={() => handleOpenWorkshopModal('crimping')}
                       className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-indigo-600 flex items-center gap-1 transition"
                     >
-                      + Welding Extra
+                      <Wrench className="w-3.5 h-3.5 text-indigo-500" /> Crimping
                     </button>
                     <button
                       type="button"
-                      onClick={handleAddLathe}
-                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-indigo-600 flex items-center gap-1 transition"
+                      onClick={() => handleOpenWorkshopModal('welding')}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-orange-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-orange-600 flex items-center gap-1 transition"
                     >
-                      + Lathe Charge
+                      <Flame className="w-3.5 h-3.5 text-orange-500" /> Welding
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenWorkshopModal('lathe')}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-cyan-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-cyan-600 flex items-center gap-1 transition"
+                    >
+                      <Cog className="w-3.5 h-3.5 text-cyan-600" /> Lathe
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenWorkshopModal('tech')}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-emerald-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-emerald-600 flex items-center gap-1 transition"
+                    >
+                      <Settings2 className="w-3.5 h-3.5 text-emerald-600" /> Technical
                     </button>
                     <button
                       type="button"
                       onClick={handleAddCustomLine}
-                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-lg text-xs font-semibold text-slate-700 hover:text-indigo-600 flex items-center gap-1 transition"
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-800 flex items-center gap-1 transition"
                     >
                       + Custom Line
                     </button>
@@ -824,6 +1053,37 @@ export const InvoicesPage: React.FC = () => {
                                 onChange={(e) => handleUpdateItem(it.id, 'description', e.target.value)}
                                 className="w-full px-2 py-1 bg-transparent border border-slate-200 rounded-lg text-xs"
                               />
+                              {it.pricingSource === 'crimping-charges' && (
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200 flex items-center gap-1">
+                                    <Wrench className="w-2.5 h-2.5" /> Crimping ({it.qty} ends)
+                                  </span>
+                                  {it.cost ? (
+                                    <span className="text-slate-400">Cost: {formatLKR(it.cost)}/end</span>
+                                  ) : null}
+                                </div>
+                              )}
+                              {it.pricingSource === 'welding-extra' && (
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                                  <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-semibold border border-orange-200 flex items-center gap-1">
+                                    <Flame className="w-2.5 h-2.5" /> Welding Extra
+                                  </span>
+                                </div>
+                              )}
+                              {it.pricingSource === 'lathe-charges' && (
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                                  <span className="px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 font-semibold border border-cyan-200 flex items-center gap-1">
+                                    <Cog className="w-2.5 h-2.5" /> Lathe Work
+                                  </span>
+                                </div>
+                              )}
+                              {it.pricingSource === 'standard-charges' && (
+                                <div className="flex items-center gap-1.5 mt-1 text-[10px]">
+                                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200 flex items-center gap-1">
+                                    <Settings2 className="w-2.5 h-2.5" /> Technical Service
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             <td className="py-2 px-3">
                               <input
@@ -943,6 +1203,742 @@ export const InvoicesPage: React.FC = () => {
                   <CheckCircle2 className="w-3.5 h-3.5" /> Finalize Invoice
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WORKSHOP SERVICES & LABOUR MODAL */}
+      {isWorkshopModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden my-auto animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl border border-indigo-100">
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    Workshop Services & Labour Charges
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Real-time calculation & rate cards for crimping, welding, lathe & technical services
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWorkshopModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="px-6 pt-3 pb-2 border-b border-slate-100 bg-slate-50/30 flex items-center gap-2 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setWorkshopTab('crimping')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                  workshopTab === 'crimping'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5" /> Crimping Charge
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWorkshopTab('welding')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                  workshopTab === 'welding'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5" /> Welding Extra
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWorkshopTab('lathe')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                  workshopTab === 'lathe'
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <Cog className="w-3.5 h-3.5" /> Lathe Work & Turning
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWorkshopTab('tech')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                  workshopTab === 'tech'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <Settings2 className="w-3.5 h-3.5" /> Technical Service
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+              {isLoadingWorkshopRates && (
+                <div className="flex items-center justify-center p-3 text-indigo-600 bg-indigo-50/60 rounded-xl gap-2 font-medium">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading workshop pricing rate cards...
+                </div>
+              )}
+
+              {/* TAB 1: CRIMPING */}
+              {workshopTab === 'crimping' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Hose Size */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Hose Inner Diameter (Size)
+                      </label>
+                      <select
+                        value={crimpSize}
+                        onChange={(e) => {
+                          setCrimpSize(e.target.value);
+                          setCrimpCustomBilled(false);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      >
+                        {availableCrimpSizes.map((sz) => (
+                          <option key={sz} value={sz}>
+                            {sz}&quot; Hose Assembly
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Wire Type */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Wire Type Specification
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCrimpWire('2-wire');
+                            setCrimpCustomBilled(false);
+                          }}
+                          className={`py-2 px-3 rounded-xl font-semibold text-center border transition ${
+                            crimpWire === '2-wire'
+                              ? 'bg-indigo-50 border-indigo-500 text-indigo-700 ring-1 ring-indigo-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          2-Wire (Standard)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCrimpWire('4-wire');
+                            setCrimpCustomBilled(false);
+                          }}
+                          className={`py-2 px-3 rounded-xl font-semibold text-center border transition ${
+                            crimpWire === '4-wire'
+                              ? 'bg-indigo-50 border-indigo-500 text-indigo-700 ring-1 ring-indigo-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          4-Wire (Heavy Duty)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Number of Ends */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Number of Crimped Ends
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 4].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setCrimpEnds(cnt)}
+                          className={`px-3 py-1.5 rounded-xl border font-semibold transition ${
+                            crimpEnds === cnt
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {cnt} {cnt === 1 ? 'End' : 'Ends'} {cnt === 2 ? '(Standard Assembly)' : ''}
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        <span className="text-slate-500 font-medium">Custom:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={crimpEnds}
+                          onChange={(e) => setCrimpEnds(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          className="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-center focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pricing Breakdown Card */}
+                  <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200 space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-[11px] text-slate-500 block">Internal Cost / End</span>
+                        <strong className="text-sm text-slate-800 font-mono">
+                          {formatLKR(activeCrimpingRow?.internalCostPerEnd || 0)}
+                        </strong>
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-[11px] text-slate-500 block">Shop Market Rate</span>
+                        <strong className="text-sm text-indigo-600 font-mono">
+                          {crimpMarketPerEnd != null ? formatLKR(crimpMarketPerEnd) : 'No Rate'}
+                        </strong>
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-[11px] text-slate-500 block">Crimped Ends</span>
+                        <strong className="text-sm text-slate-800 font-mono">{crimpEnds}</strong>
+                      </div>
+
+                      <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200">
+                        <span className="text-[11px] text-indigo-700 block font-semibold">Total Bill</span>
+                        <strong className="text-sm text-indigo-700 font-mono font-bold">
+                          {formatLKR((Number(crimpBilledRate) || 0) * crimpEnds)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Billed Rate Input */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-200">
+                      <div className="w-full sm:w-auto">
+                        <label className="font-semibold text-slate-700 block">
+                          Billed Rate per End (LKR)
+                        </label>
+                        <span className="text-[11px] text-slate-400">
+                          Defaults to market rate ({crimpWire}). Can be customized below.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={crimpBilledRate}
+                          onChange={(e) => {
+                            setCrimpBilledRate(e.target.value === '' ? '' : parseFloat(e.target.value) || 0);
+                            setCrimpCustomBilled(true);
+                          }}
+                          className="w-32 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-right font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
+                        {crimpCustomBilled && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCrimpCustomBilled(false);
+                              if (crimpMarketPerEnd != null) setCrimpBilledRate(crimpMarketPerEnd);
+                            }}
+                            className="px-2 py-1 text-[11px] text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Warnings / Alerts */}
+                    {crimpMarketPerEnd == null && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>No standard {crimpWire} shop rate defined for {crimpSize}&quot; — please specify billed rate manually.</span>
+                      </div>
+                    )}
+                    {activeCrimpingRow && Number(crimpBilledRate) < Number(activeCrimpingRow.internalCostPerEnd) && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Warning: Billed rate ({formatLKR(Number(crimpBilledRate) || 0)}) is below internal cost ({formatLKR(activeCrimpingRow.internalCostPerEnd)})!</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add Button */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleAddCrimpingService}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-md transition flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Add Crimping Charge ({formatLKR((Number(crimpBilledRate) || 0) * crimpEnds)})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: WELDING EXTRA */}
+              {workshopTab === 'welding' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Size */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Hose Inner Diameter (Size)
+                      </label>
+                      <select
+                        value={weldSize}
+                        onChange={(e) => {
+                          setWeldSize(e.target.value);
+                          setWeldCustomBilled(false);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                      >
+                        {availableWeldSizes.map((sz) => (
+                          <option key={sz} value={sz}>
+                            {sz}&quot; Hose Assembly
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Wire Type */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Wire Type Specification
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWeldWire('2-wire');
+                            setWeldCustomBilled(false);
+                          }}
+                          className={`py-2 px-3 rounded-xl font-semibold text-center border transition ${
+                            weldWire === '2-wire'
+                              ? 'bg-orange-50 border-orange-500 text-orange-700 ring-1 ring-orange-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          2-Wire
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWeldWire('4-wire');
+                            setWeldCustomBilled(false);
+                          }}
+                          className={`py-2 px-3 rounded-xl font-semibold text-center border transition ${
+                            weldWire === '4-wire'
+                              ? 'bg-orange-50 border-orange-500 text-orange-700 ring-1 ring-orange-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          4-Wire
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Welded Ends */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Welded Ends
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {[1, 2].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setWeldEnds(cnt)}
+                          className={`px-3 py-1.5 rounded-xl border font-semibold transition ${
+                            weldEnds === cnt
+                              ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {cnt} {cnt === 1 ? 'End' : 'Ends'}
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        <span className="text-slate-500 font-medium">Custom:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={weldEnds}
+                          onChange={(e) => setWeldEnds(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          className="w-16 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-center focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pricing Breakdown Card */}
+                  <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Rate Mode:</span>
+                      <span className="font-semibold px-2 py-0.5 rounded bg-orange-100 text-orange-800">
+                        {weldingRates?.mode === 'per-end' ? 'Billed Per End' : 'Flat Charge Per Job'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-[11px] text-slate-500 block">Assembly Ref Rate</span>
+                        <strong className="text-sm text-slate-800 font-mono">
+                          {weldRatesForActive.assembly != null ? formatLKR(weldRatesForActive.assembly) : '—'}
+                        </strong>
+                      </div>
+
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-[11px] text-slate-500 block">Standard Extra</span>
+                        <strong className="text-sm text-orange-600 font-mono">
+                          {weldRatesForActive.extra != null ? formatLKR(weldRatesForActive.extra) : '—'}
+                        </strong>
+                      </div>
+
+                      <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-200">
+                        <span className="text-[11px] text-orange-700 block font-semibold">Total Welding Extra</span>
+                        <strong className="text-sm text-orange-700 font-mono font-bold">
+                          {formatLKR(
+                            weldingRates?.mode === 'per-end'
+                              ? (Number(weldBilledRate) || 0) * weldEnds
+                              : Number(weldBilledRate) || 0
+                          )}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Billed Rate Input */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-200">
+                      <div className="w-full sm:w-auto">
+                        <label className="font-semibold text-slate-700 block">
+                          Billed Welding Extra Rate (LKR)
+                        </label>
+                        <span className="text-[11px] text-slate-400">
+                          Defaults to standard rate. Can be adjusted as needed.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={weldBilledRate}
+                          onChange={(e) => {
+                            setWeldBilledRate(e.target.value === '' ? '' : parseFloat(e.target.value) || 0);
+                            setWeldCustomBilled(true);
+                          }}
+                          className="w-32 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-right font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                        />
+                        {weldCustomBilled && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWeldCustomBilled(false);
+                              if (weldRatesForActive.extra != null) setWeldBilledRate(weldRatesForActive.extra);
+                            }}
+                            className="px-2 py-1 text-[11px] text-orange-600 hover:bg-orange-50 rounded-lg"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {weldRatesForActive.extra == null && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>No standard {weldWire} welding-extra rate for {weldSize}&quot; — please specify billed rate manually.</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add Button */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleAddWeldingService}
+                      className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-semibold shadow-md transition flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Add Welding Extra ({formatLKR(
+                        weldingRates?.mode === 'per-end'
+                          ? (Number(weldBilledRate) || 0) * weldEnds
+                          : Number(weldBilledRate) || 0
+                      )})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: LATHE WORK & TURNING */}
+              {workshopTab === 'lathe' && (
+                <div className="space-y-4">
+                  {/* Preset Pills */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Quick Service Presets
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {LATHE_PRESETS.map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => {
+                            setLatheDesc(preset.desc);
+                            setLatheRate(preset.rate);
+                            setLatheUnit(preset.unit);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl border font-medium text-[11px] transition ${
+                            latheDesc === preset.desc
+                              ? 'bg-cyan-50 border-cyan-500 text-cyan-800 font-semibold ring-1 ring-cyan-500'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {preset.label} ({formatLKR(preset.rate)})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Description Input */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Service Description on Invoice
+                    </label>
+                    <input
+                      type="text"
+                      value={latheDesc}
+                      onChange={(e) => setLatheDesc(e.target.value)}
+                      placeholder="e.g. Lathe machining & turning charge"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Unit */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Billing Unit
+                      </label>
+                      <select
+                        value={latheUnit}
+                        onChange={(e) => setLatheUnit(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                      >
+                        <option value="job">job (Fixed Job)</option>
+                        <option value="hrs">hrs (Hourly)</option>
+                        <option value="Nos">Nos (Items)</option>
+                        <option value="pcs">pcs (Pieces)</option>
+                      </select>
+                    </div>
+
+                    {/* Qty */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Quantity / Hours
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0.5"
+                        value={latheQty}
+                        onChange={(e) => setLatheQty(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-right focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                      />
+                    </div>
+
+                    {/* Rate */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Rate per Unit (LKR)
+                      </label>
+                      <input
+                        type="number"
+                        step="10"
+                        min="0"
+                        value={latheRate}
+                        onChange={(e) => setLatheRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-right focus:outline-none focus:ring-2 focus:ring-cyan-500/20 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Summary Card */}
+                  <div className="bg-cyan-50/70 border border-cyan-200 rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-cyan-900">{latheDesc || 'Lathe Charge'}</p>
+                      <p className="text-[11px] text-cyan-700">
+                        {latheQty} {latheUnit} × {formatLKR(latheRate)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-cyan-700 tracking-wider block">Total Lathe Charge</span>
+                      <strong className="text-base text-cyan-900 font-mono font-bold">
+                        {formatLKR(round2(latheQty * latheRate))}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Add Button */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleAddLatheService}
+                      className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-semibold shadow-md transition flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Add Lathe Charge ({formatLKR(round2(latheQty * latheRate))})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: TECHNICAL SERVICE */}
+              {workshopTab === 'tech' && (
+                <div className="space-y-4">
+                  {/* Preset Pills */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Quick Service Presets
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TECH_PRESETS.map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => {
+                            setTechDesc(preset.desc);
+                            setTechRate(preset.rate);
+                            setTechUnit(preset.unit);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl border font-medium text-[11px] transition ${
+                            techDesc === preset.desc
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-semibold ring-1 ring-emerald-500'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {preset.label} ({formatLKR(preset.rate)})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Description Input */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1.5">
+                      Service Description on Invoice
+                    </label>
+                    <input
+                      type="text"
+                      value={techDesc}
+                      onChange={(e) => setTechDesc(e.target.value)}
+                      placeholder="e.g. Technical charges"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Unit */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Billing Unit
+                      </label>
+                      <select
+                        value={techUnit}
+                        onChange={(e) => setTechUnit(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                      >
+                        <option value="Nos">Nos (Service Charge)</option>
+                        <option value="job">job (Fixed Job)</option>
+                        <option value="hrs">hrs (Hourly)</option>
+                        <option value="day">day (Daily Rate)</option>
+                      </select>
+                    </div>
+
+                    {/* Qty */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Quantity / Units
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        value={techQty}
+                        onChange={(e) => setTechQty(Math.max(0.1, parseFloat(e.target.value) || 1))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                      />
+                    </div>
+
+                    {/* Rate */}
+                    <div>
+                      <label className="block font-semibold text-slate-700 mb-1.5">
+                        Rate per Unit (LKR)
+                      </label>
+                      <input
+                        type="number"
+                        step="50"
+                        min="0"
+                        value={techRate}
+                        onChange={(e) => setTechRate(Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Summary Card */}
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-emerald-900">{techDesc || 'Technical charges'}</p>
+                      <p className="text-[11px] text-emerald-700">
+                        {techQty} {techUnit} × {formatLKR(techRate)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-emerald-700 tracking-wider block">Total Service Charge</span>
+                      <strong className="text-base text-emerald-900 font-mono font-bold">
+                        {formatLKR(round2(techQty * techRate))}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Add Button */}
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleAddTechnicalService}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-md transition flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Add Technical Service ({formatLKR(round2(techQty * techRate))})
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">
+                Labour line items snapshot zero inventory stock deduct and feed into Job Profit calculations.
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsWorkshopModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 transition"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
