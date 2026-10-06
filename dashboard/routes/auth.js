@@ -118,6 +118,7 @@ async function checkCredentials(username, password) {
 function extractToken(req) {
     const header = req.headers['authorization'] || '';
     if (header.startsWith('Bearer ')) return header.slice(7).trim();
+    if (req.cookies && req.cookies.billing_token) return req.cookies.billing_token;
     return null;
 }
 
@@ -175,6 +176,14 @@ function requireAuth(req, res, next) {
             claims.userId = user.UserID;
         }
     } catch (_) {}
+
+    if (claims.sessionId) {
+        try {
+            connection._db.prepare(
+                "UPDATE Sessions SET LastSeenAt = datetime('now', 'localtime') WHERE SessionID = ?"
+            ).run(claims.sessionId);
+        } catch (_) {}
+    }
 
     req.user = claims;
     next();
@@ -244,6 +253,15 @@ router.post('/api/auth/login', async (req, res) => {
             authVersion,
             sessionId,
         }, AUTH_SECRET, TOKEN_TTL_SECONDS);
+
+        res.cookie('billing_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: TOKEN_TTL_SECONDS * 1000,
+            path: '/',
+        });
+
         res.json({ token, username: result.username, role, sessionId, expiresIn: TOKEN_TTL_SECONDS });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -295,6 +313,89 @@ router.post('/api/auth/change-password', async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: 'Could not change password. Run "npm run migrate" first. ' + err.message });
+    }
+});
+
+
+router.post('/api/auth/logout', async (req, res) => {
+    try {
+        const token = extractToken(req);
+        const claims = token ? authLib.verifyToken(token, AUTH_SECRET) : null;
+        const sessionId = (req.user && req.user.sessionId) || (claims && claims.sessionId);
+        if (sessionId) {
+            try {
+                connection._db.prepare(`
+                    UPDATE Sessions SET RevokedAt = datetime('now', 'localtime'), RevokedReason = 'user_logout'
+                    WHERE SessionID = ?
+                `).run(sessionId);
+            } catch (_) {}
+        }
+    } catch (_) {}
+    res.clearCookie('billing_token', { path: '/' });
+    res.json({ success: true, message: 'Logged out successfully' });
+});
+
+
+router.get('/api/auth/sessions', async (req, res) => {
+    try {
+        const userId = req.user && req.user.userId;
+        if (!userId) {
+            return res.json([]);
+        }
+        const sessions = connection._db.prepare(`
+            SELECT SessionID, AuthVersion, CreatedAt, ExpiresAt, RevokedAt, LastSeenAt, IPAddress, UserAgent
+            FROM Sessions
+            WHERE UserID = ? AND RevokedAt IS NULL AND datetime(ExpiresAt) > datetime('now', 'localtime')
+            ORDER BY LastSeenAt DESC, CreatedAt DESC
+        `).all(userId);
+
+        const result = sessions.map((s) => ({
+            sessionId: s.SessionID,
+            ipAddress: s.IPAddress || 'Unknown',
+            userAgent: s.UserAgent || 'Unknown browser',
+            createdAt: s.CreatedAt,
+            lastSeenAt: s.LastSeenAt,
+            isCurrent: s.SessionID === (req.user && req.user.sessionId),
+        }));
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+router.post('/api/auth/sessions/revoke-others', async (req, res) => {
+    try {
+        const userId = req.user && req.user.userId;
+        const currentSessionId = req.user && req.user.sessionId;
+        if (!userId || !currentSessionId) {
+            return res.status(400).json({ error: 'Cannot revoke sessions without active session ID' });
+        }
+        const info = connection._db.prepare(`
+            UPDATE Sessions
+            SET RevokedAt = datetime('now', 'localtime'), RevokedReason = 'Revoked by user on other device'
+            WHERE UserID = ? AND SessionID != ? AND RevokedAt IS NULL
+        `).run(userId, currentSessionId);
+        res.json({ success: true, revokedCount: info.changes });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+router.post('/api/auth/sessions/:sessionId/revoke', async (req, res) => {
+    try {
+        const userId = req.user && req.user.userId;
+        const targetSessionId = req.params.sessionId;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const info = connection._db.prepare(`
+            UPDATE Sessions
+            SET RevokedAt = datetime('now', 'localtime'), RevokedReason = 'Revoked by user'
+            WHERE UserID = ? AND SessionID = ? AND RevokedAt IS NULL
+        `).run(userId, targetSessionId);
+        res.json({ success: true, revoked: info.changes > 0 });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

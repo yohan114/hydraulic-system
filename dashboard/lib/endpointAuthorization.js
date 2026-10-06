@@ -51,6 +51,10 @@ const ROLE_PERMISSIONS = {
 const POLICIES = [
   // --- Auth endpoints ---
   { method: 'POST', pattern: /^\/api\/auth\/change-password$/, permission: null }, // any authenticated user
+  { method: 'POST', pattern: /^\/api\/auth\/logout$/, permission: null },
+  { method: 'GET', pattern: /^\/api\/auth\/sessions$/, permission: null },
+  { method: 'POST', pattern: /^\/api\/auth\/sessions\/revoke-others$/, permission: null },
+  { method: 'POST', pattern: /^\/api\/auth\/sessions\/[^\/]+\/revoke$/, permission: null },
 
   // --- Users management ---
   { method: 'ALL', pattern: /^\/api\/users(\/.*)?$/, permission: 'user.manage' },
