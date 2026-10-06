@@ -90,7 +90,20 @@ app.use(viewerReadOnlyGuard);
 // so the recorded status is the real one. Reads are not logged.
 app.use(auditMiddleware(connection));
 
+// Serve modern Vite React SPA when built, with classic fallback
+const fs = require('fs');
+const distPath = path.join(__dirname, 'public_dist');
+const hasViteBuild = fs.existsSync(path.join(distPath, 'index.html'));
+
+if (hasViteBuild) {
+  app.use(express.static(distPath));
+}
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Classic interface fallback route
+app.get('/classic', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Feature routers — each owns its own /api/... paths.
 app.use(authRouter);
