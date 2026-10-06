@@ -26,6 +26,24 @@ const AUTH_ENABLED = process.env.BILLING_AUTH !== 'off';
 const FALLBACK_PASSWORD = process.env.BILLING_PASSWORD || 'admin123';
 
 const app = express();
+
+// Enable proxy trust for reverse proxies (Nginx, Caddy, Cloudflare) on VPS
+if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY) {
+  app.set('trust proxy', 1);
+}
+
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 

@@ -369,15 +369,38 @@ async function loadUsers() {
 function renderUsers(users) {
     const tb = document.getElementById('users-tbody');
     tb.innerHTML = '';
-    if (!users.length) { emptyRow('users-tbody', 4, '👤', 'No users yet', 'Add a user to grant access.'); return; }
+    if (!users.length) { emptyRow('users-tbody', 6, '👤', 'No users yet', 'Add a user to grant access.'); return; }
     users.forEach((u) => {
+        const roleClass = {
+            admin: 'badge-finalized',
+            manager: 'badge-paid',
+            cashier: 'badge-draft',
+            viewer: 'badge-revised'
+        }[u.Role] || 'badge-ok';
+
+        const statusBadge = u.IsActive
+            ? `<span class="badge badge-paid" style="background:#e6f4ea; color:#137333; font-weight:600;"><i class="ri-checkbox-circle-line"></i> Active</span>`
+            : `<span class="badge badge-danger" style="background:#fce8e6; color:#c5221f; font-weight:600;"><i class="ri-close-circle-line"></i> Disabled</span>`;
+
+        const sessionInfo = `<span style="font-family:monospace; font-size:12px; color:var(--text-muted); background:var(--secondary); padding:2px 6px; border-radius:4px;">v${u.AuthVersion || 1}</span>`;
+
+        const toggleBtn = u.IsActive
+            ? `<button class="btn btn-text" style="color:var(--warning);" title="Disable login" onclick="toggleUserStatus(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}', true)"><i class="ri-pause-circle-line"></i> Disable</button>`
+            : `<button class="btn btn-text" style="color:var(--success);" title="Enable login" onclick="toggleUserStatus(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}', false)"><i class="ri-play-circle-line"></i> Enable</button>`;
+
+        const revokeBtn = `<button class="btn btn-text" style="color:var(--primary);" title="Logout all sessions on all devices" onclick="revokeUserSessions(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}')"><i class="ri-logout-box-r-line"></i> Revoke</button>`;
+
         tb.innerHTML += `
-            <tr>
+            <tr style="${u.IsActive ? '' : 'opacity:0.65; background:var(--secondary);'}">
                 <td><strong>${escAttr(u.Username)}</strong></td>
-                <td><span class="badge ${u.Role === 'admin' ? 'badge-finalized' : 'badge-ok'}">${escAttr(u.Role)}</span></td>
+                <td><span class="badge ${roleClass}" style="text-transform:capitalize;">${escAttr(u.Role)}</span></td>
+                <td>${statusBadge}</td>
+                <td>${sessionInfo}</td>
                 <td>${formatDate(u.CreatedAt)}</td>
                 <td>
-                    <button class="btn btn-text" onclick="editUser(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}', '${escAttr(u.Role)}')">Edit</button>
+                    <button class="btn btn-text" onclick="editUser(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}', '${escAttr(u.Role)}', ${u.IsActive})">Edit</button>
+                    ${toggleBtn}
+                    ${revokeBtn}
                     <button class="btn btn-text text-danger" style="color:red" onclick="deleteUser(${u.UserID}, '${escAttr(u.Username).replace(/'/g, "\\'")}')">Del</button>
                 </td>
             </tr>`;
@@ -388,19 +411,27 @@ function openUserModal() {
     document.getElementById('userForm').reset();
     document.getElementById('user-id').value = '';
     document.getElementById('user-name').disabled = false;
+    document.getElementById('user-role').value = 'cashier';
+    const statusGrp = document.getElementById('user-status-group');
+    if (statusGrp) statusGrp.style.display = 'none';
     document.getElementById('userModalTitle').textContent = 'Add User';
     document.getElementById('user-pw-label').textContent = 'Password';
-    document.getElementById('user-pw-hint').textContent = 'At least 4 characters.';
+    document.getElementById('user-pw-hint').textContent = 'At least 6 characters (8+ recommended for VPS).';
     document.getElementById('user-password').required = true;
     openModal('userModal');
 }
 
-function editUser(id, username, role) {
+function editUser(id, username, role, isActive = true) {
     document.getElementById('userForm').reset();
     document.getElementById('user-id').value = id;
     document.getElementById('user-name').value = username;
     document.getElementById('user-name').disabled = true; // rename not supported
     document.getElementById('user-role').value = role;
+    const statusGrp = document.getElementById('user-status-group');
+    if (statusGrp) {
+        statusGrp.style.display = 'block';
+        document.getElementById('user-status').value = isActive ? '1' : '0';
+    }
     document.getElementById('userModalTitle').textContent = 'Edit User';
     document.getElementById('user-pw-label').textContent = 'New Password (optional)';
     document.getElementById('user-pw-hint').textContent = 'Leave blank to keep the current password.';
@@ -413,18 +444,69 @@ async function submitUser(e) {
     const id = document.getElementById('user-id').value;
     const role = document.getElementById('user-role').value;
     const password = document.getElementById('user-password').value;
+    const statusEl = document.getElementById('user-status');
+    const isActive = statusEl ? statusEl.value === '1' : true;
     try {
         let res;
         if (id) {
-            res = await authFetch(`${API_URL}/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, newPassword: password || undefined }) });
+            res = await authFetch(`${API_URL}/users/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role, isActive, newPassword: password || undefined })
+            });
         } else {
-            res = await authFetch(`${API_URL}/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('user-name').value, password, role }) });
+            res = await authFetch(`${API_URL}/users`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: document.getElementById('user-name').value, password, role })
+            });
         }
         const data = await res.json();
         if (data.error) return toast(data.error, 'error');
         closeModal('userModal');
         loadUsers();
         toast(id ? 'User updated' : 'User added', 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+async function toggleUserStatus(id, username, currentActive) {
+    const action = currentActive ? 'disable' : 'enable';
+    const ok = await confirmDialog({
+        title: `${action.toUpperCase()} User?`,
+        message: currentActive
+            ? `Disabling ${username} will immediately block them from logging in on any device.`
+            : `Re-enable login access for ${username}?`,
+        confirmText: currentActive ? 'Disable User' : 'Enable User',
+        danger: currentActive
+    });
+    if (!ok) return;
+    try {
+        const res = await authFetch(`${API_URL}/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isActive: !currentActive })
+        });
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        loadUsers();
+        toast(`User ${username} ${currentActive ? 'disabled' : 'enabled'}`, 'success');
+    } catch (err) { toast(String(err), 'error'); }
+}
+
+async function revokeUserSessions(id, username) {
+    const ok = await confirmDialog({
+        title: 'Revoke All Sessions?',
+        message: `Immediately log out ${username} across all phones, tablets, and browsers? They will have to sign in again.`,
+        confirmText: 'Revoke Sessions',
+        danger: true
+    });
+    if (!ok) return;
+    try {
+        const res = await authFetch(`${API_URL}/users/${id}/revoke-sessions`, { method: 'POST' });
+        const data = await res.json();
+        if (data.error) return toast(data.error, 'error');
+        loadUsers();
+        toast(data.message || `Sessions revoked for ${username}`, 'success');
     } catch (err) { toast(String(err), 'error'); }
 }
 

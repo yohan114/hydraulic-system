@@ -304,14 +304,15 @@ function setupAccountUI(status) {
 // render functions consult isAdmin()/canWrite() for dynamically-built buttons.
 // This is convenience only — the server independently enforces every rule.
 function isAdmin() { return currentRole === 'admin'; }
+function isManager() { return currentRole === 'admin' || currentRole === 'manager'; }
 function canWrite() { return currentRole !== 'viewer'; }
 function applyRolePermissions(role) {
     currentRole = role || 'admin';
     const el = document.documentElement;
-    el.classList.remove('role-admin', 'role-cashier', 'role-viewer');
+    el.classList.remove('role-admin', 'role-manager', 'role-cashier', 'role-viewer');
     el.classList.add('role-' + currentRole);
-    // Pricing inputs are admin-only; disable (not hide) them for cashiers.
-    ['prod-cost', 'prod-price'].forEach((id) => { const e = document.getElementById(id); if (e) e.disabled = !isAdmin(); });
+    // Pricing inputs are admin/manager only; disable them for cashiers and viewers.
+    ['prod-cost', 'prod-price'].forEach((id) => { const e = document.getElementById(id); if (e) e.disabled = !isManager(); });
 }
 
 function showLogin() { document.getElementById('loginOverlay').classList.add('active'); }

@@ -41,8 +41,13 @@ async function ensureBootstrapAdmin(req) {
 
 router.get('/api/users', async (req, res) => {
     try {
-        const rows = await connection.query('SELECT UserID, Username, Role, CreatedAt, UpdatedAt FROM Users ORDER BY Username');
-        res.json(rows.map((u) => ({ ...u, Role: validRole(u.Role) ? u.Role : 'admin' })));
+        const rows = await connection.query('SELECT UserID, Username, Role, COALESCE(IsActive, 1) AS IsActive, COALESCE(AuthVersion, 1) AS AuthVersion, CreatedAt, UpdatedAt FROM Users ORDER BY Username');
+        res.json(rows.map((u) => ({
+            ...u,
+            Role: validRole(u.Role) ? u.Role : 'admin',
+            IsActive: u.IsActive === 1 || u.IsActive === true || u.IsActive === '1',
+            AuthVersion: Number(u.AuthVersion || 1)
+        })));
     } catch (err) {
         res.status(500).json({ error: 'Could not load users. Run "npm run migrate" first. ' + err.message });
     }
@@ -101,6 +106,14 @@ router.put('/api/users/:id', async (req, res) => {
             if (!validRole(role)) return res.status(400).json({ error: 'Role must be admin, manager, cashier or viewer' });
             sets.push(`Role = ${sql.q(role)}`);
         }
+        if (req.body.isActive !== undefined) {
+            const active = (req.body.isActive === true || req.body.isActive === 1 || req.body.isActive === '1') ? 1 : 0;
+            if (active === 0 && target[0].Role === 'admin') {
+                const activeAdmins = await connection.query("SELECT COUNT(*) AS c FROM Users WHERE Role = 'admin' AND COALESCE(IsActive, 1) = 1");
+                if ((activeAdmins[0] && activeAdmins[0].c) <= 1) return res.status(400).json({ error: 'Cannot deactivate the last active administrator.' });
+            }
+            sets.push(`IsActive = ${active}`);
+        }
         if (newPassword) {
             if (String(newPassword).length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
             const hash = await authLib.hashPassword(newPassword);
@@ -126,6 +139,26 @@ router.put('/api/users/:id', async (req, res) => {
         } catch (_) {}
 
         res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/api/users/:id/revoke-sessions', async (req, res) => {
+    try {
+        const id = sql.n(req.params.id);
+        const target = await connection.query(`SELECT UserID, Username FROM Users WHERE UserID = ${id}`);
+        if (target.length === 0) return res.status(404).json({ error: 'User not found' });
+
+        await connection.execute(`UPDATE Users SET AuthVersion = COALESCE(AuthVersion, 1) + 1, UpdatedAt = Now() WHERE UserID = ${id}`);
+        try {
+            connection._db.prepare(`
+                UPDATE Sessions SET RevokedAt = datetime('now', 'localtime'), RevokedReason = 'manual_admin_revocation'
+                WHERE UserID = ? AND RevokedAt IS NULL
+            `).run(id);
+        } catch (_) {}
+
+        res.json({ success: true, message: `All active sessions for ${target[0].Username} have been revoked.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

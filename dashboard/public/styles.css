@@ -647,6 +647,7 @@ select.form-control option { color: initial; }
    Server-side checks are authoritative; this is only to declutter the UI.
    ---------------------------------------------------- */
 html:not(.role-admin) .admin-only { display: none !important; }
+html:not(.role-admin):not(.role-manager) .manager-or-admin { display: none !important; }
 html.role-viewer .hide-from-viewer { display: none !important; }
 .account-role {
   font-size: 11px;

@@ -279,7 +279,7 @@
                         <div class="header-actions">
                             <input type="text" id="inventorySearch" placeholder="Search inventory..." class="form-control" style="width:250px" onkeyup="searchInventory()">
                             <input type="file" id="importFile" accept=".xlsx, .xls, .csv" style="display:none" onchange="handleImportFile(event)">
-                            <button class="btn btn-secondary admin-only" onclick="document.getElementById('importFile').click()"><i class="ri-upload-2-line"></i> Import</button>
+                            <button class="btn btn-secondary manager-or-admin" onclick="document.getElementById('importFile').click()"><i class="ri-upload-2-line"></i> Import</button>
                             <button class="btn btn-secondary" onclick="exportInventory()"><i class="ri-download-2-line"></i> Export</button>
                             <button class="btn btn-primary hide-from-viewer" onclick="openAddProductModal()"><i class="ri-add-line"></i> Add Product</button>
                         </div>
@@ -339,7 +339,7 @@
 
                     <div id="ctl-pane-takes" style="display:none;">
                         <div class="card" style="padding:14px 18px;margin-bottom:16px;">
-                            <button class="btn btn-primary admin-only" onclick="newStockTake()"><i class="ri-list-check-2"></i> New Stock Take</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="newStockTake()"><i class="ri-list-check-2"></i> New Stock Take</button>
                             <span class="step-hint">Freezes today's system quantities onto a count sheet.</span>
                         </div>
                         <div class="card"><div class="table-responsive"><table class="table">
@@ -460,7 +460,7 @@
                             <button class="btn btn-secondary" id="ws-tab-jobs" onclick="wsShowTab('jobs')">Job Cards</button>
                             <button class="btn btn-secondary" id="ws-tab-quotes" onclick="wsShowTab('quotes')">Quotations</button>
                             <button class="btn btn-secondary" id="ws-tab-labour" onclick="wsShowTab('labour')">Technician Pay</button>
-                            <button class="btn btn-primary admin-only" onclick="openJobModal()"><i class="ri-add-line"></i> New Job Card</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="openJobModal()"><i class="ri-add-line"></i> New Job Card</button>
                         </div>
                     </div>
 
@@ -499,7 +499,7 @@
                             <button class="btn btn-secondary" id="proc-tab-receipts" onclick="procShowTab('receipts')">Receipts</button>
                             <button class="btn btn-secondary" id="proc-tab-bills" onclick="procShowTab('bills')">Supplier Bills</button>
                             <button class="btn btn-secondary" id="proc-tab-payables" onclick="procShowTab('payables')">Payables</button>
-                            <button class="btn btn-primary admin-only" onclick="openPoModal()"><i class="ri-add-line"></i> New Order</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="openPoModal()"><i class="ri-add-line"></i> New Order</button>
                         </div>
                     </div>
 
@@ -582,8 +582,8 @@
                     <div class="section-header">
                         <h2>Customers &amp; Machines</h2>
                         <div class="header-actions">
-                            <button class="btn btn-secondary admin-only" onclick="openMachineModal()"><i class="ri-tools-line"></i> Add Machine</button>
-                            <button class="btn btn-primary admin-only" onclick="openCustomerModal()"><i class="ri-add-line"></i> Add Customer</button>
+                            <button class="btn btn-secondary manager-or-admin" onclick="openMachineModal()"><i class="ri-tools-line"></i> Add Machine</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="openCustomerModal()"><i class="ri-add-line"></i> Add Customer</button>
                         </div>
                     </div>
 
@@ -629,7 +629,7 @@
                     <div class="section-header">
                         <h2>Suppliers</h2>
                         <div class="header-actions">
-                            <button class="btn btn-primary admin-only" onclick="openSupplierModal()"><i class="ri-add-line"></i> Add Supplier</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="openSupplierModal()"><i class="ri-add-line"></i> Add Supplier</button>
                         </div>
                     </div>
                     <div class="card">
@@ -1009,17 +1009,63 @@
                             <button class="btn btn-primary" onclick="openUserModal()"><i class="ri-user-add-line"></i> Add User</button>
                         </div>
                     </div>
-                    <div class="card" style="padding:16px 20px;margin-bottom:16px;">
-                        <p style="margin:0;font-size:13px;color:var(--text-muted);line-height:1.6;">
-                            <strong>Admin</strong> — full access. &nbsp;
-                            <strong>Cashier</strong> — create invoices &amp; take payments; cannot edit inventory costs, rate card, suppliers or users. &nbsp;
-                            <strong>Viewer</strong> — read-only.
-                        </p>
+                    <div class="card" style="padding:18px 22px;margin-bottom:16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h3 style="margin:0; font-size:14px; font-weight:700;"><i class="ri-shield-keyhole-line" style="color:var(--primary); margin-right:6px;"></i> Role Privileges &amp; Access Control</h3>
+                            <span style="font-size:12px; color:var(--text-muted);">Enforced automatically at API &amp; General Ledger boundaries</span>
+                        </div>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+                            <div style="background:var(--secondary); border:1px solid var(--border-color); border-radius:8px; padding:12px 14px;">
+                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                    <span class="badge badge-finalized" style="font-size:11px;">Admin</span>
+                                    <strong style="font-size:13px;">Full Authority</strong>
+                                </div>
+                                <div style="font-size:12px; color:var(--text-muted); line-height:1.5;">
+                                    Full control over General Ledger, Journal entries, period closing/reopening, user management, backups &amp; system audits.
+                                </div>
+                            </div>
+                            <div style="background:var(--secondary); border:1px solid var(--border-color); border-radius:8px; padding:12px 14px;">
+                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                    <span class="badge badge-paid" style="font-size:11px;">Manager</span>
+                                    <strong style="font-size:13px;">Operations &amp; Approvals</strong>
+                                </div>
+                                <div style="font-size:12px; color:var(--text-muted); line-height:1.5;">
+                                    Invoicing, dual-control refund &amp; credit approvals, job profit analysis, inventory costs/margins &amp; supplier procurement.
+                                </div>
+                            </div>
+                            <div style="background:var(--secondary); border:1px solid var(--border-color); border-radius:8px; padding:12px 14px;">
+                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                    <span class="badge badge-draft" style="font-size:11px;">Cashier</span>
+                                    <strong style="font-size:13px;">Front-Desk Billing</strong>
+                                </div>
+                                <div style="font-size:12px; color:var(--text-muted); line-height:1.5;">
+                                    Create/finalize invoices, collect cash/bank receipts, request refund approvals. Wholesale unit costs &amp; margins are automatically masked.
+                                </div>
+                            </div>
+                            <div style="background:var(--secondary); border:1px solid var(--border-color); border-radius:8px; padding:12px 14px;">
+                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                    <span class="badge badge-revised" style="font-size:11px;">Viewer</span>
+                                    <strong style="font-size:13px;">Auditor / Read-Only</strong>
+                                </div>
+                                <div style="font-size:12px; color:var(--text-muted); line-height:1.5;">
+                                    Read-only reporting, ledger trial balance and transaction review. All data-modifying operations are strictly blocked.
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="card">
                         <div class="table-responsive">
                             <table class="table">
-                                <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+                                <thead>
+                                    <tr>
+                                        <th>Username</th>
+                                        <th>Role</th>
+                                        <th>Account Status</th>
+                                        <th>Security Session</th>
+                                        <th>Created Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
                                 <tbody id="users-tbody"></tbody>
                             </table>
                         </div>
@@ -1566,9 +1612,17 @@
                     <div class="form-group">
                         <label>Role</label>
                         <select id="user-role" class="form-control">
-                            <option value="cashier">Cashier</option>
-                            <option value="viewer">Viewer</option>
-                            <option value="admin">Admin</option>
+                            <option value="admin">Admin (Full System &amp; Ledger Access)</option>
+                            <option value="manager">Manager (Operations, Invoices &amp; Approvals)</option>
+                            <option value="cashier">Cashier (Front-Desk Billing, Costs Hidden)</option>
+                            <option value="viewer">Viewer (Read-Only Reporting)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="user-status-group" style="display:none;">
+                        <label>Account Status</label>
+                        <select id="user-status" class="form-control">
+                            <option value="1">Active (Login Enabled)</option>
+                            <option value="0">Disabled (Login Blocked)</option>
                         </select>
                     </div>
                     <div class="form-group">
