@@ -1,0 +1,38 @@
+# ==============================================================================
+# Caddy Configuration for Hydraulic System (Automatic HTTPS)
+# Path: /etc/caddy/Caddyfile
+# Reload: sudo systemctl reload caddy
+# ==============================================================================
+
+billing.yourshop.com {
+    # Automatic HTTPS is enabled by default by Caddy!
+
+    # Maximum file upload size
+    request_body {
+        max_size 25MB
+    }
+
+    # Security Headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Proxy all traffic to the Node.js application running on port 9999
+    reverse_proxy 127.0.0.1:9999 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Generous timeouts for large PDF/Excel generation
+        transport http {
+            response_header_timeout 120s
+        }
+    }
+
+    # Gzip / Zstandard compression
+    encode gzip zstd
+}

@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "source": "EC_Shipment_HS25E1112W1_Datasheet-3.xlsx — corrected crimping model with separate 2-wire and 4-wire shop assemble rates",
+    "note": "Internal cost/end is the current cost model (machine amortization + burdened labour + consumables + power). Market/end is now WIRE-TYPE specific: 2-wire (R2/2SN/1SN) and 4-wire (4SP/4SH/spiral) shops charge different per-end assemble rates. Default billed = market/end; floor = internal cost/end. LKR, per END.",
+    "capturedAt": "2026-07-13"
+  },
+  "sizes": ["1/4", "5/16", "3/8", "1/2", "5/8", "3/4", "1", "1-1/4"],
+  "internalCostPerEnd": {
+    "1/4": 289.6625,
+    "5/16": 289.6625,
+    "3/8": 312.9958,
+    "1/2": 336.3292,
+    "5/8": 359.6625,
+    "3/4": 382.9958,
+    "1": 452.9958,
+    "1-1/4": 522.9958
+  },
+  "market2Wire": {
+    "1/4": 600,
+    "5/16": 600,
+    "3/8": 600,
+    "1/2": 600,
+    "5/8": 700,
+    "3/4": 800,
+    "1": 1200,
+    "1-1/4": 1400
+  },
+  "market4Wire": {
+    "1/2": 800,
+    "5/8": 900,
+    "3/4": 1000,
+    "1": 1400,
+    "1-1/4": 2000
+  }
+}

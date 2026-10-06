@@ -20,7 +20,7 @@
  *   Grand      = After Tax − Discount  (optionally rounded to the nearest rupee)
  */
 
-const { num, round2, sumMoney, clamp } = require('./money');
+const { num, round2, sumMoney, clamp } = require('../lib/money');
 
 const DEFAULT_SSCL_RATE = 2.5;
 const DEFAULT_VAT_RATE = 18;

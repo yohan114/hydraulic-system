@@ -1,0 +1,870 @@
+{
+  "meta": {
+    "source": "EC_Shipment_HS25E1112W1_Datasheet.xlsx",
+    "invoice": "HS25E1112W1",
+    "exchangeRate": 305,
+    "dutyFactor": 1.26,
+    "marketFactor": 0.8,
+    "importedAt": "2026-07-13T00:00:00Z",
+    "counts": {
+      "hose": 15,
+      "fittings": 68,
+      "crimping": 8
+    }
+  },
+  "hose": {
+    "R1 1/4": {
+      "key": "R1 1/4",
+      "grade": "R1",
+      "size": "1/4",
+      "landedPerM": 143.96,
+      "marketMidPerM": 770
+    },
+    "R1 5/16": {
+      "key": "R1 5/16",
+      "grade": "R1",
+      "size": "5/16",
+      "landedPerM": 170.14,
+      "marketMidPerM": 910
+    },
+    "R1 3/8": {
+      "key": "R1 3/8",
+      "grade": "R1",
+      "size": "3/8",
+      "landedPerM": 196.31,
+      "marketMidPerM": 1050
+    },
+    "R2 1/4": {
+      "key": "R2 1/4",
+      "grade": "R2",
+      "size": "1/4",
+      "landedPerM": 205.66,
+      "marketMidPerM": 1100
+    },
+    "R2 5/16": {
+      "key": "R2 5/16",
+      "grade": "R2",
+      "size": "5/16",
+      "landedPerM": 243.05,
+      "marketMidPerM": 1300
+    },
+    "R2 3/8": {
+      "key": "R2 3/8",
+      "grade": "R2",
+      "size": "3/8",
+      "landedPerM": 280.44,
+      "marketMidPerM": 1500
+    },
+    "R2 1/2": {
+      "key": "R2 1/2",
+      "grade": "R2",
+      "size": "1/2",
+      "landedPerM": 355.23,
+      "marketMidPerM": 1900
+    },
+    "R2 5/8": {
+      "key": "R2 5/8",
+      "grade": "R2",
+      "size": "5/8",
+      "landedPerM": 458.06,
+      "marketMidPerM": 2450
+    },
+    "R2 3/4": {
+      "key": "R2 3/4",
+      "grade": "R2",
+      "size": "3/4",
+      "landedPerM": 560.89,
+      "marketMidPerM": 3000
+    },
+    "R2 1": {
+      "key": "R2 1",
+      "grade": "R2",
+      "size": "1",
+      "landedPerM": 803.94,
+      "marketMidPerM": 4300
+    },
+    "R2 1-1/4": {
+      "key": "R2 1-1/4",
+      "grade": "R2",
+      "size": "1-1/4",
+      "landedPerM": 1121.78,
+      "marketMidPerM": 6000
+    },
+    "4SP 5/8": {
+      "key": "4SP 5/8",
+      "grade": "4SP",
+      "size": "5/8",
+      "landedPerM": 1146.08,
+      "marketMidPerM": 6130
+    },
+    "4SH 3/4": {
+      "key": "4SH 3/4",
+      "grade": "4SH",
+      "size": "3/4",
+      "landedPerM": 1598.53,
+      "marketMidPerM": 8550
+    },
+    "4SH 1": {
+      "key": "4SH 1",
+      "grade": "4SH",
+      "size": "1",
+      "landedPerM": 2292.16,
+      "marketMidPerM": 12260
+    },
+    "4SH 1-1/4": {
+      "key": "4SH 1-1/4",
+      "grade": "4SH",
+      "size": "1-1/4",
+      "landedPerM": 3197.06,
+      "marketMidPerM": 17100
+    }
+  },
+  "fittings": {
+    "00110-04": {
+      "specCode": "00110-04",
+      "no": 16,
+      "type": "1SN",
+      "size": "1/4\"",
+      "description": "Ferrule R1AT/1SN, hose ID 6mm, carbon steel",
+      "costLKR": 219.08,
+      "sellLKR": 351,
+      "received": true
+    },
+    "00110-05": {
+      "specCode": "00110-05",
+      "no": 17,
+      "type": "1SN",
+      "size": "5/16\"",
+      "description": "Ferrule R1AT/1SN, hose ID 8mm, carbon steel",
+      "costLKR": 243.42,
+      "sellLKR": 389,
+      "received": true
+    },
+    "00110-06": {
+      "specCode": "00110-06",
+      "no": 18,
+      "type": "1SN",
+      "size": "3/8\"",
+      "description": "Ferrule R1AT/1SN, hose ID 10mm, carbon steel",
+      "costLKR": 267.76,
+      "sellLKR": 428,
+      "received": true
+    },
+    "00210-04": {
+      "specCode": "00210-04",
+      "no": 19,
+      "type": "2SN",
+      "size": "1/4\"",
+      "description": "Ferrule R2AT/2SN, hose ID 6mm, carbon steel",
+      "costLKR": 257.74,
+      "sellLKR": 412,
+      "received": true
+    },
+    "00210-05": {
+      "specCode": "00210-05",
+      "no": 20,
+      "type": "2SN",
+      "size": "5/16\"",
+      "description": "Ferrule R2AT/2SN, hose ID 8mm, carbon steel",
+      "costLKR": 286.38,
+      "sellLKR": 458,
+      "received": true
+    },
+    "00210-06": {
+      "specCode": "00210-06",
+      "no": 21,
+      "type": "2SN",
+      "size": "3/8\"",
+      "description": "Ferrule R2AT/2SN, hose ID 10mm, carbon steel",
+      "costLKR": 315.01,
+      "sellLKR": 504,
+      "received": true
+    },
+    "00210-08": {
+      "specCode": "00210-08",
+      "no": 22,
+      "type": "2SN",
+      "size": "1/2\"",
+      "description": "Ferrule R2AT/2SN, hose ID 12mm, carbon steel",
+      "costLKR": 415.25,
+      "sellLKR": 664,
+      "received": true
+    },
+    "00210-10": {
+      "specCode": "00210-10",
+      "no": 23,
+      "type": "2SN",
+      "size": "5/8\"",
+      "description": "Ferrule R2AT/2SN, hose ID 16mm, carbon steel",
+      "costLKR": 658.67,
+      "sellLKR": 1054,
+      "received": true
+    },
+    "00210-12": {
+      "specCode": "00210-12",
+      "no": 24,
+      "type": "2SN",
+      "size": "3/4\"",
+      "description": "Ferrule R2AT/2SN, hose ID 20mm, carbon steel",
+      "costLKR": 930.72,
+      "sellLKR": 1489,
+      "received": true
+    },
+    "00210-16": {
+      "specCode": "00210-16",
+      "no": 25,
+      "type": "2SN",
+      "size": "1\"",
+      "description": "Ferrule R2AT/2SN, hose ID 25mm, carbon steel",
+      "costLKR": 1431.88,
+      "sellLKR": 2291,
+      "received": true
+    },
+    "00210-20": {
+      "specCode": "00210-20",
+      "no": 26,
+      "type": "2SN",
+      "size": "1-1/4\"",
+      "description": "Ferrule R2AT/2SN, hose ID 32mm, carbon steel",
+      "costLKR": 2147.82,
+      "sellLKR": 3437,
+      "received": true
+    },
+    "00400-10": {
+      "specCode": "00400-10",
+      "no": 27,
+      "type": "Spiral",
+      "size": "5/8\"",
+      "description": "Ferrule R9/R12/4SP-4SH, hose ID 16mm",
+      "costLKR": 988,
+      "sellLKR": 1581,
+      "received": true
+    },
+    "00400-12": {
+      "specCode": "00400-12",
+      "no": 28,
+      "type": "Spiral",
+      "size": "3/4\"",
+      "description": "Ferrule R9/R12/4SP-4SH, hose ID 20mm",
+      "costLKR": 1396.08,
+      "sellLKR": 2234,
+      "received": true
+    },
+    "00400-16": {
+      "specCode": "00400-16",
+      "no": 29,
+      "type": "Spiral",
+      "size": "1\"",
+      "description": "Ferrule R9/R12/4SP-4SH, hose ID 25mm",
+      "costLKR": 2147.82,
+      "sellLKR": 3437,
+      "received": true
+    },
+    "00400-20": {
+      "specCode": "00400-20",
+      "no": 30,
+      "type": "Spiral",
+      "size": "1-1/4\"",
+      "description": "Ferrule R9/R12/4SP-4SH, hose ID 32mm",
+      "costLKR": 3221.73,
+      "sellLKR": 5155,
+      "received": true
+    },
+    "22611-04-04": {
+      "specCode": "22611-04-04",
+      "no": 31,
+      "type": "BSP straight",
+      "size": "G1/4\"",
+      "description": "BSP female 60° cone G1/4\"x19, hose 6mm",
+      "costLKR": 138.48,
+      "sellLKR": 620,
+      "received": true
+    },
+    "22611-06-04": {
+      "specCode": "22611-06-04",
+      "no": 32,
+      "type": "BSP straight",
+      "size": "G3/8\"",
+      "description": "BSP female 60° cone G3/8\"x19, hose 6mm",
+      "costLKR": 160.81,
+      "sellLKR": 720,
+      "received": true
+    },
+    "22611-06-06": {
+      "specCode": "22611-06-06",
+      "no": 33,
+      "type": "BSP straight",
+      "size": "G3/8\"",
+      "description": "BSP female 60° cone G3/8\"x19, hose 10mm",
+      "costLKR": 160.81,
+      "sellLKR": 720,
+      "received": true
+    },
+    "22611-06-08": {
+      "specCode": "22611-06-08",
+      "no": 34,
+      "type": "BSP straight",
+      "size": "G3/8\"",
+      "description": "BSP female 60° cone G3/8\"x19, hose 12mm",
+      "costLKR": 160.81,
+      "sellLKR": 720,
+      "received": true
+    },
+    "22611-08-06T": {
+      "specCode": "22611-08-06T",
+      "no": 35,
+      "type": "BSP straight",
+      "size": "G1/2\"",
+      "description": "BSP female 60° cone G1/2\"x14, hose 10mm",
+      "costLKR": 212.19,
+      "sellLKR": 950,
+      "received": true
+    },
+    "22611-08-08": {
+      "specCode": "22611-08-08",
+      "no": 36,
+      "type": "BSP straight",
+      "size": "G1/2\"",
+      "description": "BSP female 60° cone G1/2\"x14, hose 12mm",
+      "costLKR": 212.19,
+      "sellLKR": 950,
+      "received": true
+    },
+    "22611-10-10": {
+      "specCode": "22611-10-10",
+      "no": 37,
+      "type": "BSP straight",
+      "size": "G5/8\"",
+      "description": "BSP female 60° cone G5/8\"x14, hose 16mm",
+      "costLKR": 279.19,
+      "sellLKR": 1250,
+      "received": true
+    },
+    "22611-12-12": {
+      "specCode": "22611-12-12",
+      "no": 38,
+      "type": "BSP straight",
+      "size": "G3/4\"",
+      "description": "BSP female 60° cone G3/4\"x14, hose 20mm",
+      "costLKR": 357.37,
+      "sellLKR": 1600,
+      "received": true
+    },
+    "22611-16-16": {
+      "specCode": "22611-16-16",
+      "no": 39,
+      "type": "BSP straight",
+      "size": "G1\"",
+      "description": "BSP female 60° cone G1\"x11, hose 25mm",
+      "costLKR": 580.72,
+      "sellLKR": 2600,
+      "received": false
+    },
+    "22611-20-20W": {
+      "specCode": "22611-20-20W",
+      "no": 40,
+      "type": "BSP straight",
+      "size": "G1-1/4\"",
+      "description": "BSP female 60° cone G1-1/4\"x11, hose 32mm",
+      "costLKR": 871.08,
+      "sellLKR": 3900,
+      "received": false
+    },
+    "22691-04-04": {
+      "specCode": "22691-04-04",
+      "no": 41,
+      "type": "BSP 90°",
+      "size": "G1/4\"",
+      "description": "90° BSP female 60° cone G1/4\"x19, hose 6mm",
+      "costLKR": 270.03,
+      "sellLKR": 1209,
+      "received": false
+    },
+    "22691-06-06": {
+      "specCode": "22691-06-06",
+      "no": 42,
+      "type": "BSP 90°",
+      "size": "G3/8\"",
+      "description": "90° BSP female 60° cone G3/8\"x19, hose 10mm",
+      "costLKR": 313.59,
+      "sellLKR": 1404,
+      "received": false
+    },
+    "22691-08-08": {
+      "specCode": "22691-08-08",
+      "no": 43,
+      "type": "BSP 90°",
+      "size": "G1/2\"",
+      "description": "90° BSP female 60° cone G1/2\"x14, hose 12mm",
+      "costLKR": 413.65,
+      "sellLKR": 1852,
+      "received": false
+    },
+    "22611D-04-04": {
+      "specCode": "22611D-04-04",
+      "no": 44,
+      "type": "BSP dbl-hex",
+      "size": "G1/4\"",
+      "description": "BSP female 60° cone dbl-hex G1/4\"x19, hose 6mm",
+      "costLKR": 159.25,
+      "sellLKR": 713,
+      "received": false
+    },
+    "22611D-06-06": {
+      "specCode": "22611D-06-06",
+      "no": 45,
+      "type": "BSP dbl-hex",
+      "size": "G3/8\"",
+      "description": "BSP female 60° cone dbl-hex G3/8\"x19, hose 10mm",
+      "costLKR": 184.94,
+      "sellLKR": 828,
+      "received": true
+    },
+    "22611D-08-08": {
+      "specCode": "22611D-08-08",
+      "no": 46,
+      "type": "BSP dbl-hex",
+      "size": "G1/2\"",
+      "description": "BSP female 60° cone dbl-hex G1/2\"x14, hose 12mm",
+      "costLKR": 243.9,
+      "sellLKR": 1092,
+      "received": true
+    },
+    "22611D-12-12": {
+      "specCode": "22611D-12-12",
+      "no": 47,
+      "type": "BSP dbl-hex",
+      "size": "G3/4\"",
+      "description": "BSP female 60° cone dbl-hex G3/4\"x14, hose 20mm",
+      "costLKR": 410.97,
+      "sellLKR": 1840,
+      "received": true
+    },
+    "22611D-16-16": {
+      "specCode": "22611D-16-16",
+      "no": 48,
+      "type": "BSP dbl-hex",
+      "size": "G1\"",
+      "description": "BSP female 60° cone dbl-hex G1\"x11, hose 25mm",
+      "costLKR": 667.83,
+      "sellLKR": 2990,
+      "received": true
+    },
+    "22611D-20-20W": {
+      "specCode": "22611D-20-20W",
+      "no": 49,
+      "type": "BSP dbl-hex",
+      "size": "G1-1/4\"",
+      "description": "BSP female 60° cone dbl-hex G1-1/4\"x11, hose 32mm",
+      "costLKR": 1001.74,
+      "sellLKR": 4485,
+      "received": true
+    },
+    "22612-10-10": {
+      "specCode": "22612-10-10",
+      "no": 50,
+      "type": "BSP straight",
+      "size": "G5/8\"",
+      "description": "BSP female 60° cone G5/8\"x14, hose 16mm",
+      "costLKR": 315.26,
+      "sellLKR": 1250,
+      "received": true
+    },
+    "22612-12-12": {
+      "specCode": "22612-12-12",
+      "no": 51,
+      "type": "BSP straight",
+      "size": "G3/4\"",
+      "description": "BSP female 60° cone G3/4\"x14, hose 20mm",
+      "costLKR": 403.53,
+      "sellLKR": 1600,
+      "received": true
+    },
+    "22612-16-16": {
+      "specCode": "22612-16-16",
+      "no": 52,
+      "type": "BSP straight",
+      "size": "G1\"",
+      "description": "BSP female 60° cone G1\"x11, hose 25mm",
+      "costLKR": 655.73,
+      "sellLKR": 2600,
+      "received": true
+    },
+    "22612-20-20": {
+      "specCode": "22612-20-20",
+      "no": 53,
+      "type": "BSP straight",
+      "size": "G1-1/4\"",
+      "description": "BSP female 60° cone G1-1/4\"x11, hose 32mm",
+      "costLKR": 983.6,
+      "sellLKR": 3900,
+      "received": true
+    },
+    "22692-04-04": {
+      "specCode": "22692-04-04",
+      "no": 54,
+      "type": "BSP 90°",
+      "size": "G1/4\"",
+      "description": "90° BSP female 60° cone G1/4\"x19, hose 6mm",
+      "costLKR": 304.92,
+      "sellLKR": 1209,
+      "received": true
+    },
+    "22692-06-06": {
+      "specCode": "22692-06-06",
+      "no": 55,
+      "type": "BSP 90°",
+      "size": "G3/8\"",
+      "description": "90° BSP female 60° cone G3/8\"x19, hose 10mm",
+      "costLKR": 354.09,
+      "sellLKR": 1404,
+      "received": true
+    },
+    "22692-08-08": {
+      "specCode": "22692-08-08",
+      "no": 56,
+      "type": "BSP 90°",
+      "size": "G1/2\"",
+      "description": "90° BSP female 60° cone G1/2\"x14, hose 12mm",
+      "costLKR": 467.08,
+      "sellLKR": 1852,
+      "received": true
+    },
+    "22692-10-10": {
+      "specCode": "22692-10-10",
+      "no": 57,
+      "type": "BSP 90°",
+      "size": "G5/8\"",
+      "description": "90° BSP female 60° cone G5/8\"x14, hose 16mm",
+      "costLKR": 614.87,
+      "sellLKR": 2438,
+      "received": true
+    },
+    "22692-12-12": {
+      "specCode": "22692-12-12",
+      "no": 58,
+      "type": "BSP 90°",
+      "size": "G3/4\"",
+      "description": "90° BSP female 60° cone G3/4\"x14, hose 20mm",
+      "costLKR": 786.88,
+      "sellLKR": 3120,
+      "received": true
+    },
+    "22692-16-16": {
+      "specCode": "22692-16-16",
+      "no": 59,
+      "type": "BSP 90°",
+      "size": "G1\"",
+      "description": "90° BSP female 60° cone G1\"x11, hose 25mm",
+      "costLKR": 1278.68,
+      "sellLKR": 5070,
+      "received": true
+    },
+    "22692-20-20": {
+      "specCode": "22692-20-20",
+      "no": 60,
+      "type": "BSP 90°",
+      "size": "G1-1/4\"",
+      "description": "90° BSP female 60° cone G1-1/4\"x11, hose 32mm",
+      "costLKR": 1918.01,
+      "sellLKR": 7605,
+      "received": true
+    },
+    "10011N-04": {
+      "specCode": "10011N-04",
+      "no": 61,
+      "type": "Weld fitting",
+      "size": "6mm",
+      "description": "Welding fitting, hose ID 6mm",
+      "costLKR": 70.37,
+      "sellLKR": 372,
+      "received": true
+    },
+    "10011N-05": {
+      "specCode": "10011N-05",
+      "no": 62,
+      "type": "Weld fitting",
+      "size": "8mm",
+      "description": "Welding fitting, hose ID 8mm",
+      "costLKR": 76.17,
+      "sellLKR": 402,
+      "received": true
+    },
+    "10011N-06": {
+      "specCode": "10011N-06",
+      "no": 63,
+      "type": "Weld fitting",
+      "size": "10mm",
+      "description": "Welding fitting, hose ID 10mm",
+      "costLKR": 81.71,
+      "sellLKR": 432,
+      "received": true
+    },
+    "10011N-08": {
+      "specCode": "10011N-08",
+      "no": 64,
+      "type": "Weld fitting",
+      "size": "12mm",
+      "description": "Welding fitting, hose ID 12mm",
+      "costLKR": 107.94,
+      "sellLKR": 570,
+      "received": true
+    },
+    "10011N-10": {
+      "specCode": "10011N-10",
+      "no": 65,
+      "type": "Weld fitting",
+      "size": "16mm",
+      "description": "Welding fitting, hose ID 16mm",
+      "costLKR": 141.74,
+      "sellLKR": 750,
+      "received": true
+    },
+    "10011N-12": {
+      "specCode": "10011N-12",
+      "no": 66,
+      "type": "Weld fitting",
+      "size": "20mm",
+      "description": "Welding fitting, hose ID 20mm",
+      "costLKR": 181.59,
+      "sellLKR": 960,
+      "received": true
+    },
+    "10011N-16": {
+      "specCode": "10011N-16",
+      "no": 67,
+      "type": "Weld fitting",
+      "size": "25mm",
+      "description": "Welding fitting, hose ID 25mm",
+      "costLKR": 295.08,
+      "sellLKR": 1560,
+      "received": true
+    },
+    "10011N-20": {
+      "specCode": "10011N-20",
+      "no": 68,
+      "type": "Weld fitting",
+      "size": "32mm",
+      "description": "Welding fitting, hose ID 32mm",
+      "costLKR": 442.62,
+      "sellLKR": 2340,
+      "received": true
+    },
+    "90011-04": {
+      "specCode": "90011-04",
+      "no": 69,
+      "type": "Dbl connector",
+      "size": "6mm",
+      "description": "Double connector, hose ID 6mm",
+      "costLKR": 170.54,
+      "sellLKR": 558,
+      "received": true
+    },
+    "90011-06": {
+      "specCode": "90011-06",
+      "no": 70,
+      "type": "Dbl connector",
+      "size": "10mm",
+      "description": "Double connector, hose ID 10mm",
+      "costLKR": 198.04,
+      "sellLKR": 648,
+      "received": true
+    },
+    "90011-08": {
+      "specCode": "90011-08",
+      "no": 71,
+      "type": "Dbl connector",
+      "size": "12mm",
+      "description": "Double connector, hose ID 12mm",
+      "costLKR": 261.52,
+      "sellLKR": 855,
+      "received": true
+    },
+    "90011-10": {
+      "specCode": "90011-10",
+      "no": 72,
+      "type": "Dbl connector",
+      "size": "16mm",
+      "description": "Double connector, hose ID 16mm",
+      "costLKR": 343.62,
+      "sellLKR": 1125,
+      "received": true
+    },
+    "72011-04-04": {
+      "specCode": "72011-04-04",
+      "no": 73,
+      "type": "BSP banjo",
+      "size": "G1/4\"",
+      "description": "BSP banjo G1/4\"x19, DN 6mm",
+      "costLKR": 288.6,
+      "sellLKR": 806,
+      "received": true
+    },
+    "72011-04-05": {
+      "specCode": "72011-04-05",
+      "no": 74,
+      "type": "BSP banjo",
+      "size": "G1/4\"",
+      "description": "BSP banjo G1/4\"x19, DN 8mm",
+      "costLKR": 288.6,
+      "sellLKR": 806,
+      "received": true
+    },
+    "72011-06-06": {
+      "specCode": "72011-06-06",
+      "no": 75,
+      "type": "BSP banjo",
+      "size": "G3/8\"",
+      "description": "BSP banjo G3/8\"x19, DN 10mm",
+      "costLKR": 335.15,
+      "sellLKR": 936,
+      "received": true
+    },
+    "72011-08-08": {
+      "specCode": "72011-08-08",
+      "no": 76,
+      "type": "BSP banjo",
+      "size": "G1/2\"",
+      "description": "BSP banjo G1/2\"x14, DN 12mm",
+      "costLKR": 442.21,
+      "sellLKR": 1235,
+      "received": true
+    },
+    "20011-22-04ST": {
+      "specCode": "20011-22-04ST",
+      "no": 77,
+      "type": "Metric insert",
+      "size": "M22x1.5",
+      "description": "Metric female waterwash insert M22x1.5, DN 6mm",
+      "costLKR": 361.81,
+      "sellLKR": 950,
+      "received": true
+    },
+    "20011-22-06ST": {
+      "specCode": "20011-22-06ST",
+      "no": 78,
+      "type": "Metric insert",
+      "size": "M22x1.5",
+      "description": "Metric female waterwash insert M22x1.5, DN 10mm",
+      "costLKR": 361.81,
+      "sellLKR": 950,
+      "received": true
+    },
+    "FL-12": {
+      "specCode": "FL-12",
+      "no": 79,
+      "type": "Flange clamp",
+      "size": "3/4\"",
+      "description": "SAE split flange clamp 3000psi ISO6162 J518, 3/4\", bolt M10x30",
+      "costLKR": 394.15,
+      "sellLKR": 1800,
+      "received": true
+    },
+    "FL-16": {
+      "specCode": "FL-16",
+      "no": 80,
+      "type": "Flange clamp",
+      "size": "1\"",
+      "description": "SAE split flange clamp 3000psi ISO6162 J518, 1\", bolt M10x30",
+      "costLKR": 551.82,
+      "sellLKR": 2520,
+      "received": true
+    },
+    "FL-20": {
+      "specCode": "FL-20",
+      "no": 81,
+      "type": "Flange clamp",
+      "size": "1-1/4\"",
+      "description": "SAE split flange clamp 3000psi ISO6162 J518, 1-1/4\", bolt M10x30",
+      "costLKR": 709.48,
+      "sellLKR": 3240,
+      "received": true
+    },
+    "87391-12-12": {
+      "specCode": "87391-12-12",
+      "no": 82,
+      "type": "90° flange",
+      "size": "3/4\"",
+      "description": "90° SAE flange 3000psi Code 61 ISO12151-3 J516, 3/4\", hose 20mm",
+      "costLKR": 1182.46,
+      "sellLKR": 4350,
+      "received": true
+    },
+    "87391-16-16": {
+      "specCode": "87391-16-16",
+      "no": 83,
+      "type": "90° flange",
+      "size": "1\"",
+      "description": "90° SAE flange 3000psi Code 61 ISO12151-3 J516, 1\", hose 25mm",
+      "costLKR": 1773.69,
+      "sellLKR": 6525,
+      "received": true
+    }
+  },
+  "crimping": {
+    "1": {
+      "size": "1",
+      "internalCostPerEnd": 453,
+      "marketLow": 650,
+      "marketMid": 1350,
+      "marketHigh": 3500,
+      "marginPerEndAtMid": 897
+    },
+    "1/4": {
+      "size": "1/4",
+      "internalCostPerEnd": 289.66,
+      "marketLow": 250,
+      "marketMid": 650,
+      "marketHigh": 1800,
+      "marginPerEndAtMid": 360.34
+    },
+    "5/16": {
+      "size": "5/16",
+      "internalCostPerEnd": 289.66,
+      "marketLow": 250,
+      "marketMid": 650,
+      "marketHigh": 1800,
+      "marginPerEndAtMid": 360.34
+    },
+    "3/8": {
+      "size": "3/8",
+      "internalCostPerEnd": 313,
+      "marketLow": 250,
+      "marketMid": 650,
+      "marketHigh": 1800,
+      "marginPerEndAtMid": 337
+    },
+    "1/2": {
+      "size": "1/2",
+      "internalCostPerEnd": 336.33,
+      "marketLow": 280,
+      "marketMid": 700,
+      "marketHigh": 1900,
+      "marginPerEndAtMid": 363.67
+    },
+    "5/8": {
+      "size": "5/8",
+      "internalCostPerEnd": 359.66,
+      "marketLow": 380,
+      "marketMid": 850,
+      "marketHigh": 2200,
+      "marginPerEndAtMid": 490.34
+    },
+    "3/4": {
+      "size": "3/4",
+      "internalCostPerEnd": 383,
+      "marketLow": 450,
+      "marketMid": 950,
+      "marketHigh": 2500,
+      "marginPerEndAtMid": 567
+    },
+    "1-1/4": {
+      "size": "1-1/4",
+      "internalCostPerEnd": 523,
+      "marketLow": 900,
+      "marketMid": 1800,
+      "marketHigh": 4500,
+      "marginPerEndAtMid": 1277
+    }
+  }
+}

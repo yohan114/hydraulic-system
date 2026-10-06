@@ -1,0 +1,39 @@
+# ==============================================================================
+# Fail2ban Jail Configuration for Hydraulic System
+# Path: /etc/fail2ban/jail.local
+# ==============================================================================
+
+[DEFAULT]
+bantime  = 86400        ; Ban duration: 24 hours
+findtime = 600          ; Window: 10 minutes
+maxretry = 5            ; Max failures before ban
+banaction = ufw         ; Ban directly via UFW / iptables
+backend  = auto
+
+[sshd]
+enabled  = true
+port     = ssh
+mode     = normal
+logpath  = %(sshd_log)s
+backend  = %(default_backend)s
+maxretry = 5
+findtime = 600
+bantime  = 86400
+
+[hydraulic-login]
+enabled  = true
+port     = http,https
+filter   = hydraulic-login
+logpath  = /var/log/nginx/access.log
+maxretry = 5
+findtime = 600
+bantime  = 86400
+
+[nginx-limit-req]
+enabled  = true
+port     = http,https
+filter   = nginx-limit-req
+logpath  = /var/log/nginx/error.log
+maxretry = 10
+findtime = 600
+bantime  = 86400

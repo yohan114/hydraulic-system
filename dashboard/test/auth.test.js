@@ -51,3 +51,28 @@ test('token fails on tamper or wrong secret', () => {
   assert.equal(verifyToken('not-a-token', 'secret-a', now), null);
   assert.equal(verifyToken('', 'secret-a', now), null);
 });
+
+test('checkCredentials fails closed on database error instead of falling back to default admin', async () => {
+  const connection = require('../db');
+  const authRoutes = require('../routes/auth');
+  const originalQuery = connection.query;
+
+  try {
+    // Simulate a transient database error (e.g. disk corruption, locked, busy)
+    connection.query = async () => {
+      throw new Error('database disk image is malformed (injected failure)');
+    };
+
+    const state = await authRoutes.provisioningState();
+    assert.equal(state.provisioned, false);
+    assert.equal(state.tableMissing, false);
+    assert.match(state.error, /malformed/);
+
+    const creds = await authRoutes.checkCredentials('admin', 'admin123');
+    assert.equal(creds.ok, false, 'must fail closed — never accept default admin during DB errors');
+    assert.ok(creds.dbError, 'reports database error instead of allowing login');
+  } finally {
+    connection.query = originalQuery;
+  }
+});
+

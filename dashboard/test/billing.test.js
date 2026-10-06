@@ -8,7 +8,7 @@ const {
   validateInvoice,
   paymentStatus,
   lineMargin,
-} = require('../lib/billing');
+} = require('../services/billing');
 
 test('lineAmount rounds qty*rate', () => {
   assert.equal(lineAmount(3, 333.33), 999.99);
