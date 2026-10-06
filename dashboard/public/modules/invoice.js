@@ -947,12 +947,12 @@ function renderHistory(data) {
         if (isFinalized && !isInternal && (balance > 0 || paid > 0)) {
             actions += ` <button class="btn btn-text" style="color:var(--success)" onclick="openPaymentModal(${inv.InvoiceID}, '${safeNo}')">${balance > 0 ? 'Payment' : 'Payments'}</button>`;
         }
-        if (isFinalized) {
+        if (isFinalized && canWrite()) {
             actions += ` <button class="btn btn-text" style="color:#b45309" onclick="reviseInvoice(${inv.InvoiceID}, '${safeNo}')">Revise</button>`;
         }
         // A superseded invoice has already had its stock and ledger reversed —
-        // cancelling it again would be a second restoration.
-        if (!isCancelled && !isRevised) {
+        // cancelling it again would be a second restoration. Cancel requires manager authority.
+        if (!isCancelled && !isRevised && isManager()) {
             actions += ` <button class="btn btn-text" style="color:var(--danger)" onclick="cancelInvoice(${inv.InvoiceID}, '${safeNo}')">Cancel</button>`;
         }
 
@@ -1203,10 +1203,10 @@ async function openPaymentModal(invoiceId, invoiceNo) {
                     // payment form, so a default-type button would submit it.
                     const action = voided
                         ? `<span class="badge badge-cancelled" title="${escAttr(p.VoidReason || '')}">Voided</span>`
-                        : `<div style="display:flex;gap:4px;">
+                        : (isManager() ? `<div style="display:flex;gap:4px;">
                             <button type="button" class="btn btn-text" style="color:var(--primary);font-size:12px;padding:2px 6px;" onclick="openReallocatePaymentModal(${p.PaymentID}, ${p.Amount}, '${escAttr(invoiceNo)}')">Reallocate</button>
                             <button type="button" class="btn btn-text" style="color:var(--danger);font-size:12px;padding:2px 6px;" onclick="voidPayment(${p.PaymentID})">Void</button>
-                           </div>`;
+                           </div>` : '<span style="color:var(--text-muted);font-size:11px;">Recorded</span>');
                     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border-color);${voided ? 'opacity:.55;' : ''}">
                         <span${strike}>${formatDate(p.PaymentDate)} · ${escAttr(p.Method || '')}</span>
                         <strong${strike}>${formatCurrency(p.Amount)}</strong>

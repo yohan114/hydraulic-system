@@ -429,6 +429,28 @@ function showSection(sectionId, updateHash = true) {
         sectionId = 'dashboard';
     }
 
+    // Role-based client-side route guard
+    if (authEnabled && currentRole !== 'admin') {
+        const adminSections = ['users', 'pricing-master'];
+        const managerSections = [
+            'accounting', 'controls', 'procurement', 'suppliers',
+            'cost-analysis', 'invoice-comparison', 'price-analysis',
+            'bill-comparison', 'job-profit', 'expenses'
+        ];
+        if (adminSections.includes(sectionId)) {
+            toast('Access denied: Administrator privileges required.', 'error');
+            return showSection('dashboard', true);
+        }
+        if (currentRole === 'cashier' && managerSections.includes(sectionId)) {
+            toast('Access restricted: Manager or Administrator role required.', 'error');
+            return showSection('dashboard', true);
+        }
+        if (currentRole === 'viewer' && sectionId === 'new-invoice') {
+            toast('Viewers have read-only access.', 'info');
+            return showSection('dashboard', true);
+        }
+    }
+
     document.querySelectorAll('.page-section').forEach((sec) => sec.classList.remove('active'));
     const targetSection = document.getElementById(sectionId);
     if (targetSection) targetSection.classList.add('active');

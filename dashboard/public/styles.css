@@ -648,7 +648,8 @@ select.form-control option { color: initial; }
    ---------------------------------------------------- */
 html:not(.role-admin) .admin-only { display: none !important; }
 html:not(.role-admin):not(.role-manager) .manager-or-admin { display: none !important; }
-html.role-viewer .hide-from-viewer { display: none !important; }
+html:not(.role-admin):not(.role-manager) .manager-only { display: none !important; }
+html.role-viewer .hide-from-viewer, html.role-viewer .write-only { display: none !important; }
 .account-role {
   font-size: 11px;
   text-transform: uppercase;

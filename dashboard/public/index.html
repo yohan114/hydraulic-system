@@ -75,19 +75,19 @@
                 <a href="#workshop" class="nav-item" data-target="workshop">
                     <i class="ri-hammer-line"></i> Workshop
                 </a>
-                <a href="#procurement" class="nav-item" data-target="procurement">
+                <a href="#procurement" class="nav-item manager-or-admin" data-target="procurement">
                     <i class="ri-shopping-cart-2-line"></i> Procurement
                 </a>
-                <a href="#controls" class="nav-item" data-target="controls">
+                <a href="#controls" class="nav-item manager-or-admin" data-target="controls">
                     <i class="ri-shield-check-line"></i> Controls
                 </a>
-                <a href="#accounting" class="nav-item" data-target="accounting">
+                <a href="#accounting" class="nav-item manager-or-admin" data-target="accounting">
                     <i class="ri-book-2-line"></i> Accounting
                 </a>
                 <a href="#customers" class="nav-item" data-target="customers">
                     <i class="ri-group-line"></i> Customers &amp; Machines
                 </a>
-                <a href="#suppliers" class="nav-item" data-target="suppliers">
+                <a href="#suppliers" class="nav-item manager-or-admin" data-target="suppliers">
                     <i class="ri-truck-line"></i> Suppliers
                 </a>
                 <a href="#new-invoice" class="nav-item hide-from-viewer" data-target="new-invoice">
@@ -102,19 +102,19 @@
                 <a href="#export-invoices" class="nav-item" data-target="export-invoices">
                     <i class="ri-file-excel-line"></i> Export Invoices
                 </a>
-                <a href="#cost-analysis" class="nav-item" data-target="cost-analysis">
+                <a href="#cost-analysis" class="nav-item manager-or-admin" data-target="cost-analysis">
                     <i class="ri-price-tag-3-line"></i> Rate Card
                 </a>
-                <a href="#invoice-comparison" class="nav-item" data-target="invoice-comparison">
+                <a href="#invoice-comparison" class="nav-item manager-or-admin" data-target="invoice-comparison">
                     <i class="ri-scales-line"></i> Invoice Comparison
                 </a>
-                <a href="#price-analysis" class="nav-item" data-target="price-analysis">
+                <a href="#price-analysis" class="nav-item manager-or-admin" data-target="price-analysis">
                     <i class="ri-bar-chart-box-line"></i> Price Analysis
                 </a>
-                <a href="#bill-comparison" class="nav-item" data-target="bill-comparison">
+                <a href="#bill-comparison" class="nav-item manager-or-admin" data-target="bill-comparison">
                     <i class="ri-scan-2-line"></i> Cost vs Bill vs Market
                 </a>
-                <a href="#job-profit" class="nav-item" data-target="job-profit">
+                <a href="#job-profit" class="nav-item manager-or-admin" data-target="job-profit">
                     <i class="ri-bar-chart-grouped-line"></i> Job Profit Analysis
                     <span class="nav-badge" id="jobProfitNavBadge" style="display:none;"></span>
                 </a>
@@ -124,7 +124,7 @@
                 <a href="#labour" class="nav-item" data-target="labour">
                     <i class="ri-team-line"></i> Labour
                 </a>
-                <a href="#expenses" class="nav-item" data-target="expenses">
+                <a href="#expenses" class="nav-item manager-or-admin" data-target="expenses">
                     <i class="ri-wallet-3-line"></i> Expenses
                 </a>
                 <a href="#users" class="nav-item admin-only" data-target="users">
@@ -354,9 +354,9 @@
                             <div class="stat-card"><div class="stat-icon" style="background:rgba(16,185,129,.1);color:#10b981;"><i class="ri-funds-box-line"></i></div><div class="stat-details"><h3>Net Book Value</h3><p id="ctl-asset-nbv" style="font-size:20px;">Rs. 0.00</p></div></div>
                         </div>
                         <div class="card" style="padding:14px 18px;margin-bottom:16px;">
-                            <button class="btn btn-primary admin-only" onclick="openAssetModal()"><i class="ri-add-line"></i> Register Asset</button>
-                            <button class="btn btn-secondary admin-only" onclick="runDepreciation()"><i class="ri-calendar-check-line"></i> Run Depreciation</button>
-                            <button class="btn btn-secondary admin-only" onclick="closeYear()"><i class="ri-lock-line"></i> Close Year</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="openAssetModal()"><i class="ri-add-line"></i> Register Asset</button>
+                            <button class="btn btn-secondary manager-or-admin" onclick="runDepreciation()"><i class="ri-calendar-check-line"></i> Run Depreciation</button>
+                            <button class="btn btn-secondary manager-or-admin" onclick="closeYear()"><i class="ri-lock-line"></i> Close Year</button>
                         </div>
                         <div class="card"><div class="table-responsive"><table class="table">
                             <thead><tr><th>Asset</th><th>Category</th><th>In service</th><th class="num">Cost</th><th class="num">Depreciated</th><th class="num">Net book value</th><th>Life</th></tr></thead>
@@ -908,7 +908,7 @@
                         <h2>Rate Card</h2>
                         <div class="header-actions">
                             <button class="btn btn-secondary" onclick="exportCostComparison()"><i class="ri-file-excel-line"></i> Export</button>
-                            <button class="btn btn-primary admin-only" onclick="openRateModal()"><i class="ri-add-line"></i> Add Rate</button>
+                            <button class="btn btn-primary manager-or-admin" onclick="openRateModal()"><i class="ri-add-line"></i> Add Rate</button>
                         </div>
                     </div>
                     <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px; max-width: 820px;">
@@ -1780,8 +1780,8 @@
 
                     <div class="modal-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('jobModal')">Close</button>
-                        <button type="button" class="btn btn-secondary admin-only" id="job-invoice-btn" onclick="invoiceJob()">Invoice this job</button>
-                        <button type="submit" class="btn btn-primary">Save Job Card</button>
+                        <button type="button" class="btn btn-secondary hide-from-viewer" id="job-invoice-btn" onclick="invoiceJob()">Invoice this job</button>
+                        <button type="submit" class="btn btn-primary hide-from-viewer">Save Job Card</button>
                     </div>
                 </form>
 
@@ -1795,7 +1795,7 @@
                         </div>
                         <div class="col" style="max-width:110px;"><label>Ends / units</label><input type="number" id="job-labour-units" class="form-control" step="0.01"></div>
                         <div class="col" style="max-width:120px;"><label>Rate</label><input type="number" id="job-labour-rate" class="form-control" step="0.01" value="300"></div>
-                        <div class="col" style="max-width:150px;"><button type="button" class="btn btn-primary admin-only" onclick="addLabourToJob()">Record work</button></div>
+                        <div class="col" style="max-width:150px;"><button type="button" class="btn btn-primary hide-from-viewer" onclick="addLabourToJob()">Record work</button></div>
                     </div>
                 </div>
             </div>

@@ -41,7 +41,7 @@ function renderInventory(items) {
                 <td>${formatCurrency(item.Price || 0)}</td>
                 <td>${item.SupplierName ? escAttr(item.SupplierName) : '<span style="color:var(--text-muted)">—</span>'}</td>
                 <td>
-                    ${isAdmin() ? `<button class="btn btn-text" onclick="openPurchaseModal(${item.InventoryID})" title="Record a stock purchase">Buy</button>` : ''}
+                    ${isManager() ? `<button class="btn btn-text" onclick="openPurchaseModal(${item.InventoryID})" title="Record a stock purchase">Buy</button>` : ''}
                     ${canWrite() ? `<button class="btn btn-text" onclick="editProduct(${item.InventoryID})">Edit</button>` : ''}
                     ${isAdmin() ? `<button class="btn btn-text text-danger" style="color:red" onclick="deleteProduct(${item.InventoryID})">Del</button>` : ''}
                     ${!canWrite() ? '<span style="color:var(--text-muted)">View only</span>' : ''}
@@ -174,9 +174,9 @@ function renderSuppliers(items) {
                 <td>${escAttr(s.Email) || '-'}</td>
                 <td>${s.ItemCount || 0}</td>
                 <td>
-                    ${isAdmin()
+                    ${isManager()
                         ? `<button class="btn btn-text" onclick="editSupplier(${s.SupplierID})">Edit</button>
-                           <button class="btn btn-text text-danger" style="color:red" onclick="deleteSupplier(${s.SupplierID})">Del</button>`
+                           ${isAdmin() ? `<button class="btn btn-text text-danger" style="color:red" onclick="deleteSupplier(${s.SupplierID})">Del</button>` : ''}`
                         : '<span style="color:var(--text-muted)">View only</span>'}
                 </td>
             </tr>`;
@@ -403,9 +403,9 @@ function renderRateCard(data) {
                 <td class="num" style="color:#10b981;font-weight:600;">${(Number(r.savingsPct) || 0).toFixed(1)}%</td>
                 <td class="num" style="color:var(--primary);font-weight:600;">${(Number(r.marginPct) || 0).toFixed(1)}%</td>
                 <td>
-                    ${isAdmin()
+                    ${isManager()
                         ? `<button class="btn btn-text" onclick="openRateModal(${r.rateId})">Edit</button>
-                           <button class="btn btn-text" style="color:var(--danger)" onclick="deleteRate(${r.rateId})">Del</button>`
+                           ${isAdmin() ? `<button class="btn btn-text" style="color:var(--danger)" onclick="deleteRate(${r.rateId})">Del</button>` : ''}`
                         : '<span style="color:var(--text-muted)">View only</span>'}
                 </td>
             </tr>`;
