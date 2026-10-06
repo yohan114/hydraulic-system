@@ -197,8 +197,26 @@ if [ -f "${DEPLOY_DIR}/fail2ban/hydraulic-login.conf" ]; then
     cp -f "${DEPLOY_DIR}/fail2ban/hydraulic-login.conf" /etc/fail2ban/filter.d/hydraulic-login.conf
 fi
 
-if [ -f "${DEPLOY_DIR}/fail2ban/jail.local" ]; then
-    cp -f "${DEPLOY_DIR}/fail2ban/jail.local" /etc/fail2ban/jail.local
+if [ ! -f /etc/fail2ban/jail.local ]; then
+    if [ -f "${DEPLOY_DIR}/fail2ban/jail.local" ]; then
+        cp -f "${DEPLOY_DIR}/fail2ban/jail.local" /etc/fail2ban/jail.local
+    fi
+else
+    # Existing jail.local found — append hydraulic-login jail if not present
+    if ! grep -q "\[hydraulic-login\]" /etc/fail2ban/jail.local; then
+        echo "       Appending [hydraulic-login] jail to existing /etc/fail2ban/jail.local..."
+        cat << 'EOF' >> /etc/fail2ban/jail.local
+
+[hydraulic-login]
+enabled  = true
+port     = http,https
+filter   = hydraulic-login
+logpath  = /var/log/nginx/access.log
+maxretry = 5
+findtime = 600
+bantime  = 86400
+EOF
+    fi
 fi
 
 systemctl enable fail2ban >/dev/null 2>&1 || true
@@ -223,7 +241,13 @@ if [ -n "${DOMAIN}" ]; then
 fi
 
 ln -sf "${NGINX_TARGET}" /etc/nginx/sites-enabled/hydraulic-system
-rm -f /etc/nginx/sites-enabled/default
+
+# Safe default site cleanup: only remove if it's the unconfigured Ubuntu placeholder
+if [ -f /etc/nginx/sites-available/default ]; then
+    if grep -qi "Welcome to nginx" /etc/nginx/sites-available/default 2>/dev/null; then
+        rm -f /etc/nginx/sites-enabled/default
+    fi
+fi
 
 if nginx -t; then
     systemctl enable nginx >/dev/null 2>&1 || true
