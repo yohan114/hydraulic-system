@@ -56,11 +56,9 @@ function block(b) {
       <td class="r out">${l.outsideRate > 0 ? l.qty : ''}</td>
       <td class="r out">${l.outsideRate > 0 ? n2(l.outsideAmount) : ''}</td>
       ${first ? `<td class="r tot out"${span}>${n2(b.outsideTotal)}</td>` : ''}
-      ${first ? `<td class="r prof strong"${span}>${n2(b.profit)}</td>` : ''}
-      ${first ? `<td class="r prof strong"${span}>${pct1(b.profit, b.invoiceTotal)}</td>` : ''}
     </tr>`;
   }).join('');
-  return rows + '<tr class="gap"><td colspan="14"></td></tr>';
+  return rows + '<tr class="gap"><td colspan="12"></td></tr>';
 }
 
 /**
@@ -153,7 +151,6 @@ function buildJobProfitHtml(model, opts = {}) {
       <tr>
         <th class="g-cost" colspan="8">OUR COST</th>
         <th class="g-out" colspan="4">OUTSIDE COST</th>
-        <th class="g-prof" colspan="2">PROFIT</th>
       </tr>
       <tr>
         <th class="h-cost">Invoice Number</th><th class="h-cost">Description</th><th class="h-cost c">Unit</th>
@@ -161,10 +158,9 @@ function buildJobProfitHtml(model, opts = {}) {
         <th class="h-cost r">Total Our Cost</th><th class="h-cost c">Hose Size</th>
         <th class="h-out r">Rate (Outside)</th><th class="h-out r">Qty (Outside)</th>
         <th class="h-out r">Outside Cost</th><th class="h-out r">Total Outside Cost</th>
-        <th class="h-prof r">Profit</th><th class="h-prof r">Margin %</th>
       </tr>
     </thead>
-    <tbody>${detail || '<tr><td colspan="14" class="c" style="color:#888;">No jobs in this period</td></tr>'}</tbody>
+    <tbody>${detail || '<tr><td colspan="12" class="c" style="color:#888;">No jobs in this period</td></tr>'}</tbody>
   </table>
 
   <h3 class="sec">SUMMARY</h3>
