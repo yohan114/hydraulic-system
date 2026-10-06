@@ -203,3 +203,126 @@ export interface LabourOwedSummary {
     }>;
   }>;
 }
+
+export interface PurchaseOrder {
+  POID: number;
+  PONo: string;
+  OrderDate: string;
+  SupplierID: number;
+  SupplierName: string;
+  Total: number;
+  Lines: number;
+  OrderedQty: number;
+  ReceivedQty: number;
+  Status: 'open' | 'received' | 'cancelled';
+  items?: Array<{
+    POItemID: number;
+    POID: number;
+    InventoryID: number;
+    ProductName: string;
+    Unit: string;
+    Qty: number;
+    UnitPrice: number;
+    Amount: number;
+    ReceivedQty: number;
+  }>;
+}
+
+export interface GoodsReceipt {
+  GRNID: number;
+  GRNNo: string;
+  ReceiptDate: string;
+  SupplierID: number;
+  SupplierName: string;
+  POID?: number;
+  PONo?: string;
+  GoodsValue: number;
+  LandedCost: number;
+  Lines: number;
+  items?: Array<{
+    GRNItemID: number;
+    InventoryID: number;
+    ProductName: string;
+    Unit: string;
+    Qty: number;
+    UnitPrice: number;
+  }>;
+}
+
+export interface PurchaseBill {
+  BillID: number;
+  BillNo: string;
+  BillDate: string;
+  SupplierID: number;
+  SupplierName: string;
+  GRNID?: number;
+  GRNNo?: string;
+  Total: number;
+  AmountPaid: number;
+  Outstanding: number;
+  Status?: string;
+}
+
+export interface Account {
+  AccountID: number;
+  Code: string;
+  Name: string;
+  Type: 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+  Debit: number;
+  Credit: number;
+  Balance: number;
+}
+
+export interface JournalEntry {
+  JournalID: number;
+  EntryDate: string;
+  Reference?: string;
+  SourceType: string;
+  Description?: string;
+  Amount: number;
+  Lines: number;
+}
+
+export interface TrialBalance {
+  accounts: Array<{
+    code: string;
+    name: string;
+    type: string;
+    debit: number;
+    credit: number;
+  }>;
+  totals: {
+    debit: number;
+    credit: number;
+    balanced: boolean;
+  };
+}
+
+export interface ProfitAndLoss {
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  expenses: number;
+  netProfit: number;
+  marginPct?: number;
+  balanced?: boolean;
+}
+
+export interface BalanceSheet {
+  asAt?: string;
+  assets: number;
+  liabilities: number;
+  equity: number;
+  netProfit: number;
+}
+
+export interface UserAccount {
+  UserID: number;
+  Username: string;
+  Role: 'admin' | 'manager' | 'cashier' | 'viewer';
+  IsActive: boolean;
+  AuthVersion: number;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+

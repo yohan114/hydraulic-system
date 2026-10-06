@@ -7,8 +7,12 @@ import { DashboardPage } from './pages/DashboardPage';
 import { InvoicesPage } from './pages/InvoicesPage';
 import { JobsPage } from './pages/JobsPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { JobProfitPage } from './pages/JobProfitPage';
+import { ProcurementPage } from './pages/ProcurementPage';
+import { LedgerPage } from './pages/LedgerPage';
+import { UsersPage } from './pages/UsersPage';
 import { SessionsModal } from './components/auth/SessionsModal';
-import { Loader2, ArrowLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -51,31 +55,16 @@ const MainLayout: React.FC = () => {
         return <JobsPage />;
       case 'inventory':
         return <InventoryPage />;
+      case 'job-profit':
+        return <JobProfitPage />;
+      case 'procurement':
+        return <ProcurementPage />;
+      case 'ledger':
+        return <LedgerPage />;
+      case 'users':
+        return <UsersPage />;
       default:
-        return (
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm text-center max-w-xl mx-auto mt-12">
-            <h3 className="text-lg font-bold text-slate-800">
-              {sectionTitles[currentSection] || currentSection}
-            </h3>
-            <p className="text-sm text-slate-500 mt-2">
-              This module is scheduled for Phase 4 migration to modern React components.
-            </p>
-            <div className="mt-6 flex justify-center gap-3">
-              <button
-                onClick={() => setCurrentSection('dashboard')}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
-              </button>
-              <a
-                href={`/#${currentSection}`}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition"
-              >
-                Open in Classic View
-              </a>
-            </div>
-          </div>
-        );
+        return <DashboardPage onNavigate={setCurrentSection} />;
     }
   };
 
