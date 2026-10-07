@@ -11,14 +11,14 @@ const router = express.Router();
 const AUTH_ENABLED = process.env.BILLING_AUTH !== 'off';
 const TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
-// The three roles, most→least privileged. Anything unrecognised is treated as
-// the built-in admin (covers legacy rows created before roles existed).
+// The recognized system roles. Anything unrecognised fails closed to the
+// least-privileged 'viewer' role (AUTH-01).
 const ROLES = [
   'admin', 'manager', 'cashier', 'viewer',
   'workshop_supervisor', 'operations_manager', 'ho_accounts',
   'dgm', 'chairman', 'workshop_accounts'
 ];
-function normaliseRole(r) { return ROLES.includes(r) ? r : 'admin'; }
+function normaliseRole(r) { return ROLES.includes(r) ? r : 'viewer'; }
 
 // Persisted signing secret. Lives one level up from routes/ (repo dashboard/).
 // NOTE: this constant was lost when server.js was split into routers, so the

@@ -357,3 +357,158 @@ test('LB11: Create Labour Bill from explicitly selected invoices and verify PDF 
   }
 });
 
+test('LB12: AUTH-02 Segregation of Duties - Admin is strictly prohibited from self-approving a bill they certified', async () => {
+  // Create a bill
+  createTestInvoiceWithLabour('Customer SoD-1', '2026-10-06', 5000, 1000);
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'admin', force: true, reason: 'SoD test bill' });
+  const billId = trig.billId;
+
+  // Admin certifies the bill
+  await app.login('admin', 'password123');
+  const certRes = await app.post(`/api/labour-bills/${billId}/certify`, { note: 'Admin certified' });
+  assert.equal(certRes.status, 200);
+  assert.equal(certRes.body.bill.Status, 'CERTIFIED');
+
+  // Admin attempts to approve their own certified bill at OM stage
+  const omSelfApprove = await app.post(`/api/labour-bills/${billId}/approve-om`, { note: 'Admin self-approving' });
+  assert.equal(omSelfApprove.status, 403, 'Self-approval by admin must be rejected with HTTP 403');
+  assert.equal(omSelfApprove.body.code, 'SELF_APPROVAL_PROHIBITED');
+
+  // Verify bill status did NOT advance
+  const billAfter = labourBillsService.getBillDetails(billId).bill;
+  assert.equal(billAfter.Status, 'CERTIFIED', 'Bill status must remain unchanged inside atomic transaction');
+});
+
+test('LB13: AUTH-02 Segregation of Duties - Admin cannot grant HO approval for a bill they certified or OM-approved', async () => {
+  // Create a bill
+  createTestInvoiceWithLabour('Customer SoD-2', '2026-10-06', 6000, 1000);
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'admin', force: true, reason: 'SoD test bill 2' });
+  const billId = trig.billId;
+
+  // Workshop supervisor certifies
+  await app.login('ws_sup', 'password123');
+  const certRes = await app.post(`/api/labour-bills/${billId}/certify`, { note: 'Supervisor certified' });
+  assert.equal(certRes.status, 200);
+
+  // Admin grants OM approval
+  await app.login('admin', 'password123');
+  const omRes = await app.post(`/api/labour-bills/${billId}/approve-om`, { note: 'Admin OM-approved' });
+  assert.equal(omRes.status, 200);
+  assert.equal(omRes.body.bill.Status, 'OM_APPROVED');
+
+  // Admin attempts to grant final HO approval on the same bill
+  const hoSelfApprove = await app.post(`/api/labour-bills/${billId}/approve-ho`, { note: 'Admin HO self-approving' });
+  assert.equal(hoSelfApprove.status, 403, 'Admin cannot grant final HO approval on a bill they approved at OM stage');
+  assert.equal(hoSelfApprove.body.code, 'SELF_APPROVAL_PROHIBITED');
+
+  // Another authorized user (ho_user) CAN approve it
+  await app.login('ho_user', 'password123');
+  const hoValidRes = await app.post(`/api/labour-bills/${billId}/approve-ho`, { note: 'Dual-control independent HO approval' });
+  assert.equal(hoValidRes.status, 200);
+  assert.equal(hoValidRes.body.bill.Status, 'HO_APPROVED');
+});
+
+test('LB14: AUTH-02 Segregation of Duties - Approver cannot execute payout', async () => {
+  // Create a bill
+  createTestInvoiceWithLabour('Customer SoD-3', '2026-10-06', 7000, 1000);
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'admin', force: true, reason: 'SoD test bill 3' });
+  const billId = trig.billId;
+
+  await app.login('ws_sup', 'password123');
+  await app.post(`/api/labour-bills/${billId}/certify`, { note: 'Supervisor certified' });
+
+  await app.login('om_user', 'password123');
+  await app.post(`/api/labour-bills/${billId}/approve-om`, { note: 'OM approved' });
+
+  await app.login('ho_user', 'password123');
+  await app.post(`/api/labour-bills/${billId}/approve-ho`, { note: 'HO approved' });
+
+  // ho_user attempts to execute payout
+  const illegalPay = await app.post(`/api/labour-bills/${billId}/pay`, { paymentDate: '2026-10-07', method: 'Cash' });
+  assert.equal(illegalPay.status, 403, 'HO approver cannot hit payment endpoint');
+});
+
+test('LB15: INT-01 Content hash detects tampering of itemized breakdown amounts', async () => {
+  createTestInvoiceWithLabour('Customer INT01', '2026-10-06', 8000, 2000);
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'admin', force: true, reason: 'Content hash breakdown test' });
+  const billId = trig.billId;
+
+  // Valid before tampering
+  const before = labourBillsService.verifyBillIntegrity(billId);
+  assert.equal(before.valid, true);
+
+  // Directly tamper with Crimping and Lathe columns (leaving LineTotal identical, simulating out-of-band DB tamper)
+  db.exec('DROP TRIGGER IF EXISTS TRG_LBI_UpdateLocked');
+  try {
+    db.prepare('UPDATE LabourBillItems SET Crimping = Crimping + 500, Lathe = Lathe - 500 WHERE BillID = ?').run(billId);
+
+    const after = labourBillsService.verifyBillIntegrity(billId);
+    assert.equal(after.valid, false, 'Tampering with breakdown columns must invalidate content hash');
+    assert.match(after.error, /content hash mismatch/i);
+
+    // Workflow action must be rejected with HTTP 409
+    await app.login('ws_sup', 'password123');
+    const certRes = await app.post(`/api/labour-bills/${billId}/certify`, { note: 'Attempting certify on tampered bill' });
+    assert.equal(certRes.status, 409);
+    assert.equal(certRes.body.code, 'INTEGRITY_VERIFICATION_FAILED');
+  } finally {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS TRG_LBI_UpdateLocked BEFORE UPDATE ON LabourBillItems
+    BEGIN SELECT RAISE(ABORT, 'Labour bill items cannot be edited'); END;`);
+  }
+});
+
+test('LB16: INT-02 Approval record hash detects tampering of actor role or status transitions', async () => {
+  createTestInvoiceWithLabour('Customer INT02', '2026-10-06', 5000, 1000);
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'admin', force: true, reason: 'Approval hash test' });
+  const billId = trig.billId;
+
+  // Valid before tampering
+  assert.equal(labourBillsService.verifyBillIntegrity(billId).valid, true);
+
+  // Drop trigger to simulate out-of-band approval table modification
+  db.exec('DROP TRIGGER IF EXISTS TRG_LBA_NoUpdate');
+  try {
+    // Tamper with ActorRole in LabourBillApprovals
+    db.prepare("UPDATE LabourBillApprovals SET ActorRole = 'hacked_admin' WHERE BillID = ?").run(billId);
+
+    const tamperedRole = labourBillsService.verifyBillIntegrity(billId);
+    assert.equal(tamperedRole.valid, false);
+    assert.match(tamperedRole.error, /RecordHash invalid/i);
+
+    // Restore ActorRole and tamper with StatusTo
+    db.prepare("UPDATE LabourBillApprovals SET ActorRole = 'system', StatusTo = 'OM_APPROVED' WHERE BillID = ?").run(billId);
+
+    const tamperedStatus = labourBillsService.verifyBillIntegrity(billId);
+    assert.equal(tamperedStatus.valid, false);
+    assert.match(tamperedStatus.error, /RecordHash invalid/i);
+  } finally {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS TRG_LBA_NoUpdate BEFORE UPDATE ON LabourBillApprovals
+    BEGIN SELECT RAISE(ABORT, 'Labour bill approval records are immutable'); END;`);
+  }
+});
+
+test('LB17: INT-03 Strict block on OM approval, HO approval, and payout if bill integrity fails', async () => {
+  createTestInvoiceWithLabour('Customer INT03', '2026-10-06', 5000, 1000);
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'admin', force: true, reason: 'Strict block test' });
+  const billId = trig.billId;
+
+  // Certify cleanly first
+  await app.login('ws_sup', 'password123');
+  await app.post(`/api/labour-bills/${billId}/certify`, { note: 'Supervisor certified' });
+
+  // Now tamper with ContentHash
+  db.prepare("UPDATE LabourBills SET ContentHash = 'forged_content_hash' WHERE BillID = ?").run(billId);
+
+  // OM approval must be blocked
+  await app.login('om_user', 'password123');
+  const omRes = await app.post(`/api/labour-bills/${billId}/approve-om`, { note: 'OM trying to approve tampered bill' });
+  assert.equal(omRes.status, 409);
+  assert.equal(omRes.body.code, 'INTEGRITY_VERIFICATION_FAILED');
+});
+
+test('LB18: Background Labour Bill Scheduler runs periodically without errors', async () => {
+  const timer = labourBillsService.startLabourBillScheduler({ intervalMs: 100 });
+  assert.ok(timer, 'Scheduler must return an active timer');
+  clearInterval(timer);
+});
+

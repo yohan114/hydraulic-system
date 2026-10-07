@@ -48,10 +48,10 @@ test('requireRole accepts any of several roles', () => {
   assert.strictEqual(run(guard, { user: { role: 'viewer' }, method: 'POST', path: '/api/x' }).nexted, false);
 });
 
-test('roleOf normalises unknown/blank roles to admin', () => {
+test('roleOf normalises unknown/blank roles to viewer (fail-closed, least-privilege)', () => {
   assert.strictEqual(auth.roleOf({ user: { role: 'cashier' } }), 'cashier');
-  assert.strictEqual(auth.roleOf({ user: { role: 'nonsense' } }), 'admin');
-  assert.strictEqual(auth.roleOf({ user: {} }), 'admin');
+  assert.strictEqual(auth.roleOf({ user: { role: 'nonsense' } }), 'viewer');
+  assert.strictEqual(auth.roleOf({ user: {} }), 'viewer');
 });
 
 test('viewerReadOnlyGuard: GET always passes', () => {

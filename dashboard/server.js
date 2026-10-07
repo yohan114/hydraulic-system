@@ -164,13 +164,14 @@ async function start() {
     console.warn('Backup skipped:', e.message);
   }
 
-  // Automatic evaluation of workshop labour bill generation triggers
+  // Automatic evaluation of workshop labour bill generation triggers & recurring scheduler
   try {
     const labourBills = require('./services/labourBills');
     const trig = await labourBills.evaluateTriggers({ actor: 'system' });
     if (trig.triggered) {
       console.log(`Labour Bill Auto-Generated: ${trig.billNo} (${trig.triggerReason}) — Total Rs. ${trig.totalAmount} across ${trig.jobCount} jobs.`);
     }
+    labourBills.startLabourBillScheduler();
   } catch (e) {
     console.warn('Labour bill auto-check skipped:', e.message);
   }

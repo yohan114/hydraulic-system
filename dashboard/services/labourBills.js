@@ -32,26 +32,35 @@ function isLabourItem(desc) {
 }
 
 // Persisted encryption key for sealed labour bill archives (AES-256-GCM)
+// Fail-closed durable key management (KEY-01)
 const KEY_FILE = path.join(__dirname, '..', '.labour-bill-key');
 
 function loadOrCreateEncryptionKey() {
   if (process.env.LABOUR_BILL_SECRET) {
     return crypto.createHash('sha256').update(process.env.LABOUR_BILL_SECRET).digest();
   }
-  try {
-    if (fs.existsSync(KEY_FILE)) {
+  if (fs.existsSync(KEY_FILE)) {
+    try {
       const hex = fs.readFileSync(KEY_FILE, 'utf8').trim();
       if (hex && hex.length === 64) return Buffer.from(hex, 'hex');
+      throw new Error(`Corrupted key file: invalid key length ${hex ? hex.length : 0}`);
+    } catch (err) {
+      throw new Error(`Failed to read labour bill encryption key file: ${err.message}`);
     }
-  } catch (_) {}
+  }
   const key = crypto.randomBytes(32);
-  try { fs.writeFileSync(KEY_FILE, key.toString('hex'), { mode: 0o600 }); } catch (_) {}
+  try {
+    fs.writeFileSync(KEY_FILE, key.toString('hex'), { mode: 0o600 });
+  } catch (err) {
+    throw new Error(`Failed to persist labour bill encryption key to disk: ${err.message}`);
+  }
   return key;
 }
 
 const SEAL_KEY = loadOrCreateEncryptionKey();
 
 function encryptSealedPayload(payload) {
+  if (!SEAL_KEY) throw new Error('Encryption key not loaded');
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', SEAL_KEY, iv);
   const jsonStr = JSON.stringify(payload);
@@ -67,6 +76,7 @@ function encryptSealedPayload(payload) {
 }
 
 function decryptSealedPayload(sealedBlob, ivHex, tagHex) {
+  if (!SEAL_KEY) throw new Error('Encryption key not loaded');
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-gcm', SEAL_KEY, iv);
@@ -76,14 +86,18 @@ function decryptSealedPayload(sealedBlob, ivHex, tagHex) {
   return JSON.parse(jsonStr);
 }
 
-/** Compute deterministic SHA-256 hash of bill items */
+/** Compute deterministic SHA-256 hash of bill items including itemized breakdowns (INT-01) */
 function computeContentHash(items, totals) {
   const sorted = [...items].sort((a, b) => a.InvoiceID - b.InvoiceID);
   const canon = JSON.stringify({
     items: sorted.map((i) => ({
       invId: i.InvoiceID,
       invNo: i.InvoiceNo,
-      tot: money.round2(i.LineTotal),
+      crimp: money.round2(i.Crimping || 0),
+      weld: money.round2(i.Welding || 0),
+      lathe: money.round2(i.Lathe || 0),
+      tech: money.round2(i.Technical || 0),
+      tot: money.round2(i.LineTotal || 0),
     })),
     total: money.round2(totals.totalAmount),
     count: totals.jobCount,
@@ -91,9 +105,9 @@ function computeContentHash(items, totals) {
   return crypto.createHash('sha256').update(canon, 'utf8').digest('hex');
 }
 
-/** Compute hash for chained approval log record */
-function computeApprovalRecordHash(prevHash, seq, stage, action, actorId, at, signedHash, note) {
-  const payload = `${prevHash}:${seq}:${stage}:${action}:${actorId}:${at}:${signedHash}:${note || ''}`;
+/** Compute hash for chained approval log record covering actor role & status transitions (INT-02) */
+function computeApprovalRecordHash(prevHash, seq, stage, action, actorId, actorRole, statusFrom, statusTo, at, signedHash, note) {
+  const payload = `${prevHash}:${seq}:${stage}:${action}:${actorId}:${actorRole || ''}:${statusFrom || ''}:${statusTo || ''}:${at}:${signedHash}:${note || ''}`;
   return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
 }
 
@@ -250,7 +264,7 @@ async function evaluateTriggers(opts = {}) {
   const genesisPrevHash = '0'.repeat(64);
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const recordHash = computeApprovalRecordHash(
-    genesisPrevHash, 1, 'SYSTEM', 'GENERATE', actor, now, contentHash, triggerReason
+    genesisPrevHash, 1, 'SYSTEM', 'GENERATE', actor, 'system', 'NONE', 'GENERATED', now, contentHash, triggerReason
   );
 
   const billId = db.transaction(() => {
@@ -345,7 +359,7 @@ async function createBillFromInvoices(invoiceIds, opts = {}) {
   const genesisPrevHash = '0'.repeat(64);
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const recordHash = computeApprovalRecordHash(
-    genesisPrevHash, 1, 'WORKSHOP', 'GENERATE', actor, now, contentHash, triggerReason
+    genesisPrevHash, 1, 'WORKSHOP', 'GENERATE', actor, role, 'NONE', 'GENERATED', now, contentHash, triggerReason
   );
 
   const billId = db.transaction(() => {
@@ -440,7 +454,7 @@ function verifyBillIntegrity(billId) {
       return { valid: false, error: `Chain broken at sequence ${a.Seq}: PrevHash does not match previous record.` };
     }
     const expected = computeApprovalRecordHash(
-      a.PrevHash, a.Seq, a.Stage, a.Action, a.ActorID, a.At, a.SignedHash, a.Note
+      a.PrevHash, a.Seq, a.Stage, a.Action, a.ActorID, a.ActorRole, a.StatusFrom, a.StatusTo, a.At, a.SignedHash, a.Note
     );
     if (a.RecordHash !== expected) {
       return { valid: false, error: `Tampering detected at sequence ${a.Seq}: RecordHash invalid.` };
@@ -480,7 +494,7 @@ function appendApproval(db, billId, stage, action, actorId, actorRole, note, sta
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
   const recordHash = computeApprovalRecordHash(
-    prevHash, nextSeq, stage, action, actorId, now, contentHash, note
+    prevHash, nextSeq, stage, action, actorId, actorRole, statusFrom, statusTo, now, contentHash, note
   );
 
   db.prepare(`
@@ -498,36 +512,41 @@ function appendApproval(db, billId, stage, action, actorId, actorRole, note, sta
  */
 async function removeJobFromBill(billId, itemIdOrInvoiceId, { actor, role, reason } = {}) {
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
-    const err = new Error(`Cannot modify items of a bill in '${bill.Status}' status. Items can only be edited while GENERATED or RETURNED.`);
-    err.code = 'BILL_ITEMS_LOCKED';
-    err.httpStatus = 409;
-    throw err;
-  }
-
-  const item = db.prepare(`
-    SELECT * FROM LabourBillItems
-    WHERE BillID = ? AND (BillItemID = ? OR InvoiceID = ?)
-  `).get(billId, itemIdOrInvoiceId, itemIdOrInvoiceId);
-
-  if (!item) {
-    const err = new Error('Job item not found in this labour bill');
-    err.code = 'NOT_FOUND';
-    err.httpStatus = 404;
-    throw err;
-  }
-
-  const remainingCount = db.prepare('SELECT COUNT(*) AS c FROM LabourBillItems WHERE BillID = ?').get(billId).c;
-  if (remainingCount <= 1) {
-    const err = new Error('Cannot remove the only job in the bill. A labour bill must have at least one job. If this bill is not needed, return or discard it.');
-    err.code = 'CANNOT_REMOVE_LAST_ITEM';
-    err.httpStatus = 400;
-    throw err;
-  }
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
+      const err = new Error(`Cannot modify items of a bill in '${bill.Status}' status. Items can only be edited while GENERATED or RETURNED.`);
+      err.code = 'BILL_ITEMS_LOCKED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
+    const item = db.prepare(`
+      SELECT * FROM LabourBillItems
+      WHERE BillID = ? AND (BillItemID = ? OR InvoiceID = ?)
+    `).get(billId, itemIdOrInvoiceId, itemIdOrInvoiceId);
+
+    if (!item) {
+      const err = new Error('Job item not found in this labour bill');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+
+    const remainingCount = db.prepare('SELECT COUNT(*) AS c FROM LabourBillItems WHERE BillID = ?').get(billId).c;
+    if (remainingCount <= 1) {
+      const err = new Error('Cannot remove the only job in the bill. A labour bill must have at least one job. If this bill is not needed, return or discard it.');
+      err.code = 'CANNOT_REMOVE_LAST_ITEM';
+      err.httpStatus = 400;
+      throw err;
+    }
+
     // Delete item from bill (freeing it to return to unbilled pool)
     db.prepare('DELETE FROM LabourBillItems WHERE BillItemID = ?').run(item.BillItemID);
 
@@ -563,71 +582,76 @@ async function removeJobFromBill(billId, itemIdOrInvoiceId, { actor, role, reaso
  */
 async function addJobToBill(billId, invoiceId, { actor, role, reason } = {}) {
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
-    const err = new Error(`Cannot modify items of a bill in '${bill.Status}' status. Items can only be edited while GENERATED or RETURNED.`);
-    err.code = 'BILL_ITEMS_LOCKED';
-    err.httpStatus = 409;
-    throw err;
-  }
-
-  // Check if invoice already in this or another bill
-  const existingItem = db.prepare('SELECT * FROM LabourBillItems WHERE InvoiceID = ?').get(invoiceId);
-  if (existingItem) {
-    const err = new Error(`Invoice is already included in Labour Bill ID ${existingItem.BillID}`);
-    err.code = 'INVOICE_ALREADY_BILLED';
-    err.httpStatus = 409;
-    throw err;
-  }
-
-  // Fetch unbilled invoice
-  const inv = db.prepare(`
-    SELECT i.InvoiceID, i.InvoiceNo, i.InvoiceDate, i.BilledToName, i.Status, i.TechChargePaid
-    FROM Invoices i
-    WHERE i.InvoiceID = ?
-  `).get(invoiceId);
-
-  if (!inv) {
-    const err = new Error('Invoice not found');
-    err.code = 'NOT_FOUND';
-    err.httpStatus = 404;
-    throw err;
-  }
-  if (String(inv.Status).toUpperCase() !== 'FINALIZED') {
-    const err = new Error(`Invoice status is '${inv.Status}'. Only FINALIZED invoices can be added to a labour bill.`);
-    err.code = 'INVOICE_NOT_FINALIZED';
-    err.httpStatus = 400;
-    throw err;
-  }
-  if (inv.TechChargePaid) {
-    const err = new Error('Invoice labour charge is already marked paid.');
-    err.code = 'ALREADY_PAID';
-    err.httpStatus = 400;
-    throw err;
-  }
-
-  // Calculate labour lines
-  const lines = db.prepare('SELECT ItemDescription, Qty, Rate, Amount FROM InvoiceItems WHERE InvoiceID = ?').all(invoiceId);
-  let crimp = 0, weld = 0, lathe = 0, tech = 0;
-  for (const l of lines) {
-    if (!isLabourItem(l.ItemDescription)) continue;
-    const amt = money.round2(l.Amount || (l.Qty * l.Rate));
-    const desc = (l.ItemDescription || '').toLowerCase();
-    if (desc.includes('crimp')) crimp = money.round2(crimp + amt);
-    else if (desc.includes('weld')) weld = money.round2(weld + amt);
-    else if (desc.includes('lathe')) lathe = money.round2(lathe + amt);
-    else tech = money.round2(tech + amt);
-  }
-  const lineTotal = money.round2(crimp + weld + lathe + tech);
-  if (lineTotal <= 0) {
-    const err = new Error('Invoice contains no workshop labour charges.');
-    err.code = 'NO_LABOUR_CHARGES';
-    err.httpStatus = 400;
-    throw err;
-  }
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
+      const err = new Error(`Cannot modify items of a bill in '${bill.Status}' status. Items can only be edited while GENERATED or RETURNED.`);
+      err.code = 'BILL_ITEMS_LOCKED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
+    // Check if invoice already in this or another bill
+    const existingItem = db.prepare('SELECT * FROM LabourBillItems WHERE InvoiceID = ?').get(invoiceId);
+    if (existingItem) {
+      const err = new Error(`Invoice is already included in Labour Bill ID ${existingItem.BillID}`);
+      err.code = 'INVOICE_ALREADY_BILLED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
+    // Fetch unbilled invoice
+    const inv = db.prepare(`
+      SELECT i.InvoiceID, i.InvoiceNo, i.InvoiceDate, i.BilledToName, i.Status, i.TechChargePaid
+      FROM Invoices i
+      WHERE i.InvoiceID = ?
+    `).get(invoiceId);
+
+    if (!inv) {
+      const err = new Error('Invoice not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (String(inv.Status).toUpperCase() !== 'FINALIZED') {
+      const err = new Error(`Invoice status is '${inv.Status}'. Only FINALIZED invoices can be added to a labour bill.`);
+      err.code = 'INVOICE_NOT_FINALIZED';
+      err.httpStatus = 400;
+      throw err;
+    }
+    if (inv.TechChargePaid) {
+      const err = new Error('Invoice labour charge is already marked paid.');
+      err.code = 'ALREADY_PAID';
+      err.httpStatus = 400;
+      throw err;
+    }
+
+    // Calculate labour lines
+    const lines = db.prepare('SELECT ItemDescription, Qty, Rate, Amount FROM InvoiceItems WHERE InvoiceID = ?').all(invoiceId);
+    let crimp = 0, weld = 0, lathe = 0, tech = 0;
+    for (const l of lines) {
+      if (!isLabourItem(l.ItemDescription)) continue;
+      const amt = money.round2(l.Amount || (l.Qty * l.Rate));
+      const desc = (l.ItemDescription || '').toLowerCase();
+      if (desc.includes('crimp')) crimp = money.round2(crimp + amt);
+      else if (desc.includes('weld')) weld = money.round2(weld + amt);
+      else if (desc.includes('lathe')) lathe = money.round2(lathe + amt);
+      else tech = money.round2(tech + amt);
+    }
+    const lineTotal = money.round2(crimp + weld + lathe + tech);
+    if (lineTotal <= 0) {
+      const err = new Error('Invoice contains no workshop labour charges.');
+      err.code = 'NO_LABOUR_CHARGES';
+      err.httpStatus = 400;
+      throw err;
+    }
+
     db.prepare(`
       INSERT INTO LabourBillItems
       (BillID, InvoiceID, InvoiceNo, InvoiceDate, Customer, Crimping, Welding, Lathe, Technical, LineTotal)
@@ -665,13 +689,29 @@ async function addJobToBill(billId, invoiceId, { actor, role, reason } = {}) {
  */
 async function certifyBill(billId, { actor, role, note }) {
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
-    throw new Error(`Bill cannot be certified from status '${bill.Status}'. Expected GENERATED or RETURNED.`);
-  }
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
+      const err = new Error(`Bill cannot be certified from status '${bill.Status}'. Expected GENERATED or RETURNED.`);
+      err.code = 'INVALID_STATUS_TRANSITION';
+      err.httpStatus = 400;
+      throw err;
+    }
+
+    const integrity = verifyBillIntegrity(billId);
+    if (!integrity.valid) {
+      const err = new Error(`Integrity verification failed for Labour Bill ${billId}: ${integrity.error}`);
+      err.code = 'INTEGRITY_VERIFICATION_FAILED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
     db.prepare(`
       UPDATE LabourBills
       SET Status = 'CERTIFIED', UpdatedAt = datetime('now','localtime')
@@ -688,22 +728,39 @@ async function certifyBill(billId, { actor, role, note }) {
  */
 async function approveOmBill(billId, { actor, role, note }) {
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'CERTIFIED') {
-    throw new Error(`Bill cannot be approved by OM from status '${bill.Status}'. Expected CERTIFIED.`);
-  }
-
-  // Segregation of duties: Check if actor was the one who certified
-  const certifier = db.prepare("SELECT ActorID FROM LabourBillApprovals WHERE BillID = ? AND Action = 'CERTIFY' ORDER BY Seq DESC LIMIT 1").get(billId);
-  if (certifier && certifier.ActorID === actor && role !== 'admin') {
-    const err = new Error('Segregation of duties violation: You cannot approve a bill you certified.');
-    err.code = 'SELF_APPROVAL_PROHIBITED';
-    err.httpStatus = 403;
-    throw err;
-  }
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'CERTIFIED') {
+      const err = new Error(`Bill cannot be approved by OM from status '${bill.Status}'. Expected CERTIFIED.`);
+      err.code = 'INVALID_STATUS_TRANSITION';
+      err.httpStatus = 400;
+      throw err;
+    }
+
+    // INT-03: Integrity check before approval
+    const integrity = verifyBillIntegrity(billId);
+    if (!integrity.valid) {
+      const err = new Error(`Integrity verification failed for Labour Bill ${billId}: ${integrity.error}`);
+      err.code = 'INTEGRITY_VERIFICATION_FAILED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
+    // AUTH-02: Segregation of duties: Check if actor was the one who certified (strictly enforced for all roles)
+    const certifier = db.prepare("SELECT ActorID FROM LabourBillApprovals WHERE BillID = ? AND Action = 'CERTIFY' ORDER BY Seq DESC LIMIT 1").get(billId);
+    if (certifier && certifier.ActorID === actor) {
+      const err = new Error('Segregation of duties violation: You cannot approve a bill you certified.');
+      err.code = 'SELF_APPROVAL_PROHIBITED';
+      err.httpStatus = 403;
+      throw err;
+    }
+
     db.prepare(`
       UPDATE LabourBills
       SET Status = 'OM_APPROVED', UpdatedAt = datetime('now','localtime')
@@ -720,22 +777,39 @@ async function approveOmBill(billId, { actor, role, note }) {
  */
 async function approveHoBill(billId, { actor, role, note }) {
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'OM_APPROVED') {
-    throw new Error(`Bill cannot be approved by HO from status '${bill.Status}'. Expected OM_APPROVED.`);
-  }
-
-  // Segregation of duties: Cannot be the same user who certified or OM-approved
-  const prevActors = db.prepare("SELECT ActorID FROM LabourBillApprovals WHERE BillID = ? AND Action IN ('CERTIFY','APPROVE_OM')").all(billId);
-  if (prevActors.some((a) => a.ActorID === actor) && role !== 'admin') {
-    const err = new Error('Segregation of duties violation: You cannot grant final HO approval for a bill you certified or approved at OM stage.');
-    err.code = 'SELF_APPROVAL_PROHIBITED';
-    err.httpStatus = 403;
-    throw err;
-  }
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'OM_APPROVED') {
+      const err = new Error(`Bill cannot be approved by HO from status '${bill.Status}'. Expected OM_APPROVED.`);
+      err.code = 'INVALID_STATUS_TRANSITION';
+      err.httpStatus = 400;
+      throw err;
+    }
+
+    // INT-03: Integrity check before approval
+    const integrity = verifyBillIntegrity(billId);
+    if (!integrity.valid) {
+      const err = new Error(`Integrity verification failed for Labour Bill ${billId}: ${integrity.error}`);
+      err.code = 'INTEGRITY_VERIFICATION_FAILED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
+    // AUTH-02: Segregation of duties: Cannot be the same user who certified or OM-approved (strictly enforced for all roles)
+    const prevActors = db.prepare("SELECT ActorID FROM LabourBillApprovals WHERE BillID = ? AND Action IN ('CERTIFY','APPROVE_OM')").all(billId);
+    if (prevActors.some((a) => a.ActorID === actor)) {
+      const err = new Error('Segregation of duties violation: You cannot grant final HO approval for a bill you certified or approved at OM stage.');
+      err.code = 'SELF_APPROVAL_PROHIBITED';
+      err.httpStatus = 403;
+      throw err;
+    }
+
     db.prepare(`
       UPDATE LabourBills
       SET Status = 'HO_APPROVED', UpdatedAt = datetime('now','localtime')
@@ -752,16 +826,36 @@ async function approveHoBill(billId, { actor, role, note }) {
  */
 async function rejectBill(billId, { actor, role, reason }) {
   if (!reason || !reason.trim()) {
-    throw new Error('A detailed reason is mandatory when rejecting or returning a labour bill.');
+    const err = new Error('A detailed reason is mandatory when rejecting or returning a labour bill.');
+    err.code = 'REASON_REQUIRED';
+    err.httpStatus = 400;
+    throw err;
   }
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'CERTIFIED' && bill.Status !== 'OM_APPROVED') {
-    throw new Error(`Bill cannot be rejected from status '${bill.Status}'.`);
-  }
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'CERTIFIED' && bill.Status !== 'OM_APPROVED') {
+      const err = new Error(`Bill cannot be rejected from status '${bill.Status}'.`);
+      err.code = 'INVALID_STATUS_TRANSITION';
+      err.httpStatus = 400;
+      throw err;
+    }
+
+    // INT-03: Integrity check before rejection
+    const integrity = verifyBillIntegrity(billId);
+    if (!integrity.valid) {
+      const err = new Error(`Integrity verification failed for Labour Bill ${billId}: ${integrity.error}`);
+      err.code = 'INTEGRITY_VERIFICATION_FAILED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
     db.prepare(`
       UPDATE LabourBills
       SET Status = 'RETURNED', UpdatedAt = datetime('now','localtime')
@@ -778,18 +872,44 @@ async function rejectBill(billId, { actor, role, reason }) {
  */
 async function payAndCloseBill(billId, { actor, role, paymentDate, method, paymentRef, paidTo, notes }) {
   const db = connection._db;
-  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
-  if (!bill) throw new Error('Labour bill not found');
-  if (bill.Status !== 'HO_APPROVED') {
-    throw new Error(`Bill cannot be paid from status '${bill.Status}'. Expected HO_APPROVED.`);
-  }
-
-  const payDate = String(paymentDate || new Date().toISOString()).slice(0, 10);
-  const payMethod = method || 'Cash';
-  const payRef = paymentRef || bill.BillNo;
-  const payee = paidTo || 'Workshop Crew';
-
   return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+    if (!bill) {
+      const err = new Error('Labour bill not found');
+      err.code = 'NOT_FOUND';
+      err.httpStatus = 404;
+      throw err;
+    }
+    if (bill.Status !== 'HO_APPROVED') {
+      const err = new Error(`Bill cannot be paid from status '${bill.Status}'. Expected HO_APPROVED.`);
+      err.code = 'INVALID_STATUS_TRANSITION';
+      err.httpStatus = 400;
+      throw err;
+    }
+
+    // INT-03: Integrity check before payout and closure
+    const integrity = verifyBillIntegrity(billId);
+    if (!integrity.valid) {
+      const err = new Error(`Integrity verification failed for Labour Bill ${billId}: ${integrity.error}`);
+      err.code = 'INTEGRITY_VERIFICATION_FAILED';
+      err.httpStatus = 409;
+      throw err;
+    }
+
+    // AUTH-02: Dual control - user who gave HO approval cannot also record payout
+    const hoApprover = db.prepare("SELECT ActorID FROM LabourBillApprovals WHERE BillID = ? AND Action = 'APPROVE_HO' ORDER BY Seq DESC LIMIT 1").get(billId);
+    if (hoApprover && hoApprover.ActorID === actor) {
+      const err = new Error('Segregation of duties violation: You cannot execute settlement and close a bill for which you granted Head Office approval.');
+      err.code = 'SELF_APPROVAL_PROHIBITED';
+      err.httpStatus = 403;
+      throw err;
+    }
+
+    const payDate = String(paymentDate || new Date().toISOString()).slice(0, 10);
+    const payMethod = method || 'Cash';
+    const payRef = paymentRef || bill.BillNo;
+    const payee = paidTo || 'Workshop Crew';
+
     // 1. Create LabourPayments record
     const payPeriod = payDate.slice(0, 7);
     const noteText = `LABOUR_BILL#${bill.BillNo} · Paid to ${payee} (${payRef})`;
@@ -994,6 +1114,27 @@ function updateSettings(patch, actor = 'admin') {
   return getSettings();
 }
 
+/**
+ * Background scheduler: periodically runs evaluateTriggers to automatically
+ * generate labour bills when aging or count thresholds are met even during quiet periods.
+ */
+function startLabourBillScheduler(opts = {}) {
+  const intervalMs = opts.intervalMs || 3600000; // 1 hour by default
+  const timer = setInterval(async () => {
+    try {
+      const trig = await evaluateTriggers({ actor: 'system-scheduler' });
+      if (trig.triggered) {
+        console.log(`[LabourBillScheduler] Auto-Generated: ${trig.billNo} (${trig.triggerReason}) — Total Rs. ${trig.totalAmount} across ${trig.jobCount} jobs.`);
+      }
+    } catch (err) {
+      console.warn(`[LabourBillScheduler] Trigger check error: ${err.message}`);
+    }
+  }, intervalMs);
+
+  if (timer.unref) timer.unref();
+  return timer;
+}
+
 module.exports = {
   fetchUnbilledLabour,
   evaluateTriggers,
@@ -1011,4 +1152,5 @@ module.exports = {
   listBills,
   getSettings,
   updateSettings,
+  startLabourBillScheduler,
 };
