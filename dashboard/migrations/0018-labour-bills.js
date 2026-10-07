@@ -62,6 +62,7 @@ module.exports = {
       MinJobs        INTEGER NOT NULL DEFAULT 10,
       MaxDays        INTEGER NOT NULL DEFAULT 15,
       Enabled        INTEGER NOT NULL DEFAULT 1,
+      EffectiveDate  TEXT,
       LastCheckedAt  TEXT,
       UpdatedAt      TEXT,
       UpdatedBy      TEXT

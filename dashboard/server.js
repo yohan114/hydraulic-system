@@ -125,6 +125,14 @@ app.use(require('./routes/credits'));
 app.use(require('./routes/reconciliation'));
 app.use(require('./routes/labourBills'));
 
+// SPA HTML5 history fallback for client-side React routes
+if (hasViteBuild) {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+    res.sendFile('index.html', { root: distPath });
+  });
+}
+
 async function start() {
   try {
     // Baseline, then any pending numbered migration. A safety copy of the

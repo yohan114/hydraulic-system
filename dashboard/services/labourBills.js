@@ -114,9 +114,18 @@ function nextBillNo(db) {
 }
 
 /**
- * Fetch all unbilled finalized labour items
+ * Fetch all unbilled finalized labour items.
+ * If opts.startDate is provided, only invoices with InvoiceDate >= opts.startDate are considered.
  */
-function fetchUnbilledLabour(db) {
+function fetchUnbilledLabour(db, opts = {}) {
+  const startDate = opts.startDate || null;
+  let dateFilter = '';
+  const params = [];
+  if (startDate) {
+    dateFilter = ' AND i.InvoiceDate >= ?';
+    params.push(startDate);
+  }
+
   const rows = db.prepare(`
     SELECT i.InvoiceID, i.InvoiceNo, i.InvoiceDate, i.BilledToName,
            ii.ItemDescription, ii.Qty, ii.Rate, ii.Amount
@@ -125,8 +134,9 @@ function fetchUnbilledLabour(db) {
     WHERE UPPER(i.Status) = 'FINALIZED'
       AND COALESCE(i.TechChargePaid, 0) = 0
       AND i.InvoiceID NOT IN (SELECT InvoiceID FROM LabourBillItems)
+      ${dateFilter}
     ORDER BY i.InvoiceDate ASC, i.InvoiceID ASC
-  `).all();
+  `).all(...params);
 
   const invoicesMap = new Map();
 
@@ -179,8 +189,10 @@ function fetchUnbilledLabour(db) {
     totals: {
       totalAmount,
       jobCount,
+      totalJobs: jobCount,
       oldestDate,
       daysSinceOldest,
+      oldestDaysAge: daysSinceOldest,
     },
   };
 }
@@ -191,14 +203,14 @@ function fetchUnbilledLabour(db) {
 async function evaluateTriggers(opts = {}) {
   const db = connection._db;
   const settings = db.prepare('SELECT * FROM LabourBillSettings WHERE SettingsID = 1').get() || {
-    MinAmount: 15000, MinJobs: 10, MaxDays: 15, Enabled: 1,
+    MinAmount: 15000, MinJobs: 10, MaxDays: 15, Enabled: 1, EffectiveDate: null,
   };
 
   if (!settings.Enabled && !opts.force) {
     return { triggered: false, reason: 'Labour bill automatic generation is disabled in settings.' };
   }
 
-  const { items, totals } = fetchUnbilledLabour(db);
+  const { items, totals } = fetchUnbilledLabour(db, { startDate: settings.EffectiveDate || null });
   if (items.length === 0) {
     return { triggered: false, reason: 'No unbilled workshop labour found.' };
   }
@@ -379,6 +391,174 @@ function appendApproval(db, billId, stage, action, actorId, actorRole, note, sta
   `).run(billId, nextSeq, stage, action, actorId, actorRole, note || null, statusFrom, statusTo, contentHash, prevHash, recordHash, now);
 
   return { seq: nextSeq, recordHash };
+}
+
+/**
+ * Remove a job from a draft labour bill (status GENERATED or RETURNED).
+ * The removed invoice is returned to the unbilled pool and can be included in the next bill.
+ */
+async function removeJobFromBill(billId, itemIdOrInvoiceId, { actor, role, reason } = {}) {
+  const db = connection._db;
+  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+  if (!bill) throw new Error('Labour bill not found');
+  if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
+    const err = new Error(`Cannot modify items of a bill in '${bill.Status}' status. Items can only be edited while GENERATED or RETURNED.`);
+    err.code = 'BILL_ITEMS_LOCKED';
+    err.httpStatus = 409;
+    throw err;
+  }
+
+  const item = db.prepare(`
+    SELECT * FROM LabourBillItems
+    WHERE BillID = ? AND (BillItemID = ? OR InvoiceID = ?)
+  `).get(billId, itemIdOrInvoiceId, itemIdOrInvoiceId);
+
+  if (!item) {
+    const err = new Error('Job item not found in this labour bill');
+    err.code = 'NOT_FOUND';
+    err.httpStatus = 404;
+    throw err;
+  }
+
+  const remainingCount = db.prepare('SELECT COUNT(*) AS c FROM LabourBillItems WHERE BillID = ?').get(billId).c;
+  if (remainingCount <= 1) {
+    const err = new Error('Cannot remove the only job in the bill. A labour bill must have at least one job. If this bill is not needed, return or discard it.');
+    err.code = 'CANNOT_REMOVE_LAST_ITEM';
+    err.httpStatus = 400;
+    throw err;
+  }
+
+  return db.transaction(() => {
+    // Delete item from bill (freeing it to return to unbilled pool)
+    db.prepare('DELETE FROM LabourBillItems WHERE BillItemID = ?').run(item.BillItemID);
+
+    // Recalculate remaining items and bill totals
+    const newItems = db.prepare('SELECT * FROM LabourBillItems WHERE BillID = ? ORDER BY InvoiceDate ASC, InvoiceID ASC').all(billId);
+    const newTotal = money.round2(newItems.reduce((sum, i) => sum + i.LineTotal, 0));
+    const newCount = newItems.length;
+    const newPeriodFrom = newItems[0].InvoiceDate;
+    const newPeriodTo = newItems[newItems.length - 1].InvoiceDate;
+    const newHash = computeContentHash(newItems, { totalAmount: newTotal, jobCount: newCount });
+
+    db.prepare(`
+      UPDATE LabourBills
+      SET TotalAmount = ?, JobCount = ?, PeriodFrom = ?, PeriodTo = ?, ContentHash = ?, UpdatedAt = datetime('now','localtime')
+      WHERE BillID = ?
+    `).run(newTotal, newCount, newPeriodFrom, newPeriodTo, newHash, billId);
+
+    const removalNote = `Removed job ${item.InvoiceNo} (Rs. ${item.LineTotal.toLocaleString()}) — deferred to next bill${reason ? ': ' + reason : ''}`;
+    appendApproval(db, billId, 'WORKSHOP', 'REMOVE_JOB', actor || 'system', role || 'workshop_supervisor', removalNote, bill.Status, bill.Status, newHash);
+
+    return {
+      success: true,
+      removedItem: item,
+      bill: db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId),
+      items: newItems,
+      integrity: verifyBillIntegrity(billId),
+    };
+  })();
+}
+
+/**
+ * Add an unbilled job to a draft labour bill (status GENERATED or RETURNED).
+ */
+async function addJobToBill(billId, invoiceId, { actor, role, reason } = {}) {
+  const db = connection._db;
+  const bill = db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId);
+  if (!bill) throw new Error('Labour bill not found');
+  if (bill.Status !== 'GENERATED' && bill.Status !== 'RETURNED') {
+    const err = new Error(`Cannot modify items of a bill in '${bill.Status}' status. Items can only be edited while GENERATED or RETURNED.`);
+    err.code = 'BILL_ITEMS_LOCKED';
+    err.httpStatus = 409;
+    throw err;
+  }
+
+  // Check if invoice already in this or another bill
+  const existingItem = db.prepare('SELECT * FROM LabourBillItems WHERE InvoiceID = ?').get(invoiceId);
+  if (existingItem) {
+    const err = new Error(`Invoice is already included in Labour Bill ID ${existingItem.BillID}`);
+    err.code = 'INVOICE_ALREADY_BILLED';
+    err.httpStatus = 409;
+    throw err;
+  }
+
+  // Fetch unbilled invoice
+  const inv = db.prepare(`
+    SELECT i.InvoiceID, i.InvoiceNo, i.InvoiceDate, i.BilledToName, i.Status, i.TechChargePaid
+    FROM Invoices i
+    WHERE i.InvoiceID = ?
+  `).get(invoiceId);
+
+  if (!inv) {
+    const err = new Error('Invoice not found');
+    err.code = 'NOT_FOUND';
+    err.httpStatus = 404;
+    throw err;
+  }
+  if (String(inv.Status).toUpperCase() !== 'FINALIZED') {
+    const err = new Error(`Invoice status is '${inv.Status}'. Only FINALIZED invoices can be added to a labour bill.`);
+    err.code = 'INVOICE_NOT_FINALIZED';
+    err.httpStatus = 400;
+    throw err;
+  }
+  if (inv.TechChargePaid) {
+    const err = new Error('Invoice labour charge is already marked paid.');
+    err.code = 'ALREADY_PAID';
+    err.httpStatus = 400;
+    throw err;
+  }
+
+  // Calculate labour lines
+  const lines = db.prepare('SELECT ItemDescription, Qty, Rate, Amount FROM InvoiceItems WHERE InvoiceID = ?').all(invoiceId);
+  let crimp = 0, weld = 0, lathe = 0, tech = 0;
+  for (const l of lines) {
+    if (!isLabourItem(l.ItemDescription)) continue;
+    const amt = money.round2(l.Amount || (l.Qty * l.Rate));
+    const desc = (l.ItemDescription || '').toLowerCase();
+    if (desc.includes('crimp')) crimp = money.round2(crimp + amt);
+    else if (desc.includes('weld')) weld = money.round2(weld + amt);
+    else if (desc.includes('lathe')) lathe = money.round2(lathe + amt);
+    else tech = money.round2(tech + amt);
+  }
+  const lineTotal = money.round2(crimp + weld + lathe + tech);
+  if (lineTotal <= 0) {
+    const err = new Error('Invoice contains no workshop labour charges.');
+    err.code = 'NO_LABOUR_CHARGES';
+    err.httpStatus = 400;
+    throw err;
+  }
+
+  return db.transaction(() => {
+    db.prepare(`
+      INSERT INTO LabourBillItems
+      (BillID, InvoiceID, InvoiceNo, InvoiceDate, Customer, Crimping, Welding, Lathe, Technical, LineTotal)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(billId, inv.InvoiceID, inv.InvoiceNo, String(inv.InvoiceDate || '').slice(0, 10), inv.BilledToName || 'Unknown', crimp, weld, lathe, tech, lineTotal);
+
+    const newItems = db.prepare('SELECT * FROM LabourBillItems WHERE BillID = ? ORDER BY InvoiceDate ASC, InvoiceID ASC').all(billId);
+    const newTotal = money.round2(newItems.reduce((sum, i) => sum + i.LineTotal, 0));
+    const newCount = newItems.length;
+    const newPeriodFrom = newItems[0].InvoiceDate;
+    const newPeriodTo = newItems[newItems.length - 1].InvoiceDate;
+    const newHash = computeContentHash(newItems, { totalAmount: newTotal, jobCount: newCount });
+
+    db.prepare(`
+      UPDATE LabourBills
+      SET TotalAmount = ?, JobCount = ?, PeriodFrom = ?, PeriodTo = ?, ContentHash = ?, UpdatedAt = datetime('now','localtime')
+      WHERE BillID = ?
+    `).run(newTotal, newCount, newPeriodFrom, newPeriodTo, newHash, billId);
+
+    const addNote = `Added job ${inv.InvoiceNo} (Rs. ${lineTotal.toLocaleString()})${reason ? ': ' + reason : ''}`;
+    appendApproval(db, billId, 'WORKSHOP', 'ADD_JOB', actor || 'system', role || 'workshop_supervisor', addNote, bill.Status, bill.Status, newHash);
+
+    return {
+      success: true,
+      addedItem: { InvoiceID: inv.InvoiceID, InvoiceNo: inv.InvoiceNo, LineTotal: lineTotal },
+      bill: db.prepare('SELECT * FROM LabourBills WHERE BillID = ?').get(billId),
+      items: newItems,
+      integrity: verifyBillIntegrity(billId),
+    };
+  })();
 }
 
 /**
@@ -665,7 +845,8 @@ function listBills(query = {}) {
     return acc;
   }, {});
 
-  const unbilled = fetchUnbilledLabour(db).totals;
+  const settings = getSettings();
+  const unbilled = fetchUnbilledLabour(db, { startDate: settings?.EffectiveDate || null }).totals;
 
   return {
     bills,
@@ -697,13 +878,14 @@ function updateSettings(patch, actor = 'admin') {
   const minJobs = patch.minJobs != null ? parseInt(patch.minJobs, 10) : current.MinJobs;
   const maxDays = patch.maxDays != null ? parseInt(patch.maxDays, 10) : current.MaxDays;
   const enabled = patch.enabled != null ? (patch.enabled ? 1 : 0) : current.Enabled;
+  const effectiveDate = patch.effectiveDate !== undefined ? patch.effectiveDate : current.EffectiveDate;
 
   db.prepare(`
     UPDATE LabourBillSettings
-    SET MinAmount = ?, MinJobs = ?, MaxDays = ?, Enabled = ?,
+    SET MinAmount = ?, MinJobs = ?, MaxDays = ?, Enabled = ?, EffectiveDate = ?,
         UpdatedAt = datetime('now','localtime'), UpdatedBy = ?
     WHERE SettingsID = 1
-  `).run(minAmount, minJobs, maxDays, enabled, actor);
+  `).run(minAmount, minJobs, maxDays, enabled, effectiveDate, actor);
 
   return getSettings();
 }
@@ -713,6 +895,8 @@ module.exports = {
   evaluateTriggers,
   getBillDetails,
   verifyBillIntegrity,
+  removeJobFromBill,
+  addJobToBill,
   certifyBill,
   approveOmBill,
   approveHoBill,

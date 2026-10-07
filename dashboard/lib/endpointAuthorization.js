@@ -187,12 +187,15 @@ const POLICIES = [
 
   // --- Workshop Labour Bills & Approvals ---
   { method: 'GET', pattern: /^\/api\/labour-bills$/, permission: 'labourbill.view' },
+  { method: 'GET', pattern: /^\/api\/labour-bills\/unbilled$/, permission: 'labourbill.view' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/settings$/, permission: 'labourbill.view' },
   { method: 'PUT', pattern: /^\/api\/labour-bills\/settings$/, permission: 'labourbill.admin' },
   { method: 'POST', pattern: /^\/api\/labour-bills\/check-now$/, permission: 'labourbill.admin' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/\d+$/, permission: 'labourbill.view' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/\d+\/pdf$/, permission: 'labourbill.view' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/\d+\/sealed$/, permission: 'labourbill.view' },
+  { method: 'DELETE', pattern: /^\/api\/labour-bills\/\d+\/items\/\d+$/, permission: 'labourbill.certify' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/items$/, permission: 'labourbill.certify' },
   { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/certify$/, permission: 'labourbill.certify' },
   { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/approve-om$/, permission: 'labourbill.approve.om' },
   { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/approve-ho$/, permission: 'labourbill.approve.ho' },

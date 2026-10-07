@@ -24,7 +24,8 @@ import {
   CreditCard,
   Info,
   Loader2,
-  LockKeyhole
+  LockKeyhole,
+  MinusCircle
 } from 'lucide-react';
 
 interface LabourBillItem {
@@ -106,6 +107,7 @@ interface Settings {
   MinJobs: number;
   MaxDays: number;
   Enabled: number;
+  EffectiveDate?: string | null;
 }
 
 interface UnbilledData {
@@ -156,6 +158,7 @@ export const LabourBillsPage: React.FC = () => {
   const [settingsMinJobs, setSettingsMinJobs] = useState<number>(10);
   const [settingsMaxDays, setSettingsMaxDays] = useState<number>(15);
   const [settingsEnabled, setSettingsEnabled] = useState<boolean>(true);
+  const [settingsEffectiveDate, setSettingsEffectiveDate] = useState<string>('2026-10-06');
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
 
   // Sealed Archive Modal State
@@ -180,6 +183,7 @@ export const LabourBillsPage: React.FC = () => {
         setSettingsMinJobs(settingsRes.MinJobs);
         setSettingsMaxDays(settingsRes.MaxDays);
         setSettingsEnabled(Boolean(settingsRes.Enabled));
+        if (settingsRes.EffectiveDate) setSettingsEffectiveDate(settingsRes.EffectiveDate);
       }
     } catch (err) {
       console.error('Failed to load labour bills:', err);
@@ -239,6 +243,7 @@ export const LabourBillsPage: React.FC = () => {
           minJobs: settingsMinJobs,
           maxDays: settingsMaxDays,
           enabled: settingsEnabled,
+          effectiveDate: settingsEffectiveDate || null,
         }),
       });
       setSettings(res.settings);
@@ -249,6 +254,36 @@ export const LabourBillsPage: React.FC = () => {
       alert(err.message || 'Failed to save settings');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  // Job Modification Handler (Remove / Defer to next bill)
+  const handleRemoveJob = async (billItemId: number, invoiceNo: string, lineTotal: number) => {
+    if (!selectedBillId) return;
+    const reason = window.prompt(
+      `Remove job ${invoiceNo} (${formatLKR(lineTotal)}) from this bill?\n\nThis job will be returned to the unbilled pool and deferred to the next bill.\n\nEnter optional reason:`,
+      'Deferred to next bill'
+    );
+    if (reason === null) return;
+
+    setActionLoading(true);
+    try {
+      const res = await apiRequest<{ success: boolean; bill: LabourBill; items: LabourBillItem[] }>(
+        `/labour-bills/${selectedBillId}/items/${billItemId}`,
+        {
+          method: 'DELETE',
+          body: JSON.stringify({ reason }),
+        }
+      );
+      if (res.success) {
+        alert(`Job ${invoiceNo} removed and deferred to the next bill. Bill totals updated.`);
+        await loadBillDetails(selectedBillId);
+        await loadData();
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to remove job');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -961,42 +996,74 @@ export const LabourBillsPage: React.FC = () => {
               })()}
 
               {/* Itemized Invoices Table */}
-              <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-semibold text-slate-700">
-                  <span>Itemized Invoices Included ({billDetails.items.length} jobs)</span>
-                  <span className="text-slate-500">Locked in Labour Bill</span>
-                </div>
-                <div className="max-h-56 overflow-y-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100/60 text-slate-500 font-semibold uppercase tracking-wider sticky top-0">
-                      <tr>
-                        <th className="py-2.5 px-3">Invoice No</th>
-                        <th className="py-2.5 px-3">Date</th>
-                        <th className="py-2.5 px-3">Customer / Machine</th>
-                        <th className="py-2.5 px-3 text-right">Crimping</th>
-                        <th className="py-2.5 px-3 text-right">Welding</th>
-                        <th className="py-2.5 px-3 text-right">Lathe</th>
-                        <th className="py-2.5 px-3 text-right">Labour Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-mono">
-                      {billDetails.items.map((item) => (
-                        <tr key={item.BillItemID} className="hover:bg-slate-50/50">
-                          <td className="py-2 px-3 font-bold text-slate-900 font-sans">{item.InvoiceNo}</td>
-                          <td className="py-2 px-3 text-slate-500 font-sans">{formatDate(item.InvoiceDate)}</td>
-                          <td className="py-2 px-3 text-slate-700 font-sans truncate max-w-[180px]">
-                            {item.Customer || item.CustomerName || '—'} {item.VehicleNo ? `(${item.VehicleNo})` : ''}
-                          </td>
-                          <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Crimping)}</td>
-                          <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Welding)}</td>
-                          <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Lathe)}</td>
-                          <td className="py-2 px-3 text-right font-bold text-slate-900 font-sans">{formatLKR(item.LineTotal)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {(() => {
+                const canModifyItems = (isAdmin || role === 'workshop_supervisor') &&
+                  (billDetails.bill.Status === 'GENERATED' || billDetails.bill.Status === 'RETURNED');
+                return (
+                  <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-semibold text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span>Itemized Invoices Included ({billDetails.items.length} jobs)</span>
+                        {canModifyItems && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-700 border border-amber-200 font-normal">
+                            Draft Mode: You can remove jobs to defer them to next bill
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-slate-500 font-normal">
+                        {canModifyItems ? 'Editable Draft' : 'Locked in Labour Bill'}
+                      </span>
+                    </div>
+                    <div className="max-h-56 overflow-y-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100/60 text-slate-500 font-semibold uppercase tracking-wider sticky top-0">
+                          <tr>
+                            <th className="py-2.5 px-3">Invoice No</th>
+                            <th className="py-2.5 px-3">Date</th>
+                            <th className="py-2.5 px-3">Customer / Machine</th>
+                            <th className="py-2.5 px-3 text-right">Crimping</th>
+                            <th className="py-2.5 px-3 text-right">Welding</th>
+                            <th className="py-2.5 px-3 text-right">Lathe</th>
+                            <th className="py-2.5 px-3 text-right">Labour Total</th>
+                            {canModifyItems && (
+                              <th className="py-2.5 px-3 text-center">Action</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-mono">
+                          {billDetails.items.map((item) => (
+                            <tr key={item.BillItemID} className="hover:bg-slate-50/50">
+                              <td className="py-2 px-3 font-bold text-slate-900 font-sans">{item.InvoiceNo}</td>
+                              <td className="py-2 px-3 text-slate-500 font-sans">{formatDate(item.InvoiceDate)}</td>
+                              <td className="py-2 px-3 text-slate-700 font-sans truncate max-w-[180px]">
+                                {item.Customer || item.CustomerName || '—'} {item.VehicleNo ? `(${item.VehicleNo})` : ''}
+                              </td>
+                              <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Crimping)}</td>
+                              <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Welding)}</td>
+                              <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Lathe)}</td>
+                              <td className="py-2 px-3 text-right font-bold text-slate-900 font-sans">{formatLKR(item.LineTotal)}</td>
+                              {canModifyItems && (
+                                <td className="py-2 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveJob(item.BillItemID, item.InvoiceNo, item.LineTotal)}
+                                    disabled={actionLoading || billDetails.items.length <= 1}
+                                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    title={billDetails.items.length <= 1 ? "Cannot remove only job" : "Remove job and defer to next bill"}
+                                  >
+                                    <MinusCircle className="w-3.5 h-3.5 text-rose-500" />
+                                    <span>Remove (Defer)</span>
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Immutable Cryptographic Audit & Approval Trail */}
               <div className="rounded-2xl border border-slate-200 p-4 space-y-3 bg-slate-50/40">

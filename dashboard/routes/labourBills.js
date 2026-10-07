@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const connection = require('../db');
 const labourBills = require('../services/labourBills');
 const router = express.Router();
 
@@ -17,6 +18,23 @@ router.get('/api/labour-bills', async (req, res) => {
   try {
     const data = labourBills.listBills(req.query);
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 1b. Unbilled pool
+router.get('/api/labour-bills/unbilled', async (req, res) => {
+  try {
+    const settings = labourBills.getSettings();
+    const includeHistorical = req.query.includeHistorical === 'true';
+    const startDate = includeHistorical ? null : (settings?.EffectiveDate || null);
+    const data = labourBills.fetchUnbilledLabour(connection._db, { startDate });
+    res.json({
+      ...data,
+      effectiveDate: settings?.EffectiveDate || null,
+      filteredByEffectiveDate: Boolean(!includeHistorical && settings?.EffectiveDate),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -81,6 +99,49 @@ router.get('/api/labour-bills/:id/sealed', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// 5b. Remove job from draft bill (defers job back to unbilled pool for next bill)
+router.delete('/api/labour-bills/:id/items/:itemId', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const itemId = parseInt(req.params.itemId, 10);
+    const role = getRole(req);
+    if (role !== 'workshop_supervisor' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only Workshop Supervisor or Admin can modify jobs in a labour bill.' });
+    }
+    const reason = (req.body && req.body.reason) || req.query.reason || '';
+    const result = await labourBills.removeJobFromBill(id, itemId, {
+      actor: getActor(req),
+      role,
+      reason,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.httpStatus || 400).json({ error: err.message, code: err.code });
+  }
+});
+
+// 5c. Add unbilled job to draft bill
+router.post('/api/labour-bills/:id/items', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const role = getRole(req);
+    if (role !== 'workshop_supervisor' && role !== 'admin') {
+      return res.status(403).json({ error: 'Only Workshop Supervisor or Admin can modify jobs in a labour bill.' });
+    }
+    const invoiceId = parseInt(req.body && req.body.invoiceId, 10);
+    if (!invoiceId) return res.status(400).json({ error: 'invoiceId is required' });
+    const reason = req.body && req.body.reason;
+    const result = await labourBills.addJobToBill(id, invoiceId, {
+      actor: getActor(req),
+      role,
+      reason,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.httpStatus || 400).json({ error: err.message, code: err.code });
   }
 });
 

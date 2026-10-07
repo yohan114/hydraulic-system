@@ -284,3 +284,41 @@ test('LB09: Settings endpoint updates thresholds and persists correctly', async 
     enabled: true,
   });
 });
+
+test('LB10: Removing a job from a draft labour bill defers it to unbilled pool and updates bill totals and hash', async () => {
+  await app.login('admin', 'password123');
+
+  // Create 2 invoices
+  const inv1 = createTestInvoiceWithLabour('Customer Defer-1', '2026-10-01', 9000, 1000);
+  const inv2 = createTestInvoiceWithLabour('Customer Defer-2', '2026-10-02', 7000, 1000);
+
+  const trig = await labourBillsService.evaluateTriggers({ actor: 'system', force: true, reason: 'Test deferral' });
+  assert.equal(trig.triggered, true);
+  const billId = trig.billId;
+
+  const initialDetails = labourBillsService.getBillDetails(billId);
+  assert.equal(initialDetails.items.length, 2);
+  assert.equal(initialDetails.bill.TotalAmount, 18000);
+
+  const itemToRemove = initialDetails.items[0];
+
+  // Workshop Supervisor removes item 1
+  await app.login('ws_sup', 'password123');
+  const removeRes = await app.del(`/api/labour-bills/${billId}/items/${itemToRemove.BillItemID}`);
+  assert.equal(removeRes.status, 200);
+  assert.equal(removeRes.body.success, true);
+  assert.equal(removeRes.body.bill.JobCount, 1);
+  assert.equal(removeRes.body.bill.TotalAmount, 8000);
+  assert.equal(removeRes.body.integrity.valid, true, 'Cryptographic audit integrity must remain valid');
+
+  // Verify removed invoice is back in unbilled pool
+  const unbilled = labourBillsService.fetchUnbilledLabour(db);
+  const backInPool = unbilled.items.find((i) => i.InvoiceID === itemToRemove.InvoiceID);
+  assert.ok(backInPool, 'Removed job must return to unbilled pool so it can be picked up in next bill');
+
+  // Verify attempting to remove the only remaining job throws error
+  const remainingItem = removeRes.body.items[0];
+  const removeLastRes = await app.del(`/api/labour-bills/${billId}/items/${remainingItem.BillItemID}`);
+  assert.equal(removeLastRes.status, 400);
+  assert.match(removeLastRes.body.error, /cannot remove/i);
+});
