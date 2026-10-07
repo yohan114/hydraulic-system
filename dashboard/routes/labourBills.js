@@ -2,6 +2,7 @@
 
 const express = require('express');
 const connection = require('../db');
+const money = require('../lib/money');
 const labourBills = require('../services/labourBills');
 const jobProfit = require('../services/jobProfit');
 const { buildExportModel } = require('../services/jobProfitExport');
@@ -104,7 +105,42 @@ router.get('/api/labour-bills/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const details = labourBills.getBillDetails(id);
     if (!details) return res.status(404).json({ error: 'Labour bill not found' });
-    res.json(details);
+
+    let profitSummary = null;
+    if (details.items && details.items.length > 0) {
+      const invoiceNumbers = details.items.map((i) => i.InvoiceNo);
+      try {
+        const profitData = await jobProfit.jobProfitData({ invoices: invoiceNumbers });
+        const exportModel = buildExportModel(profitData);
+        const totalGain = money.round2(exportModel.totals.outsideTotal - exportModel.totals.ourCost);
+        profitSummary = {
+          ourCost: exportModel.totals.ourCost,
+          materialCost: exportModel.totals.materialCost,
+          sundry: exportModel.totals.sundry,
+          outsideTotal: exportModel.totals.outsideTotal,
+          profit: totalGain,
+          marginPct: exportModel.totals.outsideTotal > 0
+            ? Math.round((totalGain / exportModel.totals.outsideTotal) * 1000) / 10
+            : 0,
+          itemProfits: Object.fromEntries(
+            exportModel.blocks.map((b) => [
+              b.invoiceNo,
+              {
+                ourCost: b.ourCost,
+                outsideTotal: b.outsideTotal,
+                profit: money.round2(b.outsideTotal - b.ourCost),
+                marginPct: b.outsideTotal > 0 ? Math.round(((b.outsideTotal - b.ourCost) / b.outsideTotal) * 1000) / 10 : 0,
+                hoseSize: b.hoseSize,
+              },
+            ])
+          ),
+        };
+      } catch (e) {
+        console.warn('Could not compute profit summary for bill details:', e.message);
+      }
+    }
+
+    res.json({ ...details, profitSummary });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,9 +170,9 @@ router.get('/api/labour-bills/:id/pdf', async (req, res) => {
       integrity: sectionsParam ? sectionsParam.includes('integrity') : req.query.integrity !== 'false',
     };
 
-    // If job profit section is requested, fetch and format profit data for the invoices
+    // If job profit section or voucher metrics are requested, fetch and format profit data for the invoices
     let profitModel = null;
-    if (sections.jobProfit && details.items && details.items.length > 0) {
+    if ((sections.jobProfit || sections.voucher) && details.items && details.items.length > 0) {
       const invoiceNumbers = details.items.map((i) => i.InvoiceNo);
       try {
         const profitData = await jobProfit.jobProfitData({ invoices: invoiceNumbers });

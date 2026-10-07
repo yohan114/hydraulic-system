@@ -14,16 +14,26 @@
 const money = require('../lib/money');
 
 const C = {
-  navy: '#0F172A',
+  navy: '#1F3864',
   slateDark: '#1E293B',
   slateLight: '#F8FAFC',
   border: '#CBD5E1',
   indigo: '#4F46E5',
   indigoSoft: '#EEF2FF',
   indigoHead: '#C7D2FE',
+  blue: '#2E75B6',
+  blueSoft: '#DDEBF7',
+  blueHead: '#BDD7EE',
+  orange: '#C55A11',
+  orangeSoft: '#FCE4D6',
+  orangeHead: '#F8CBAD',
   emerald: '#059669',
   emeraldSoft: '#ECFDF5',
   emeraldHead: '#A7F3D0',
+  green: '#375623',
+  greenMid: '#548235',
+  greenSoft: '#E2EFDA',
+  greenHead: '#C6E0B4',
   amber: '#D97706',
   amberSoft: '#FFFBEB',
   amberHead: '#FDE68A',
@@ -32,9 +42,11 @@ const C = {
   purpleHead: '#DDD6FE',
   sky: '#0284C7',
   skySoft: '#E0F2FE',
-  ink: '#0F172A',
+  red: '#C00000',
+  redSoft: '#FCE4E4',
+  ink: '#1F1F1F',
   muted: '#64748B',
-  line: '#E2E8F0',
+  line: '#CBD5E1',
 };
 
 function esc(s) {
@@ -60,6 +72,30 @@ function formatDateDisplay(d) {
   } catch (_) {
     return String(d).slice(0, 10);
   }
+}
+
+// One invoice block: multi-line rows with side-by-side OUR COST vs OUTSIDE COST spanning block totals
+function block(b) {
+  const n = Math.max(1, b.lines.length);
+  const rows = b.lines.map((l, i) => {
+    const first = i === 0;
+    const span = ` rowspan="${n}"`;
+    return `<tr${l.isSundry ? ' class="sundry"' : ''}>
+      ${first ? `<td class="inv"${span}><span class="mono"><strong>${esc(b.invoiceNo)}</strong></span></td>` : ''}
+      <td class="desc">${esc(l.description)}</td>
+      <td class="c">${esc(l.unit)}</td>
+      <td class="r">${l.isSundry ? '' : (l.qty != null ? l.qty : '')}</td>
+      <td class="r">${l.isSundry ? '' : (l.costRate != null ? n2(l.costRate) : '')}</td>
+      <td class="r cost">${n2(l.costAmount)}</td>
+      ${first ? `<td class="r tot cost"${span}>${n2(b.ourCost)}</td>` : ''}
+      ${first ? `<td class="c size"${span}>${esc(b.hoseSize || '—')}</td>` : ''}
+      <td class="r out">${l.outsideRate > 0 ? n2(l.outsideRate) : ''}</td>
+      <td class="r out">${l.outsideRate > 0 ? (l.qty != null ? l.qty : '') : ''}</td>
+      <td class="r out">${l.outsideRate > 0 ? n2(l.outsideAmount) : ''}</td>
+      ${first ? `<td class="r tot out"${span}>${n2(b.outsideTotal)}</td>` : ''}
+    </tr>`;
+  }).join('');
+  return rows + '<tr class="gap"><td colspan="12"></td></tr>';
 }
 
 function normalizeSections(secInput) {
@@ -95,6 +131,11 @@ function buildLabourBillHtml(billDetails, profitModel = null, options = {}) {
   const sections = normalizeSections(options.sections);
 
   const generatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+  const crimpingTotal = bill.CrimpingTotal != null ? bill.CrimpingTotal : money.round2(items.reduce((s, i) => s + (i.Crimping || 0), 0));
+  const weldingTotal = bill.WeldingTotal != null ? bill.WeldingTotal : money.round2(items.reduce((s, i) => s + (i.Welding || 0), 0));
+  const latheTotal = bill.LatheTotal != null ? bill.LatheTotal : money.round2(items.reduce((s, i) => s + (i.Lathe || 0), 0));
+  const techTotal = bill.TechTotal != null ? bill.TechTotal : money.round2(items.reduce((s, i) => s + (i.Technical || 0), 0));
 
   // Status Styling Badge
   let statusBadgeBg = C.amberSoft;
@@ -151,45 +192,27 @@ function buildLabourBillHtml(billDetails, profitModel = null, options = {}) {
     </tr>`;
   }).join('');
 
-  // --- 2. Job Profit Rows (if available) ---
-  let profitRows = '';
-  let profitTotalsHtml = '';
+  // --- 2. Job Profit Rows & Detailed Blocks (Itemized Breakdown) ---
+  let profitDetailRows = '';
+  let profitSummaryRows = '';
+  let totalGain = 0;
   if (profitModel && profitModel.blocks && profitModel.blocks.length > 0) {
     const blocks = profitModel.blocks;
     const totals = profitModel.totals;
-    const totalGain = money.round2(totals.outsideTotal - totals.ourCost);
+    totalGain = money.round2(totals.outsideTotal - totals.ourCost);
 
-    profitRows = blocks.map((b) => {
+    profitDetailRows = blocks.map(block).join('');
+
+    profitSummaryRows = blocks.map((b) => {
       const gain = money.round2(b.outsideTotal - b.ourCost);
       return `<tr>
-        <td class="inv mono">${esc(b.invoiceNo)}</td>
-        <td class="c size">${esc(b.hoseSize || '—')}</td>
+        <td class="inv"><span class="mono"><strong>${esc(b.invoiceNo)}</strong></span></td>
         <td class="r cost">${n2(b.ourCost)}</td>
         <td class="r out">${n2(b.outsideTotal)}</td>
         <td class="r prof strong">${n2(gain)}</td>
         <td class="r prof strong">${pct1(gain, b.outsideTotal)}</td>
       </tr>`;
     }).join('');
-
-    profitTotalsHtml = `
-      <tr class="total">
-        <td colspan="2">TOTAL FOR INCLUDED JOBS</td>
-        <td class="r">${n2(totals.ourCost)}</td>
-        <td class="r">${n2(totals.outsideTotal)}</td>
-        <td class="r">${n2(totalGain)}</td>
-        <td class="r">${pct1(totalGain, totals.outsideTotal)}</td>
-      </tr>
-      <tr>
-        <td colspan="2">Total Landed Material Cost</td>
-        <td class="r cost">${n2(totals.materialCost)}</td>
-        <td colspan="3" class="muted">Hose, fittings, adapters, ferrules stock consumed</td>
-      </tr>
-      <tr>
-        <td colspan="2">Total Sundry Overhead (10%)</td>
-        <td class="r cost">${n2(totals.sundry)}</td>
-        <td colspan="3" class="muted">Workshop electricity, machine depreciation & consumables</td>
-      </tr>
-    `;
   }
 
   // --- 3. Approvals Chain Rows ---
@@ -278,8 +301,9 @@ function buildLabourBillHtml(billDetails, profitModel = null, options = {}) {
     h3.sec span.desc { font-size: 8px; font-weight: 400; opacity: 0.8; }
 
     /* Tables */
+    thead { display: table-header-group; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-    th, td { border: 1px solid ${C.border}; padding: 4px 6px; }
+    th, td { border: 1px solid ${C.border}; padding: 3px 5px; }
     th { font-size: 8.5px; font-weight: 700; text-align: left; background: #f1f5f9; }
     td.r, th.r { text-align: right; }
     td.c, th.c { text-align: center; }
@@ -287,11 +311,29 @@ function buildLabourBillHtml(billDetails, profitModel = null, options = {}) {
     .strong { font-weight: 700; }
     .muted { color: ${C.muted}; }
 
-    /* Highlighting */
-    td.cost { background: #eff6ff; }
-    td.out { background: #fff7ed; }
-    td.prof { background: #f0fdf4; }
-    tr.total td { background: ${C.slateDark}; color: #fff; font-weight: 800; font-size: 9.5px; }
+    /* The three colour groups matching Job Profit Analysis specification */
+    th.g-cost { background: ${C.blue}; color: #ffffff; text-align: center; font-size: 9px; font-weight: 800; letter-spacing: 0.4px; }
+    th.g-out  { background: ${C.orange}; color: #ffffff; text-align: center; font-size: 9px; font-weight: 800; letter-spacing: 0.4px; }
+    th.g-prof { background: ${C.green}; color: #ffffff; text-align: center; font-size: 9px; font-weight: 800; letter-spacing: 0.4px; }
+    th.h-cost { background: ${C.blueHead}; color: #1F1F1F; font-size: 8px; font-weight: 700; }
+    th.h-out  { background: ${C.orangeHead}; color: #1F1F1F; font-size: 8px; font-weight: 700; }
+    th.h-prof { background: ${C.greenHead}; color: #1F1F1F; font-size: 8px; font-weight: 700; }
+
+    /* Highlighting & Cell formatting */
+    td.cost { background: ${C.blueSoft}; }
+    td.out { background: ${C.orangeSoft}; }
+    td.prof { background: ${C.greenSoft}; }
+    td.tot { font-weight: 700; }
+    td.inv { font-weight: 700; background: #ffffff; vertical-align: top; width: 110px; }
+    td.size { background: ${C.blueSoft}; font-weight: 600; }
+    td.desc { max-width: 250px; }
+    tr.sundry td { font-style: italic; color: ${C.muted}; }
+    tr.sundry td.cost { color: ${C.ink}; }
+    tr.gap td { border: 0; height: 5px; padding: 0; background: transparent; }
+    tr { page-break-inside: avoid; }
+
+    table.sum { width: 68%; }
+    tr.total td { background: ${C.slateDark}; color: #fff; font-weight: 800; font-size: 9px; }
 
     .badge-internal {
       display: inline-block;
@@ -376,20 +418,44 @@ function buildLabourBillHtml(billDetails, profitModel = null, options = {}) {
     </div>
     <div class="metric-card">
       <div class="label">Crimping Charges</div>
-      <div class="val">Rs. ${n2(bill.CrimpingTotal || 0)}</div>
+      <div class="val">Rs. ${n2(crimpingTotal)}</div>
       <div class="sub">Hose swaging & collar assemblies</div>
     </div>
     <div class="metric-card">
       <div class="label">Welding & Lathe Work</div>
-      <div class="val">Rs. ${n2((bill.WeldingTotal || 0) + (bill.LatheTotal || 0))}</div>
+      <div class="val">Rs. ${n2(weldingTotal + latheTotal)}</div>
       <div class="sub">Machining, threading & fabrication</div>
     </div>
     <div class="metric-card">
       <div class="label">Billing Period</div>
-      <div class="val" style="font-size: 12px; font-weight: 700;">${formatDateDisplay(bill.PeriodFrom)} – ${formatDateDisplay(bill.PeriodTo)}</div>
+      <div class="val" style="font-size: 11px; font-weight: 700;">${formatDateDisplay(bill.PeriodFrom)} – ${formatDateDisplay(bill.PeriodTo)}</div>
       <div class="sub">Generated on ${formatDateDisplay(bill.CreatedAt)} by ${esc(bill.CreatedBy)}</div>
     </div>
   </div>
+  ${profitModel && profitModel.totals ? `
+  <div class="metrics-grid" style="margin-top: -4px;">
+    <div class="metric-card" style="border-left: 3px solid ${C.blue};">
+      <div class="label" style="color:${C.blue};">Our Total Cost (Landed)</div>
+      <div class="val" style="color:${C.navy};">Rs. ${n2(profitModel.totals.ourCost)}</div>
+      <div class="sub">Material: Rs. ${n2(profitModel.totals.materialCost)} + Sundry: Rs. ${n2(profitModel.totals.sundry)}</div>
+    </div>
+    <div class="metric-card" style="border-left: 3px solid ${C.orange};">
+      <div class="label" style="color:${C.orange};">Outside Total Cost (Benchmark)</div>
+      <div class="val" style="color:${C.orange};">Rs. ${n2(profitModel.totals.outsideTotal)}</div>
+      <div class="sub">Market replacement value for ${profitModel.totals.count} jobs</div>
+    </div>
+    <div class="metric-card" style="border-left: 3px solid ${C.green};">
+      <div class="label" style="color:${C.green};">Total Sourcing Profit / Gain</div>
+      <div class="val" style="color:${C.green};">Rs. ${n2(totalGain)}</div>
+      <div class="sub">Cost savings vs outside workshop sourcing</div>
+    </div>
+    <div class="metric-card" style="border-left: 3px solid ${C.greenMid};">
+      <div class="label" style="color:${C.greenMid};">Gross Margin %</div>
+      <div class="val" style="color:${C.greenMid};">${pct1(totalGain, profitModel.totals.outsideTotal)}</div>
+      <div class="sub">Landed cost efficiency over benchmark</div>
+    </div>
+  </div>
+  ` : ''}
   ` : ''}
 
   <!-- Section 1: Itemized Labour Breakdown -->
@@ -416,36 +482,82 @@ function buildLabourBillHtml(billDetails, profitModel = null, options = {}) {
       ${itemRows}
       <tr class="total">
         <td colspan="4">BILL TOTAL (${items.length} JOBS)</td>
-        <td class="r">${n2(bill.CrimpingTotal || 0)}</td>
-        <td class="r">${n2(bill.WeldingTotal || 0)}</td>
-        <td class="r">${n2(bill.LatheTotal || 0)}</td>
-        <td class="r">${n2(bill.TechTotal || 0)}</td>
+        <td class="r">${n2(crimpingTotal)}</td>
+        <td class="r">${n2(weldingTotal)}</td>
+        <td class="r">${n2(latheTotal)}</td>
+        <td class="r">${n2(techTotal)}</td>
         <td class="r">${n2(bill.TotalAmount)}</td>
       </tr>
     </tbody>
   </table>
   ` : ''}
 
-  <!-- Section 2: Job Profit Analysis for Included Jobs -->
-  ${sections.jobProfit && profitRows ? `
-  <h3 class="sec" style="background:#1e3a8a;">
-    <span>2. JOB PROFIT ANALYSIS (PROFITABILITY BENCHMARK)</span>
-    <span class="desc">Landed Material & Overhead Cost vs. Outside Market Benchmark</span>
+  <!-- Section 2: Full Job Profit Analysis for Included Jobs -->
+  ${sections.jobProfit && profitDetailRows ? `
+  <div style="page-break-before: always;"></div>
+  <h3 class="sec" style="background:#1F3864;">
+    <span>2. JOB PROFIT ANALYSIS — OUR COST vs. OUTSIDE COST BREAKDOWN</span>
+    <span class="desc">Itemized Side-by-Side Comparison for ${profitModel.blocks.length} Invoices in this Labour Bill</span>
   </h3>
   <table>
     <thead>
       <tr>
-        <th style="width: 120px; background:#bfdbfe; color:#1e3a8a;">Invoice Number</th>
-        <th class="c" style="width: 80px; background:#bfdbfe; color:#1e3a8a;">Hose Size</th>
-        <th class="r" style="background:#bfdbfe; color:#1e3a8a;">Our Landed Cost (Rs.)</th>
-        <th class="r" style="background:#fed7aa; color:#9a3412;">Outside Market Cost (Rs.)</th>
-        <th class="r" style="background:#bbf7d0; color:#166534;">Gross Profit (Rs.)</th>
-        <th class="r" style="background:#bbf7d0; color:#166534; width: 65px;">Margin %</th>
+        <th class="g-cost" colspan="8">OUR COST</th>
+        <th class="g-out" colspan="4">OUTSIDE COST</th>
+      </tr>
+      <tr>
+        <th class="h-cost" style="width: 105px;">Invoice Number</th>
+        <th class="h-cost">Description</th>
+        <th class="h-cost c" style="width: 45px;">Unit</th>
+        <th class="h-cost r" style="width: 35px;">Qty</th>
+        <th class="h-cost r" style="width: 60px;">Rate</th>
+        <th class="h-cost r" style="width: 70px;">Amount</th>
+        <th class="h-cost r" style="width: 80px;">Total Our Cost</th>
+        <th class="h-cost c" style="width: 55px;">Hose Size</th>
+        <th class="h-out r" style="width: 70px;">Rate (Outside)</th>
+        <th class="h-out r" style="width: 45px;">Qty (Outside)</th>
+        <th class="h-out r" style="width: 75px;">Outside Cost</th>
+        <th class="h-out r" style="width: 85px;">Total Outside Cost</th>
       </tr>
     </thead>
     <tbody>
-      ${profitRows}
-      ${profitTotalsHtml}
+      ${profitDetailRows}
+    </tbody>
+  </table>
+
+  <h3 class="sec" style="background:#1F3864; margin-top: 14px;">
+    <span>JOB PROFIT SUMMARY & MARGIN ANALYSIS</span>
+    <span class="desc">Consolidated Landed Cost, Outside Replacement Value & Net Sourcing Margin</span>
+  </h3>
+  <table class="sum">
+    <thead>
+      <tr>
+        <th class="h-cost">Invoice Number</th>
+        <th class="h-cost r">Our Actual Cost</th>
+        <th class="h-out r">Outside Cost</th>
+        <th class="h-prof r">Profit</th>
+        <th class="h-prof r">Margin %</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${profitSummaryRows}
+      <tr class="total">
+        <td>TOTAL</td>
+        <td class="r">${n2(profitModel.totals.ourCost)}</td>
+        <td class="r">${n2(profitModel.totals.outsideTotal)}</td>
+        <td class="r">${n2(totalGain)}</td>
+        <td class="r">${pct1(totalGain, profitModel.totals.outsideTotal)}</td>
+      </tr>
+      <tr>
+        <td>Total Material Cost</td>
+        <td class="r cost">${n2(profitModel.totals.materialCost)}</td>
+        <td colspan="3" class="muted">parts only — excludes labour (crimping, welding, lathe, technical) and sundry</td>
+      </tr>
+      <tr>
+        <td>Total Sundry (Electricity)</td>
+        <td class="r cost">${n2(profitModel.totals.sundry)}</td>
+        <td colspan="3" class="muted">10% of each job's other costs — already inside Our Actual Cost</td>
+      </tr>
     </tbody>
   </table>
   ` : ''}

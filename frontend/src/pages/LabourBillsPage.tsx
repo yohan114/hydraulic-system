@@ -104,6 +104,21 @@ interface BillDetailsResponse {
     checks: string[];
     errors?: string[];
   };
+  profitSummary?: {
+    ourCost: number;
+    materialCost: number;
+    sundry: number;
+    outsideTotal: number;
+    profit: number;
+    marginPct: number;
+    itemProfits?: Record<string, {
+      ourCost: number;
+      outsideTotal: number;
+      profit: number;
+      marginPct: number;
+      hoseSize?: string;
+    }>;
+  };
 }
 
 interface Settings {
@@ -1366,31 +1381,89 @@ export const LabourBillsPage: React.FC = () => {
                 const weldingSum = billDetails.items.reduce((s, i) => s + (i.Welding || 0), 0);
                 const latheSum = billDetails.items.reduce((s, i) => s + (i.Lathe || 0), 0);
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase">Crimping Charges</p>
-                      <p className="text-lg font-bold text-slate-900 font-mono mt-1">
-                        {formatLKR(crimpingSum)}
-                      </p>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                        <p className="text-[11px] font-semibold text-slate-500 uppercase">Crimping Charges</p>
+                        <p className="text-lg font-bold text-slate-900 font-mono mt-1">
+                          {formatLKR(crimpingSum)}
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                        <p className="text-[11px] font-semibold text-slate-500 uppercase">Welding Charges</p>
+                        <p className="text-lg font-bold text-slate-900 font-mono mt-1">
+                          {formatLKR(weldingSum)}
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                        <p className="text-[11px] font-semibold text-slate-500 uppercase">Lathe Work Charges</p>
+                        <p className="text-lg font-bold text-slate-900 font-mono mt-1">
+                          {formatLKR(latheSum)}
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200">
+                        <p className="text-[11px] font-bold text-indigo-700 uppercase">Grand Labour Total</p>
+                        <p className="text-lg font-extrabold text-indigo-950 font-mono mt-1">
+                          {formatLKR(billDetails.bill.TotalAmount)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase">Welding Charges</p>
-                      <p className="text-lg font-bold text-slate-900 font-mono mt-1">
-                        {formatLKR(weldingSum)}
-                      </p>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase">Lathe Work Charges</p>
-                      <p className="text-lg font-bold text-slate-900 font-mono mt-1">
-                        {formatLKR(latheSum)}
-                      </p>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200">
-                      <p className="text-[11px] font-bold text-indigo-700 uppercase">Grand Labour Total</p>
-                      <p className="text-lg font-extrabold text-indigo-950 font-mono mt-1">
-                        {formatLKR(billDetails.bill.TotalAmount)}
-                      </p>
-                    </div>
+
+                    {/* Job Profit & Sourcing Comparison KPI Cards */}
+                    {billDetails.profitSummary && (
+                      <div className="pt-1">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-2">
+                          <span className="flex items-center gap-1.5 text-blue-900">
+                            <TrendingUp className="w-4 h-4 text-blue-600" />
+                            Job Profit Sourcing Benchmark ({billDetails.items.length} Jobs Analyzed)
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-normal">
+                            Landed Materials & Overhead vs. Outside Replacement
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200/80">
+                            <p className="text-[11px] font-bold text-blue-800 uppercase tracking-wide">Our Total Cost</p>
+                            <p className="text-lg font-bold text-blue-950 font-mono mt-1">
+                              {formatLKR(billDetails.profitSummary.ourCost)}
+                            </p>
+                            <p className="text-[10px] text-blue-600/80 mt-1">
+                              Parts: {formatLKR(billDetails.profitSummary.materialCost)} · Sundry: {formatLKR(billDetails.profitSummary.sundry)}
+                            </p>
+                          </div>
+
+                          <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80">
+                            <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wide">Outside Total Cost</p>
+                            <p className="text-lg font-bold text-amber-950 font-mono mt-1">
+                              {formatLKR(billDetails.profitSummary.outsideTotal)}
+                            </p>
+                            <p className="text-[10px] text-amber-600/80 mt-1">
+                              Market benchmark cost
+                            </p>
+                          </div>
+
+                          <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200/80">
+                            <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wide">Sourcing Profit</p>
+                            <p className="text-lg font-bold text-emerald-950 font-mono mt-1">
+                              {formatLKR(billDetails.profitSummary.profit)}
+                            </p>
+                            <p className="text-[10px] text-emerald-600/80 mt-1">
+                              Net fabrication savings
+                            </p>
+                          </div>
+
+                          <div className="p-3.5 rounded-xl bg-emerald-100/60 border border-emerald-300">
+                            <p className="text-[11px] font-extrabold text-emerald-900 uppercase tracking-wide">Gross Margin %</p>
+                            <p className="text-lg font-extrabold text-emerald-950 font-mono mt-1">
+                              {billDetails.profitSummary.marginPct}%
+                            </p>
+                            <p className="text-[10px] text-emerald-700/80 mt-1">
+                              Cost advantage vs market
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1399,11 +1472,12 @@ export const LabourBillsPage: React.FC = () => {
               {(() => {
                 const canModifyItems = (isAdmin || role === 'workshop_supervisor') &&
                   (billDetails.bill.Status === 'GENERATED' || billDetails.bill.Status === 'RETURNED');
+                const hasProfitData = !!billDetails.profitSummary;
                 return (
                   <div className="rounded-2xl border border-slate-200 overflow-hidden">
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-semibold text-slate-700">
                       <div className="flex items-center gap-2">
-                        <span>Itemized Invoices Included ({billDetails.items.length} jobs)</span>
+                        <span>Itemized Invoices & Sourcing Analysis ({billDetails.items.length} jobs)</span>
                         {canModifyItems && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-700 border border-amber-200 font-normal">
                             Draft Mode: You can remove jobs to defer them to next bill
@@ -1414,51 +1488,103 @@ export const LabourBillsPage: React.FC = () => {
                         {canModifyItems ? 'Editable Draft' : 'Locked in Labour Bill'}
                       </span>
                     </div>
-                    <div className="max-h-56 overflow-y-auto">
+                    <div className="max-h-64 overflow-y-auto">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-100/60 text-slate-500 font-semibold uppercase tracking-wider sticky top-0">
+                        <thead className="bg-slate-100/80 text-slate-600 font-semibold uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200">
                           <tr>
                             <th className="py-2.5 px-3">Invoice No</th>
                             <th className="py-2.5 px-3">Date</th>
                             <th className="py-2.5 px-3">Customer / Machine</th>
                             <th className="py-2.5 px-3 text-right">Crimping</th>
-                            <th className="py-2.5 px-3 text-right">Welding</th>
-                            <th className="py-2.5 px-3 text-right">Lathe</th>
+                            <th className="py-2.5 px-3 text-right">Welding / Lathe</th>
                             <th className="py-2.5 px-3 text-right">Labour Total</th>
+                            {hasProfitData && (
+                              <>
+                                <th className="py-2.5 px-3 text-right bg-blue-50/50 text-blue-900">Our Landed Cost</th>
+                                <th className="py-2.5 px-3 text-right bg-amber-50/50 text-amber-900">Outside Cost</th>
+                                <th className="py-2.5 px-3 text-right bg-emerald-50/50 text-emerald-900">Profit (Margin)</th>
+                              </>
+                            )}
                             {canModifyItems && (
                               <th className="py-2.5 px-3 text-center">Action</th>
                             )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-mono">
-                          {billDetails.items.map((item) => (
-                            <tr key={item.BillItemID} className="hover:bg-slate-50/50">
-                              <td className="py-2 px-3 font-bold text-slate-900 font-sans">{item.InvoiceNo}</td>
-                              <td className="py-2 px-3 text-slate-500 font-sans">{formatDate(item.InvoiceDate)}</td>
-                              <td className="py-2 px-3 text-slate-700 font-sans truncate max-w-[180px]">
-                                {item.Customer || item.CustomerName || '—'} {item.VehicleNo ? `(${item.VehicleNo})` : ''}
-                              </td>
-                              <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Crimping)}</td>
-                              <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Welding)}</td>
-                              <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Lathe)}</td>
-                              <td className="py-2 px-3 text-right font-bold text-slate-900 font-sans">{formatLKR(item.LineTotal)}</td>
-                              {canModifyItems && (
-                                <td className="py-2 px-3 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveJob(item.BillItemID, item.InvoiceNo, item.LineTotal)}
-                                    disabled={actionLoading || billDetails.items.length <= 1}
-                                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    title={billDetails.items.length <= 1 ? "Cannot remove only job" : "Remove job and defer to next bill"}
-                                  >
-                                    <MinusCircle className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>Remove (Defer)</span>
-                                  </button>
+                          {billDetails.items.map((item) => {
+                            const prof = billDetails.profitSummary?.itemProfits?.[item.InvoiceNo];
+                            return (
+                              <tr key={item.BillItemID} className="hover:bg-slate-50/50">
+                                <td className="py-2 px-3 font-bold text-slate-900 font-sans">
+                                  <span>{item.InvoiceNo}</span>
+                                  {prof?.hoseSize && (
+                                    <span className="ml-1 text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-mono">
+                                      {prof.hoseSize}
+                                    </span>
+                                  )}
                                 </td>
-                              )}
-                            </tr>
-                          ))}
+                                <td className="py-2 px-3 text-slate-500 font-sans">{formatDate(item.InvoiceDate)}</td>
+                                <td className="py-2 px-3 text-slate-700 font-sans truncate max-w-[150px]">
+                                  {item.Customer || item.CustomerName || '—'} {item.VehicleNo ? `(${item.VehicleNo})` : ''}
+                                </td>
+                                <td className="py-2 px-3 text-right text-slate-600">{formatLKR(item.Crimping)}</td>
+                                <td className="py-2 px-3 text-right text-slate-600">{formatLKR((item.Welding || 0) + (item.Lathe || 0))}</td>
+                                <td className="py-2 px-3 text-right font-bold text-slate-900 font-sans">{formatLKR(item.LineTotal)}</td>
+                                {hasProfitData && (
+                                  <>
+                                    <td className="py-2 px-3 text-right text-blue-950 bg-blue-50/30">
+                                      {prof ? formatLKR(prof.ourCost) : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-right text-amber-950 bg-amber-50/30">
+                                      {prof ? formatLKR(prof.outsideTotal) : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-bold text-emerald-700 bg-emerald-50/30 font-sans">
+                                      {prof ? `${formatLKR(prof.profit)} (${prof.marginPct}%)` : '—'}
+                                    </td>
+                                  </>
+                                )}
+                                {canModifyItems && (
+                                  <td className="py-2 px-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveJob(item.BillItemID, item.InvoiceNo, item.LineTotal)}
+                                      disabled={actionLoading || billDetails.items.length <= 1}
+                                      className="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      title={billDetails.items.length <= 1 ? "Cannot remove only job" : "Remove job and defer to next bill"}
+                                    >
+                                      <MinusCircle className="w-3.5 h-3.5 text-rose-500" />
+                                      <span>Remove (Defer)</span>
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })}
                         </tbody>
+                        <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
+                          <tr>
+                            <td colSpan={3} className="py-2.5 px-3 uppercase text-[11px] font-sans">
+                              Total ({billDetails.items.length} Jobs)
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono">{formatLKR(billDetails.bill.CrimpingTotal || 0)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono">{formatLKR((billDetails.bill.WeldingTotal || 0) + (billDetails.bill.LatheTotal || 0))}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-indigo-700">{formatLKR(billDetails.bill.TotalAmount)}</td>
+                            {hasProfitData && (
+                              <>
+                                <td className="py-2.5 px-3 text-right font-mono text-blue-900 bg-blue-50/60">
+                                  {formatLKR(billDetails.profitSummary?.ourCost || 0)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-amber-900 bg-amber-50/60">
+                                  {formatLKR(billDetails.profitSummary?.outsideTotal || 0)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-emerald-800 bg-emerald-50/60">
+                                  {formatLKR(billDetails.profitSummary?.profit || 0)} ({billDetails.profitSummary?.marginPct}%)
+                                </td>
+                              </>
+                            )}
+                            {canModifyItems && <td></td>}
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   </div>

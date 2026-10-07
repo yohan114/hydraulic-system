@@ -400,6 +400,12 @@ function getBillDetails(billId) {
   const items = db.prepare('SELECT * FROM LabourBillItems WHERE BillID = ? ORDER BY InvoiceDate ASC, InvoiceID ASC').all(billId);
   const approvals = db.prepare('SELECT * FROM LabourBillApprovals WHERE BillID = ? ORDER BY Seq ASC').all(billId);
 
+  // Compute category totals from item lines
+  bill.CrimpingTotal = money.round2(items.reduce((s, i) => s + (i.Crimping || 0), 0));
+  bill.WeldingTotal = money.round2(items.reduce((s, i) => s + (i.Welding || 0), 0));
+  bill.LatheTotal = money.round2(items.reduce((s, i) => s + (i.Lathe || 0), 0));
+  bill.TechTotal = money.round2(items.reduce((s, i) => s + (i.Technical || 0), 0));
+
   const integrity = verifyBillIntegrity(billId);
 
   return {
