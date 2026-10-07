@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiRequest } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Invoice, InvoiceLineItem, Customer, InventoryItem } from '../types/models';
+import { Invoice, InvoiceLineItem, Customer, Machine, InventoryItem } from '../types/models';
 import { formatLKR, formatDate, round2 } from '../utils/format';
 import {
   FileText,
@@ -25,6 +25,9 @@ import {
   Cog,
   Settings2,
   AlertTriangle,
+  Truck,
+  Building2,
+  Edit2,
 } from 'lucide-react';
 
 interface CrimpingRateRow {
@@ -96,12 +99,14 @@ export const InvoicesPage: React.FC = () => {
   const [discount, setDiscount] = useState<number>(0);
   const [roundToRupee, setRoundToRupee] = useState<boolean>(false);
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
+  const [isInternal, setIsInternal] = useState<boolean>(false);
 
   // Line items
   const [items, setItems] = useState<InvoiceLineItem[]>([]);
 
-  // Customer dropdown
+  // Customer & Machine dropdowns
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
 
   // Product search dropdown in line items
   const [itemSearchQuery, setItemSearchQuery] = useState<string>('');
@@ -167,10 +172,19 @@ export const InvoicesPage: React.FC = () => {
     } catch (_) {}
   }, []);
 
+  // Load Machines for internal fleet selection
+  const loadMachines = useCallback(async () => {
+    try {
+      const data = await apiRequest<Machine[]>('/machines');
+      setMachines(Array.isArray(data) ? data : []);
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
     loadInvoices();
     loadCustomers();
-  }, [loadInvoices, loadCustomers]);
+    loadMachines();
+  }, [loadInvoices, loadCustomers, loadMachines]);
 
   // Fetch next invoice number when date changes in create mode
   const fetchNextNo = useCallback(async (date: string) => {
@@ -212,6 +226,7 @@ export const InvoicesPage: React.FC = () => {
   const openNewInvoice = () => {
     setEditingDraftId(null);
     setInvoiceDate(new Date().toISOString().slice(0, 10));
+    setIsInternal(false);
     setBilledToName('');
     setBilledToAddress('');
     setDeliveredToName('');
@@ -224,6 +239,38 @@ export const InvoicesPage: React.FC = () => {
     setItems([]);
     setItemSearchQuery('');
     setSearchResults([]);
+    setIsCreateOpen(true);
+  };
+
+  // Edit an existing Draft invoice
+  const handleEditDraft = (draft: Invoice) => {
+    setEditingDraftId(draft.InvoiceID);
+    setInvoiceDate(String(draft.InvoiceDate || '').slice(0, 10));
+    setBilledToName(draft.BilledToName || '');
+    setBilledToAddress(draft.BilledToAddress || '');
+    setDeliveredToName(draft.DeliveredToName || '');
+    setDeliveredToAddress(draft.DeliveredToAddress || '');
+    setPoNo(draft.PONo || '');
+    setPoDate(draft.PODate ? String(draft.PODate).slice(0, 10) : '');
+    setDeliveryDate(draft.DeliveryDate ? String(draft.DeliveryDate).slice(0, 10) : '');
+    setDiscount(draft.Discount || 0);
+    setRoundToRupee(Boolean(draft.RoundOff));
+    setIsInternal(Boolean(draft.IsInternal));
+    setNextInvoiceNo(draft.InvoiceNo);
+    const draftItems: InvoiceLineItem[] = (draft.items || []).map((it: any) => ({
+      id: Date.now() + Math.random(),
+      inventoryId: it.InventoryID || null,
+      description: it.ItemDescription || '',
+      unit: it.Unit || 'pcs',
+      length: it.Length || 0,
+      qty: it.Qty || 1,
+      rate: it.Rate || 0,
+      cost: it.UnitCostAtBilling || 0,
+      marketMid: it.MarketRate || it.Rate || 0,
+      pricingSource: 'manual',
+    }));
+    setItems(draftItems);
+    setSelectedInvoice(null);
     setIsCreateOpen(true);
   };
 
@@ -486,7 +533,8 @@ export const InvoicesPage: React.FC = () => {
       const payload = {
         invoiceId: editingDraftId,
         invoiceDate,
-        billedToName: billedToName.trim() || 'Counter Customer',
+        isInternal,
+        billedToName: billedToName.trim() || (isInternal ? 'Internal / Own Fleet' : 'Counter Customer'),
         billedToAddress,
         deliveredToName,
         deliveredToAddress,
@@ -516,11 +564,13 @@ export const InvoicesPage: React.FC = () => {
       alert('Please add at least one line item.');
       return;
     }
-    if (!billedToName.trim()) {
+    const finalBilledName = billedToName.trim() || (isInternal ? 'Internal / Own Fleet' : '');
+    if (!finalBilledName) {
       alert('Billed To Customer Name is required to finalize an invoice.');
       return;
     }
-    if (!window.confirm(`Finalize this invoice for ${billedToName}?\nGrand Total: ${formatLKR(grandTotal)}\n\nWARNING: Stock will be deducted immediately.`)) {
+    const typeLabel = isInternal ? 'INTERNAL FLEET (Expense GL 6900)' : 'COMMERCIAL (Receivable GL 1200)';
+    if (!window.confirm(`Finalize this ${typeLabel} invoice for ${finalBilledName}?\nGrand Total: ${formatLKR(grandTotal)}\n\nWARNING: Stock will be deducted immediately.`)) {
       return;
     }
     setCreateSubmitting(true);
@@ -528,7 +578,8 @@ export const InvoicesPage: React.FC = () => {
       const payload = {
         invoiceId: editingDraftId,
         invoiceDate,
-        billedToName: billedToName.trim(),
+        isInternal,
+        billedToName: finalBilledName,
         billedToAddress,
         deliveredToName,
         deliveredToAddress,
@@ -798,6 +849,22 @@ export const InvoicesPage: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
+                        {inv.Status === 'Draft' && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const fullDraft = await apiRequest<Invoice>(`/invoices/${inv.InvoiceID}`);
+                                handleEditDraft(fullDraft);
+                              } catch (err: any) {
+                                alert(err.message || 'Could not load draft');
+                              }
+                            }}
+                            title="Edit Draft Invoice"
+                            className="p-1.5 hover:bg-amber-50 text-amber-600 rounded-lg transition"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleViewInvoice(inv.InvoiceID)}
                           title="View Details"
@@ -862,6 +929,102 @@ export const InvoicesPage: React.FC = () => {
 
             {/* Modal Scrollable Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+              {/* Invoice Type / Classification Selector */}
+              <div
+                className={`p-4 rounded-2xl border transition-all ${
+                  isInternal
+                    ? 'bg-blue-50/70 border-blue-200 ring-1 ring-blue-300'
+                    : 'bg-slate-50/80 border-slate-200'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Invoice Classification / Bill Type
+                      </label>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
+                          isInternal
+                            ? 'bg-blue-100 text-blue-800 border-blue-300'
+                            : 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                        }`}
+                      >
+                        {isInternal ? 'Internal Fleet Job (Expense GL 6900)' : 'Commercial Customer (Receivable GL 1200)'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {isInternal
+                        ? 'Internal Work: Company-owned fleet, machinery, or workshop tools. No client receivable created. Workshop labour charges are tracked in the Labour Bills Workflow.'
+                        : 'Commercial Bill: Standard external customer invoice. Posts to Trade Debtors (GL 1200) and tracks unpaid customer balance.'}
+                    </p>
+                  </div>
+
+                  <div className="inline-flex p-1 bg-white border border-slate-200 rounded-xl shadow-xs shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsInternal(false);
+                        if (billedToName === 'Internal / Own Fleet') setBilledToName('');
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        !isInternal
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Building2 className="w-3.5 h-3.5" /> Commercial (External)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsInternal(true);
+                        if (!billedToName.trim()) setBilledToName('Internal / Own Fleet');
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                        isInternal
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Truck className="w-3.5 h-3.5" /> Company Fleet (Internal)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Machine / Plant Chips when Internal is active */}
+                {isInternal && (
+                  <div className="mt-3 pt-3 border-t border-blue-100 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-bold text-blue-900 mr-1">Quick Select Plant:</span>
+                    <button
+                      type="button"
+                      onClick={() => setBilledToName('Internal / Own Fleet')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition border ${
+                        billedToName === 'Internal / Own Fleet'
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                          : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-100/60'
+                      }`}
+                    >
+                      Own Fleet (General)
+                    </button>
+                    {machines.map((m) => (
+                      <button
+                        key={m.MachineID}
+                        type="button"
+                        onClick={() => setBilledToName(m.Name)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition border ${
+                          billedToName === m.Name
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-100/60'
+                        }`}
+                      >
+                        {m.Name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Header Info Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
@@ -875,20 +1038,28 @@ export const InvoicesPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Billed To (Customer Name) *</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
+                    {isInternal ? 'Internal Machine / Vehicle / Unit *' : 'Billed To (Customer Name) *'}
+                  </label>
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="e.g. D.K. Silva or pick below"
+                      placeholder={
+                        isInternal
+                          ? 'e.g. HEX-18, 48-8072, or Internal / Own Fleet'
+                          : 'e.g. D.K. Silva or pick below'
+                      }
                       value={billedToName}
                       onChange={(e) => setBilledToName(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       list="customers-list"
                     />
                     <datalist id="customers-list">
-                      {customers.map((c) => (
-                        <option key={c.CustomerID} value={c.Name} />
-                      ))}
+                      {isInternal
+                        ? machines.map((m) => <option key={m.MachineID} value={m.Name} />)
+                        : customers
+                            .filter((c) => c.Kind !== 'internal')
+                            .map((c) => <option key={c.CustomerID} value={c.Name} />)}
                     </datalist>
                   </div>
                 </div>
@@ -1967,9 +2138,20 @@ export const InvoicesPage: React.FC = () => {
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    Invoice {selectedInvoice.InvoiceNo}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-800">
+                      Invoice {selectedInvoice.InvoiceNo}
+                    </h3>
+                    {selectedInvoice.IsInternal === 1 ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 uppercase tracking-wider">
+                        Internal Fleet
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 uppercase tracking-wider">
+                        Commercial
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500">
                     Billed on {formatDate(selectedInvoice.InvoiceDate)} to {selectedInvoice.BilledToName}
                   </p>
@@ -2071,15 +2253,23 @@ export const InvoicesPage: React.FC = () => {
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">
               <div>
                 {selectedInvoice.Status === 'Draft' && (
-                  <button
-                    onClick={() => {
-                      setCancelPromptId(selectedInvoice.InvoiceID);
-                      setCancelReason('');
-                    }}
-                    className="px-3 py-1.5 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-semibold transition"
-                  >
-                    Cancel Draft
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setCancelPromptId(selectedInvoice.InvoiceID);
+                        setCancelReason('');
+                      }}
+                      className="px-3 py-1.5 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-semibold transition"
+                    >
+                      Cancel Draft
+                    </button>
+                    <button
+                      onClick={() => handleEditDraft(selectedInvoice)}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Edit Draft
+                    </button>
+                  </div>
                 )}
               </div>
 

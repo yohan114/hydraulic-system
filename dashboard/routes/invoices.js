@@ -348,6 +348,13 @@ async function resolveOwnership(body) {
         isInternal = body.isInternal ? 1 : 0;
     }
 
+    if (isInternal && !customerId) {
+        const internalCust = await connection.query(`SELECT CustomerID FROM Customers WHERE Kind = 'internal' ORDER BY CustomerID ASC LIMIT 1`);
+        if (internalCust.length > 0) {
+            customerId = internalCust[0].CustomerID;
+        }
+    }
+
     return { customerId, machineId, isInternal };
 }
 
