@@ -298,6 +298,98 @@ async function evaluateTriggers(opts = {}) {
 }
 
 /**
+ * Create a Labour Bill from explicitly selected invoices
+ */
+async function createBillFromInvoices(invoiceIds, opts = {}) {
+  const db = connection._db;
+  if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+    const err = new Error('Please select at least one invoice to create a Labour Bill.');
+    err.code = 'NO_INVOICES_SELECTED';
+    err.httpStatus = 400;
+    throw err;
+  }
+
+  // Fetch all unbilled labour regardless of effective cutoff date
+  const { items: allItems } = fetchUnbilledLabour(db, { startDate: null });
+  const selectedSet = new Set(invoiceIds.map((id) => String(id)));
+
+  const selectedItems = allItems.filter(
+    (i) => selectedSet.has(String(i.InvoiceID)) || selectedSet.has(String(i.InvoiceNo))
+  );
+
+  if (selectedItems.length === 0) {
+    const err = new Error('None of the selected invoices have unbilled workshop labour.');
+    err.code = 'NO_UNBILLED_LABOUR';
+    err.httpStatus = 400;
+    throw err;
+  }
+
+  const totals = {
+    totalAmount: money.round2(selectedItems.reduce((sum, i) => sum + i.LineTotal, 0)),
+    jobCount: selectedItems.length,
+    crimping: money.round2(selectedItems.reduce((sum, i) => sum + i.Crimping, 0)),
+    welding: money.round2(selectedItems.reduce((sum, i) => sum + i.Welding, 0)),
+    lathe: money.round2(selectedItems.reduce((sum, i) => sum + i.Lathe, 0)),
+    tech: money.round2(selectedItems.reduce((sum, i) => sum + i.Technical, 0)),
+  };
+
+  const billNo = nextBillNo(db);
+  const periodFrom = selectedItems[0].InvoiceDate;
+  const periodTo = selectedItems[selectedItems.length - 1].InvoiceDate;
+  const contentHash = computeContentHash(selectedItems, totals);
+  const actor = opts.actor || 'system';
+  const role = opts.role || 'workshop_supervisor';
+  const triggerCodes = 'MANUAL_SELECT';
+  const triggerReason = opts.reason || `Manually created from ${selectedItems.length} selected jobs by ${actor}`;
+
+  const genesisPrevHash = '0'.repeat(64);
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const recordHash = computeApprovalRecordHash(
+    genesisPrevHash, 1, 'WORKSHOP', 'GENERATE', actor, now, contentHash, triggerReason
+  );
+
+  const billId = db.transaction(() => {
+    const billInfo = db.prepare(`
+      INSERT INTO LabourBills
+      (BillNo, Status, TriggerCodes, TriggerReason, TotalAmount, JobCount,
+       PeriodFrom, PeriodTo, ContentHash, CreatedAt, CreatedBy, UpdatedAt)
+      VALUES (?, 'GENERATED', ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), ?, datetime('now','localtime'))
+    `).run(billNo, triggerCodes, triggerReason, totals.totalAmount, totals.jobCount, periodFrom, periodTo, contentHash, actor);
+
+    const newBillId = billInfo.lastInsertRowid;
+
+    const insItem = db.prepare(`
+      INSERT INTO LabourBillItems
+      (BillID, InvoiceID, InvoiceNo, InvoiceDate, Customer, Crimping, Welding, Lathe, Technical, LineTotal)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const item of selectedItems) {
+      insItem.run(
+        newBillId, item.InvoiceID, item.InvoiceNo, item.InvoiceDate, item.Customer,
+        item.Crimping, item.Welding, item.Lathe, item.Technical, item.LineTotal
+      );
+    }
+
+    db.prepare(`
+      INSERT INTO LabourBillApprovals
+      (BillID, Seq, Stage, Action, ActorID, ActorRole, Note, StatusFrom, StatusTo, SignedHash, PrevHash, RecordHash, At)
+      VALUES (?, 1, 'WORKSHOP', 'GENERATE', ?, ?, ?, 'NONE', 'GENERATED', ?, ?, ?, ?)
+    `).run(newBillId, actor, role, triggerReason, contentHash, genesisPrevHash, recordHash, now);
+
+    return newBillId;
+  })();
+
+  return {
+    billId,
+    billNo,
+    totalAmount: totals.totalAmount,
+    jobCount: totals.jobCount,
+    bill: getBillDetails(billId).bill,
+  };
+}
+
+/**
  * Fetch bill details with items and approvals chain
  */
 function getBillDetails(billId) {
@@ -899,6 +991,7 @@ function updateSettings(patch, actor = 'admin') {
 module.exports = {
   fetchUnbilledLabour,
   evaluateTriggers,
+  createBillFromInvoices,
   getBillDetails,
   verifyBillIntegrity,
   removeJobFromBill,

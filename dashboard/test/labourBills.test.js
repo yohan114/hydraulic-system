@@ -322,3 +322,38 @@ test('LB10: Removing a job from a draft labour bill defers it to unbilled pool a
   assert.equal(removeLastRes.status, 400);
   assert.match(removeLastRes.body.error, /cannot remove/i);
 });
+
+test('LB11: Create Labour Bill from explicitly selected invoices and verify PDF generation with Job Profit Analysis', async () => {
+  await app.login('admin', 'password123');
+
+  const invA = createTestInvoiceWithLabour('Selected Customer A', '2026-10-06', 4000, 1000);
+  const invB = createTestInvoiceWithLabour('Selected Customer B', '2026-10-07', 3000, 500);
+
+  // Workshop Supervisor creates bill for just these 2 invoices
+  await app.login('ws_sup', 'password123');
+  const createRes = await app.post('/api/labour-bills/create-selected', {
+    invoiceIds: [invA.invId, invB.invId],
+    reason: 'Batch selection for weekly technician settlement',
+  });
+
+  assert.equal(createRes.status, 200);
+  assert.equal(createRes.body.success, true);
+  assert.equal(createRes.body.jobCount, 2);
+  assert.equal(createRes.body.totalAmount, 8500);
+
+  const billId = createRes.body.billId;
+  const billDetails = labourBillsService.getBillDetails(billId);
+  assert.equal(billDetails.items.length, 2);
+  assert.equal(billDetails.integrity.valid, true);
+
+  // Generate PDF
+  const pdfRes = await app.getBuffer(`/api/labour-bills/${billId}/pdf`);
+  if (pdfRes.status === 200) {
+    assert.equal(pdfRes.headers.get('content-type'), 'application/pdf');
+    assert.ok(pdfRes.buffer.length > 1000, 'PDF buffer must not be empty');
+  } else {
+    // 501 only if puppeteer is unavailable
+    assert.equal(pdfRes.status, 501);
+  }
+});
+

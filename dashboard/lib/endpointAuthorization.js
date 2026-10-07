@@ -26,7 +26,7 @@ const ROLE_PERMISSIONS = {
     'report.financial.view', 'report.financial.export', 'report.financial.reconcile', 'report.operational.view',
     'audit.security.view',
     'customer.manage', 'supplier.manage', 'pricing.manage', 'job.manage', 'procurement.manage',
-    'labourbill.view', 'labourbill.admin',
+    'labourbill.view', 'labourbill.admin', 'labourbill.certify',
   ]),
   cashier: new Set([
     'invoice.read', 'invoice.create', 'invoice.finalize', 'invoice.revise',
@@ -191,6 +191,7 @@ const POLICIES = [
   { method: 'GET', pattern: /^\/api\/labour-bills\/settings$/, permission: 'labourbill.view' },
   { method: 'PUT', pattern: /^\/api\/labour-bills\/settings$/, permission: 'labourbill.admin' },
   { method: 'POST', pattern: /^\/api\/labour-bills\/check-now$/, permission: 'labourbill.admin' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/create-selected$/, permission: 'labourbill.certify' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/\d+$/, permission: 'labourbill.view' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/\d+\/pdf$/, permission: 'labourbill.view' },
   { method: 'GET', pattern: /^\/api\/labour-bills\/\d+\/sealed$/, permission: 'labourbill.view' },

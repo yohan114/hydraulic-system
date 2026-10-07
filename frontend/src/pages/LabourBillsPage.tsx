@@ -25,7 +25,11 @@ import {
   Info,
   Loader2,
   LockKeyhole,
-  MinusCircle
+  MinusCircle,
+  Printer,
+  Download,
+  FileText,
+  TrendingUp
 } from 'lucide-react';
 
 interface LabourBillItem {
@@ -182,6 +186,26 @@ export const LabourBillsPage: React.FC = () => {
   const [sealedData, setSealedData] = useState<any | null>(null);
   const [loadingSealed, setLoadingSealed] = useState<boolean>(false);
 
+  // Manual Selection & Creation State
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
+  const [creatingSelected, setCreatingSelected] = useState<boolean>(false);
+
+  // Multi-Section PDF Export Modal State
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState<boolean>(false);
+  const [pdfSections, setPdfSections] = useState<{
+    voucher: boolean;
+    labourItems: boolean;
+    jobProfit: boolean;
+    approvals: boolean;
+    integrity: boolean;
+  }>({
+    voucher: true,
+    labourItems: true,
+    jobProfit: true,
+    approvals: true,
+    integrity: true,
+  });
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -315,6 +339,57 @@ export const LabourBillsPage: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  // Create Bill from Selected Invoices
+  const handleCreateFromSelected = async () => {
+    if (selectedInvoiceIds.length === 0) return;
+    const note = window.prompt(
+      `Create a new Labour Bill from the ${selectedInvoiceIds.length} selected job(s)?\n\nEnter optional creation note / trigger reason:`,
+      'Selected workshop jobs batch'
+    );
+    if (note === null) return;
+
+    setCreatingSelected(true);
+    try {
+      const res = await apiRequest<{
+        success: boolean;
+        billId: number;
+        billNo: string;
+        jobCount: number;
+        totalAmount: number;
+      }>('/labour-bills/create-selected', {
+        method: 'POST',
+        body: JSON.stringify({
+          invoiceIds: selectedInvoiceIds,
+          reason: note.trim() || 'Selected workshop jobs batch',
+        }),
+      });
+      alert(`Success! Created Labour Bill ${res.billNo} for ${res.jobCount} jobs (${formatLKR(res.totalAmount)}).`);
+      setSelectedInvoiceIds([]);
+      await loadData();
+      if (res.billId) {
+        await loadBillDetails(res.billId);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to create labour bill from selected jobs');
+    } finally {
+      setCreatingSelected(false);
+    }
+  };
+
+  // Download PDF Handler with selected sections
+  const handleDownloadPdf = (billId: number) => {
+    const activeKeys = Object.entries(pdfSections)
+      .filter(([_, enabled]) => enabled)
+      .map(([key]) => key);
+    if (activeKeys.length === 0) {
+      alert('Please select at least one section to include in the PDF report.');
+      return;
+    }
+    const url = `/api/labour-bills/${billId}/pdf?sections=${encodeURIComponent(activeKeys.join(','))}`;
+    window.open(url, '_blank');
+    setIsPdfModalOpen(false);
   };
 
   // Workflow Handlers
@@ -889,15 +964,86 @@ export const LabourBillsPage: React.FC = () => {
             <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
             <div className="text-xs text-amber-950 leading-relaxed">
               <span className="font-bold">Unpaid Workshop Labour Registry ({unbilledItems.length} jobs · {formatLKR(unbilledAllTotals?.totalAmount ?? (unbilledItems.reduce((s, i) => s + i.LineTotal, 0)))}):</span>{' '}
-              These finalized customer and internal jobs carry unpaid technician labour charges. Historical jobs from 20 Aug 2026 to 05 Oct 2026 are preserved with labour strictly unpaid and protected from automated lump-sum billing (Cutoff date: {settings?.EffectiveDate ? formatDate(settings.EffectiveDate) : 'None'}).
+              These finalized customer and internal jobs carry unpaid technician labour charges. Historical jobs from 20 Aug 2026 to 05 Oct 2026 are preserved with labour strictly unpaid and protected from automated lump-sum billing (Cutoff date: {settings?.EffectiveDate ? formatDate(settings.EffectiveDate) : 'None'}). Select any jobs using the checkboxes below to generate a custom Labour Bill voucher.
             </div>
           </div>
+
+          {/* Selection Action Toolbar when items are selected */}
+          {selectedInvoiceIds.length > 0 && (
+            <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 text-white rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl border border-indigo-700/50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="flex items-center gap-3">
+                <span className="px-3 py-1.5 rounded-xl bg-indigo-500/30 text-indigo-300 font-bold text-xs border border-indigo-400/30">
+                  {selectedInvoiceIds.length} Job{selectedInvoiceIds.length > 1 ? 's' : ''} Selected
+                </span>
+                <div>
+                  <div className="text-[11px] text-slate-300">Selected Labour Total:</div>
+                  <div className="text-base font-bold font-mono text-emerald-400">
+                    {formatLKR(
+                      unbilledItems
+                        .filter((i) => selectedInvoiceIds.includes(i.InvoiceID))
+                        .reduce((s, i) => s + i.LineTotal, 0)
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedInvoiceIds([])}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                >
+                  Clear Selection
+                </button>
+                {(isAdmin || role === 'workshop_supervisor' || role === 'manager') && (
+                  <button
+                    type="button"
+                    onClick={handleCreateFromSelected}
+                    disabled={creatingSelected}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/30 flex items-center gap-2 transition disabled:opacity-50"
+                  >
+                    {creatingSelected ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating Bill...
+                      </>
+                    ) : (
+                      <>
+                        <FileCheck className="w-4 h-4" />
+                        Create Labour Bill ({selectedInvoiceIds.length} Selected)
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <tr>
+                    <th className="py-3.5 px-3 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={
+                          filteredUnbilled.length > 0 &&
+                          filteredUnbilled.every((i) => selectedInvoiceIds.includes(i.InvoiceID))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const allFilteredIds = filteredUnbilled.map((i) => i.InvoiceID);
+                            setSelectedInvoiceIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
+                          } else {
+                            const currentFilteredIds = new Set(filteredUnbilled.map((i) => i.InvoiceID));
+                            setSelectedInvoiceIds((prev) => prev.filter((id) => !currentFilteredIds.has(id)));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        title="Select or deselect all visible jobs"
+                      />
+                    </th>
                     <th className="py-3.5 px-4">Invoice No</th>
                     <th className="py-3.5 px-4">Invoice Date</th>
                     <th className="py-3.5 px-4">Customer / Unit</th>
@@ -913,14 +1059,14 @@ export const LabourBillsPage: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                      <td colSpan={11} className="py-12 text-center text-slate-500">
                         <Loader2 className="w-6 h-6 text-amber-500 animate-spin mx-auto mb-2" />
                         Loading unpaid labour invoices...
                       </td>
                     </tr>
                   ) : filteredUnbilled.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                      <td colSpan={11} className="py-12 text-center text-slate-500">
                         <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
                         No unpaid labour invoices found for the selected filter.
                       </td>
@@ -928,8 +1074,35 @@ export const LabourBillsPage: React.FC = () => {
                   ) : (
                     filteredUnbilled.map((item) => {
                       const isHistorical = Boolean(settings?.EffectiveDate && item.InvoiceDate < settings.EffectiveDate);
+                      const isSelected = selectedInvoiceIds.includes(item.InvoiceID);
                       return (
-                        <tr key={item.InvoiceID} className="hover:bg-slate-50/70 transition">
+                        <tr
+                          key={item.InvoiceID}
+                          className={`hover:bg-slate-50/70 transition cursor-pointer ${
+                            isSelected ? 'bg-indigo-50/50 font-medium' : ''
+                          }`}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedInvoiceIds((prev) => prev.filter((id) => id !== item.InvoiceID));
+                            } else {
+                              setSelectedInvoiceIds((prev) => [...prev, item.InvoiceID]);
+                            }
+                          }}
+                        >
+                          <td className="py-3.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedInvoiceIds((prev) => [...prev, item.InvoiceID]);
+                                } else {
+                                  setSelectedInvoiceIds((prev) => prev.filter((id) => id !== item.InvoiceID));
+                                }
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
                               <span className="font-bold text-slate-900 font-mono">{item.InvoiceNo}</span>
@@ -1084,20 +1257,35 @@ export const LabourBillsPage: React.FC = () => {
                         </td>
 
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              loadBillDetails(b.BillID);
-                            }}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ml-auto transition ${
-                              needsMyAction
-                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
-                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                            }`}
-                          >
-                            <span>{needsMyAction ? 'Process' : 'View'}</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                loadBillDetails(b.BillID).then(() => {
+                                  setIsPdfModalOpen(true);
+                                });
+                              }}
+                              className="p-1.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 transition"
+                              title="Export PDF with Job Profit Analysis"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                loadBillDetails(b.BillID);
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                                needsMyAction
+                                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <span>{needsMyAction ? 'Process' : 'View'}</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1148,15 +1336,26 @@ export const LabourBillsPage: React.FC = () => {
                 )}
               </div>
 
-              <button
-                onClick={() => {
-                  setSelectedBillId(null);
-                  setBillDetails(null);
-                }}
-                className="p-2 hover:bg-slate-200/60 rounded-xl text-slate-500 hover:text-slate-700 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(true)}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2 transition shadow-sm"
+                  title="Generate multi-section Labour Bill PDF with Job Profit Analysis"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Export PDF (with Job Profit)</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedBillId(null);
+                    setBillDetails(null);
+                  }}
+                  className="p-2 hover:bg-slate-200/60 rounded-xl text-slate-500 hover:text-slate-700 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Modal Scrollable Body */}
@@ -1745,6 +1944,222 @@ export const LabourBillsPage: React.FC = () => {
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* 9. PDF Report Export with Job Profit Analysis Modal */}
+      {isPdfModalOpen && selectedBillId && billDetails && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150 my-6">
+            <div className="flex items-start justify-between border-b border-slate-200 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                  <Printer className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    Export Labour Bill & Job Profit Analysis PDF
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono">
+                    {billDetails.bill.BillNo} • {billDetails.items.length} Jobs • {formatLKR(billDetails.bill.TotalAmount)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPdfModalOpen(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Section Presets */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-600">Quick Selection Presets:</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPdfSections({
+                      voucher: true,
+                      labourItems: true,
+                      jobProfit: true,
+                      approvals: true,
+                      integrity: true,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition"
+                >
+                  All 5 Sections (Recommended)
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPdfSections({
+                      voucher: true,
+                      labourItems: true,
+                      jobProfit: false,
+                      approvals: true,
+                      integrity: true,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+                >
+                  Standard Voucher (No Profit)
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPdfSections({
+                      voucher: true,
+                      labourItems: false,
+                      jobProfit: true,
+                      approvals: true,
+                      integrity: false,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+                >
+                  Executive Profit Summary
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Section Checkboxes */}
+            <div className="space-y-2.5">
+              <label className="text-xs font-semibold text-slate-700">Customize Included PDF Sections:</label>
+
+              {/* Section 1: Voucher */}
+              <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                pdfSections.voucher ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={pdfSections.voucher}
+                  onChange={(e) => setPdfSections((prev) => ({ ...prev, voucher: e.target.checked }))}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    Section 1: Labour Bill Voucher & Summary
+                  </div>
+                  <div className="text-slate-500 text-[11px] mt-0.5">
+                    Includes bill metadata, period dates, total amount, settlement payee, and workshop certification sign-offs.
+                  </div>
+                </div>
+              </label>
+
+              {/* Section 2: Labour Items */}
+              <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                pdfSections.labourItems ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={pdfSections.labourItems}
+                  onChange={(e) => setPdfSections((prev) => ({ ...prev, labourItems: e.target.checked }))}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-indigo-600" />
+                    Section 2: Itemized Labour Charges Breakdown
+                  </div>
+                  <div className="text-slate-500 text-[11px] mt-0.5">
+                    Complete tabular breakdown of Crimping, Welding, Lathe Work, and Technical Charges for every job.
+                  </div>
+                </div>
+              </label>
+
+              {/* Section 3: Job Profit Analysis */}
+              <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                pdfSections.jobProfit ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={pdfSections.jobProfit}
+                  onChange={(e) => setPdfSections((prev) => ({ ...prev, jobProfit: e.target.checked }))}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                    Section 3: Job Profit Analysis (Cost vs Market Benchmark)
+                  </div>
+                  <div className="text-slate-500 text-[11px] mt-0.5">
+                    Compares Landed Material Costs vs Outside Benchmark Market Rates to calculate internal workshop profit margin %.
+                  </div>
+                </div>
+              </label>
+
+              {/* Section 4: Approvals */}
+              <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                pdfSections.approvals ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={pdfSections.approvals}
+                  onChange={(e) => setPdfSections((prev) => ({ ...prev, approvals: e.target.checked }))}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                    Section 4: Multi-Stage Certification & Approval Signatures Chain
+                  </div>
+                  <div className="text-slate-500 text-[11px] mt-0.5">
+                    Full audit trail for Workshop Supervisor, Operations Manager, and Head Office Accounts with actor notes.
+                  </div>
+                </div>
+              </label>
+
+              {/* Section 5: Integrity */}
+              <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                pdfSections.integrity ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={pdfSections.integrity}
+                  onChange={(e) => setPdfSections((prev) => ({ ...prev, integrity: e.target.checked }))}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                    Section 5: Cryptographic Content Hash & Security Seal
+                  </div>
+                  <div className="text-slate-500 text-[11px] mt-0.5">
+                    Verifiable SHA-256 Content Hash and AES-256 seal status to ensure audit tamper resistance.
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-200 pt-4 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">
+                Generated via executive Puppeteer PDF engine
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadPdf(billDetails.bill.BillID)}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition shadow-md shadow-indigo-600/20"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download PDF Report</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
