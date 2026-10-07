@@ -122,15 +122,31 @@ interface UnbilledData {
   tech: number;
 }
 
+interface UnbilledInvoiceItem {
+  InvoiceID: number;
+  InvoiceNo: string;
+  InvoiceDate: string;
+  Customer: string;
+  IsInternal?: boolean;
+  Crimping: number;
+  Welding: number;
+  Lathe: number;
+  Technical: number;
+  LineTotal: number;
+}
+
 export const LabourBillsPage: React.FC = () => {
   const { role, isAdmin } = useAuth();
 
   const [bills, setBills] = useState<LabourBill[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [unbilled, setUnbilled] = useState<UnbilledData | null>(null);
+  const [unbilledAllTotals, setUnbilledAllTotals] = useState<UnbilledData | null>(null);
+  const [unbilledItems, setUnbilledItems] = useState<UnbilledInvoiceItem[]>([]);
+  const [unbilledFilter, setUnbilledFilter] = useState<'all' | 'preserved' | 'eligible'>('all');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'my_actions' | 'in_progress' | 'ready_to_pay' | 'closed' | 'all'>('my_actions');
+  const [activeTab, setActiveTab] = useState<'my_actions' | 'in_progress' | 'ready_to_pay' | 'closed' | 'all' | 'unbilled'>('my_actions');
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
@@ -169,14 +185,28 @@ export const LabourBillsPage: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [billsRes, settingsRes] = await Promise.all([
-        apiRequest<{ bills: LabourBill[]; counts: Record<string, number>; unbilled: UnbilledData }>('/labour-bills'),
+      const [billsRes, settingsRes, unbilledRes] = await Promise.all([
+        apiRequest<{
+          bills: LabourBill[];
+          counts: Record<string, number>;
+          unbilled: UnbilledData;
+          unbilledAll?: UnbilledData;
+          unbilledItems?: UnbilledInvoiceItem[];
+        }>('/labour-bills'),
         apiRequest<Settings>('/labour-bills/settings'),
+        apiRequest<{
+          items: UnbilledInvoiceItem[];
+          totals: UnbilledData;
+          allTotals: UnbilledData;
+          allItems: UnbilledInvoiceItem[];
+        }>('/labour-bills/unbilled').catch(() => null),
       ]);
 
       setBills(billsRes.bills || []);
       setCounts(billsRes.counts || {});
       setUnbilled(billsRes.unbilled || null);
+      setUnbilledAllTotals(unbilledRes?.allTotals || billsRes.unbilledAll || null);
+      setUnbilledItems(unbilledRes?.allItems || unbilledRes?.items || billsRes.unbilledItems || []);
       setSettings(settingsRes);
       if (settingsRes) {
         setSettingsMinAmount(settingsRes.MinAmount);
@@ -498,6 +528,23 @@ export const LabourBillsPage: React.FC = () => {
     });
   }, [bills, activeTab, isAwaitingMyAction, statusFilter, search]);
 
+  // Filtered unbilled items
+  const filteredUnbilled = useMemo(() => {
+    return unbilledItems.filter((i) => {
+      const isHistorical = Boolean(settings?.EffectiveDate && i.InvoiceDate < settings.EffectiveDate);
+      if (unbilledFilter === 'preserved' && !isHistorical) return false;
+      if (unbilledFilter === 'eligible' && isHistorical) return false;
+
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const no = (i.InvoiceNo || '').toLowerCase();
+        const cust = (i.Customer || '').toLowerCase();
+        if (!no.includes(q) && !cust.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [unbilledItems, unbilledFilter, settings?.EffectiveDate, search]);
+
   const myActionCount = useMemo(() => {
     return bills.filter(isAwaitingMyAction).length;
   }, [bills, isAwaitingMyAction]);
@@ -649,11 +696,26 @@ export const LabourBillsPage: React.FC = () => {
       {/* 2. Key Metrics Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Unbilled Accrual */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Unbilled Accrual Pool</p>
-          <p className="text-2xl font-bold text-slate-900 mt-2">{formatLKR(currentAmt)}</p>
-          <p className="text-xs text-slate-500 mt-1">
-            {currentJobs} unbilled jobs waiting for bill generation
+        <div
+          onClick={() => setActiveTab('unbilled')}
+          className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm cursor-pointer hover:border-amber-400 hover:shadow-md transition group select-none"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-amber-600 transition">
+              Unbilled Accrual Pool
+            </p>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 group-hover:bg-amber-100 transition">
+              <Eye className="w-3 h-3 text-amber-600" /> View {unbilledItems.length || 0} Invoices
+            </span>
+          </div>
+          <p className="text-2xl font-bold text-slate-900 mt-2 group-hover:text-amber-600 transition">
+            {formatLKR(unbilledAllTotals?.totalAmount ?? (unbilledItems.length ? unbilledItems.reduce((s, i) => s + i.LineTotal, 0) : currentAmt))}
+          </p>
+          <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+            <span>{unbilledItems.length || currentJobs} unpaid jobs waiting</span>
+            {settings?.EffectiveDate && (
+              <span className="text-[10px] text-amber-600 font-medium">Cutoff: {formatDate(settings.EffectiveDate)}</span>
+            )}
           </p>
         </div>
 
@@ -756,6 +818,26 @@ export const LabourBillsPage: React.FC = () => {
           >
             All Bills ({bills.length})
           </button>
+
+          <div className="h-5 w-px bg-slate-200 mx-1 hidden sm:block" />
+
+          {/* Unpaid Labour Invoices List Tab */}
+          <button
+            onClick={() => setActiveTab('unbilled')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              activeTab === 'unbilled'
+                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+                : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-500" />
+            <span>Unpaid Labour Invoices</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+              activeTab === 'unbilled' ? 'bg-white text-amber-800' : 'bg-amber-200 text-amber-950'
+            }`}>
+              {unbilledItems.length}
+            </span>
+          </button>
         </div>
 
         {/* Search & Status Filter */}
@@ -764,149 +846,268 @@ export const LabourBillsPage: React.FC = () => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search bill # or date..."
+              placeholder={activeTab === 'unbilled' ? "Search invoice # or customer..." : "Search bill # or date..."}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             />
           </div>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20"
-          >
-            <option value="all">All Statuses</option>
-            <option value="GENERATED">Generated (Pending Supervisor)</option>
-            <option value="CERTIFIED">Certified (Pending OM)</option>
-            <option value="OM_APPROVED">OM Approved (Pending HO)</option>
-            <option value="HO_APPROVED">HO Approved (Pending Payout)</option>
-            <option value="RETURNED">Returned to Workshop</option>
-            <option value="CLOSED">Closed & Sealed</option>
-          </select>
+          {activeTab === 'unbilled' ? (
+            <select
+              value={unbilledFilter}
+              onChange={(e: any) => setUnbilledFilter(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20"
+            >
+              <option value="all">All Unpaid ({unbilledItems.length})</option>
+              <option value="preserved">Preserved Historical (Aug 20–Oct 5)</option>
+              <option value="eligible">Eligible for Auto-Bill</option>
+            </select>
+          ) : (
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="all">All Statuses</option>
+              <option value="GENERATED">Generated (Pending Supervisor)</option>
+              <option value="CERTIFIED">Certified (Pending OM)</option>
+              <option value="OM_APPROVED">OM Approved (Pending HO)</option>
+              <option value="HO_APPROVED">HO Approved (Pending Payout)</option>
+              <option value="RETURNED">Returned to Workshop</option>
+              <option value="CLOSED">Closed & Sealed</option>
+            </select>
+          )}
         </div>
       </div>
 
-      {/* 4. Bills Table */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              <tr>
-                <th className="py-3.5 px-4">Bill No</th>
-                <th className="py-3.5 px-4">Generated Date</th>
-                <th className="py-3.5 px-4 text-center">Jobs</th>
-                <th className="py-3.5 px-4 text-right">Crimping</th>
-                <th className="py-3.5 px-4 text-right">Welding / Lathe</th>
-                <th className="py-3.5 px-4 text-right">Total Amount</th>
-                <th className="py-3.5 px-4 text-center">Workflow Status</th>
-                <th className="py-3.5 px-4 text-center">Integrity</th>
-                <th className="py-3.5 px-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {loading ? (
-                <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
-                    <Loader2 className="w-6 h-6 text-indigo-500 animate-spin mx-auto mb-2" />
-                    Loading labour bills...
-                  </td>
-                </tr>
-              ) : filteredBills.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
-                    <FileCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                    No labour bills found in this view.
-                  </td>
-                </tr>
-              ) : (
-                filteredBills.map((b) => {
-                  const needsMyAction = isAwaitingMyAction(b);
-                  return (
-                    <tr
-                      key={b.BillID}
-                      className={`hover:bg-slate-50/70 transition cursor-pointer ${
-                        needsMyAction ? 'bg-amber-50/30 font-medium' : ''
-                      }`}
-                      onClick={() => loadBillDetails(b.BillID)}
-                    >
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 font-mono">{b.BillNo}</span>
-                          {needsMyAction && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 uppercase tracking-wider">
-                              Action Required
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          Period: {formatDate(b.PeriodFrom)} – {formatDate(b.PeriodTo)}
-                        </div>
-                      </td>
+      {/* 4. Main Section: Either Unpaid Labour Invoices Registry OR Generated Bills Table */}
+      {activeTab === 'unbilled' ? (
+        <div className="space-y-4">
+          {/* Informational Callout Banner */}
+          <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 shadow-xs">
+            <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-amber-950 leading-relaxed">
+              <span className="font-bold">Unpaid Workshop Labour Registry ({unbilledItems.length} jobs · {formatLKR(unbilledAllTotals?.totalAmount ?? (unbilledItems.reduce((s, i) => s + i.LineTotal, 0)))}):</span>{' '}
+              These finalized customer and internal jobs carry unpaid technician labour charges. Historical jobs from 20 Aug 2026 to 05 Oct 2026 are preserved with labour strictly unpaid and protected from automated lump-sum billing (Cutoff date: {settings?.EffectiveDate ? formatDate(settings.EffectiveDate) : 'None'}).
+            </div>
+          </div>
 
-                      <td className="py-3.5 px-4 whitespace-nowrap text-xs text-slate-500">
-                        {formatDate(b.CreatedAt)}
-                        <div className="text-[11px] text-slate-400">By: {b.CreatedBy}</div>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap font-semibold text-slate-800">
-                        {b.JobCount}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
-                        {formatLKR(b.CrimpingTotal)}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
-                        {formatLKR((b.WeldingTotal || 0) + (b.LatheTotal || 0))}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-sm font-bold text-slate-900">
-                        {formatLKR(b.TotalAmount)}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        {getStatusBadge(b.Status)}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${
-                            b.SealedBlob || b.IsSealed
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                          }`}
-                          title={`Content Hash: ${b.ContentHash?.slice(0, 16)}...`}
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          {b.SealedBlob || b.IsSealed ? 'Sealed & Safe' : 'Chain Intact'}
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            loadBillDetails(b.BillID);
-                          }}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ml-auto transition ${
-                            needsMyAction
-                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          <span>{needsMyAction ? 'Process' : 'View'}</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
+          <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3.5 px-4">Invoice No</th>
+                    <th className="py-3.5 px-4">Invoice Date</th>
+                    <th className="py-3.5 px-4">Customer / Unit</th>
+                    <th className="py-3.5 px-4 text-right">Crimping</th>
+                    <th className="py-3.5 px-4 text-right">Welding</th>
+                    <th className="py-3.5 px-4 text-right">Lathe</th>
+                    <th className="py-3.5 px-4 text-right">Technical</th>
+                    <th className="py-3.5 px-4 text-right">Total Labour</th>
+                    <th className="py-3.5 px-4 text-center">Labour Status</th>
+                    <th className="py-3.5 px-4 text-center">Billing Classification</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                        <Loader2 className="w-6 h-6 text-amber-500 animate-spin mx-auto mb-2" />
+                        Loading unpaid labour invoices...
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ) : filteredUnbilled.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                        <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                        No unpaid labour invoices found for the selected filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUnbilled.map((item) => {
+                      const isHistorical = Boolean(settings?.EffectiveDate && item.InvoiceDate < settings.EffectiveDate);
+                      return (
+                        <tr key={item.InvoiceID} className="hover:bg-slate-50/70 transition">
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-900 font-mono">{item.InvoiceNo}</span>
+                              {item.IsInternal && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800">
+                                  INTERNAL
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap text-xs text-slate-500">
+                            {formatDate(item.InvoiceDate)}
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap text-xs text-slate-800 font-medium max-w-xs truncate">
+                            {item.Customer}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
+                            {formatLKR(item.Crimping)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
+                            {formatLKR(item.Welding)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
+                            {formatLKR(item.Lathe)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
+                            {formatLKR(item.Technical)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-sm font-bold text-slate-900">
+                            {formatLKR(item.LineTotal)}
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              <Clock className="w-3 h-3 text-amber-500" /> Labour Unpaid
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            {isHistorical ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200" title="Protected from auto-billing per user instruction">
+                                Preserved (Aug 20 – Oct 5)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                Active Auto-Bill Pool
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        /* 4. Bills Table */
+        <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <tr>
+                  <th className="py-3.5 px-4">Bill No</th>
+                  <th className="py-3.5 px-4">Generated Date</th>
+                  <th className="py-3.5 px-4 text-center">Jobs</th>
+                  <th className="py-3.5 px-4 text-right">Crimping</th>
+                  <th className="py-3.5 px-4 text-right">Welding / Lathe</th>
+                  <th className="py-3.5 px-4 text-right">Total Amount</th>
+                  <th className="py-3.5 px-4 text-center">Workflow Status</th>
+                  <th className="py-3.5 px-4 text-center">Integrity</th>
+                  <th className="py-3.5 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-500">
+                      <Loader2 className="w-6 h-6 text-indigo-500 animate-spin mx-auto mb-2" />
+                      Loading labour bills...
+                    </td>
+                  </tr>
+                ) : filteredBills.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-500">
+                      <FileCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      No labour bills found in this view.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredBills.map((b) => {
+                    const needsMyAction = isAwaitingMyAction(b);
+                    return (
+                      <tr
+                        key={b.BillID}
+                        className={`hover:bg-slate-50/70 transition cursor-pointer ${
+                          needsMyAction ? 'bg-amber-50/30 font-medium' : ''
+                        }`}
+                        onClick={() => loadBillDetails(b.BillID)}
+                      >
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 font-mono">{b.BillNo}</span>
+                            {needsMyAction && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950 uppercase tracking-wider">
+                                Action Required
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            Period: {formatDate(b.PeriodFrom)} – {formatDate(b.PeriodTo)}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 whitespace-nowrap text-xs text-slate-500">
+                          {formatDate(b.CreatedAt)}
+                          <div className="text-[11px] text-slate-400">By: {b.CreatedBy}</div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap font-semibold text-slate-800">
+                          {b.JobCount}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
+                          {formatLKR(b.CrimpingTotal)}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-xs text-slate-600">
+                          {formatLKR((b.WeldingTotal || 0) + (b.LatheTotal || 0))}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono text-sm font-bold text-slate-900">
+                          {formatLKR(b.TotalAmount)}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          {getStatusBadge(b.Status)}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                              b.SealedBlob || b.IsSealed
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                            }`}
+                            title={`Content Hash: ${b.ContentHash?.slice(0, 16)}...`}
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            {b.SealedBlob || b.IsSealed ? 'Sealed & Safe' : 'Chain Intact'}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              loadBillDetails(b.BillID);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 ml-auto transition ${
+                              needsMyAction
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            <span>{needsMyAction ? 'Process' : 'View'}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* 5. Comprehensive Bill Details & Approval Modal */}
       {selectedBillId && (

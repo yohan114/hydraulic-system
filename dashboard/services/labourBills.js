@@ -127,7 +127,7 @@ function fetchUnbilledLabour(db, opts = {}) {
   }
 
   const rows = db.prepare(`
-    SELECT i.InvoiceID, i.InvoiceNo, i.InvoiceDate, i.BilledToName,
+    SELECT i.InvoiceID, i.InvoiceNo, i.InvoiceDate, i.BilledToName, i.IsInternal,
            ii.ItemDescription, ii.Qty, ii.Rate, ii.Amount
     FROM Invoices i
     JOIN InvoiceItems ii ON i.InvoiceID = ii.InvoiceID
@@ -149,6 +149,7 @@ function fetchUnbilledLabour(db, opts = {}) {
         InvoiceNo: r.InvoiceNo,
         InvoiceDate: String(r.InvoiceDate || '').slice(0, 10),
         Customer: r.BilledToName || 'Unknown',
+        IsInternal: Boolean(r.IsInternal),
         Crimping: 0,
         Welding: 0,
         Lathe: 0,
@@ -846,7 +847,8 @@ function listBills(query = {}) {
   }, {});
 
   const settings = getSettings();
-  const unbilled = fetchUnbilledLabour(db, { startDate: settings?.EffectiveDate || null }).totals;
+  const unbilledActive = fetchUnbilledLabour(db, { startDate: settings?.EffectiveDate || null });
+  const unbilledAll = fetchUnbilledLabour(db, { startDate: null });
 
   return {
     bills,
@@ -859,7 +861,11 @@ function listBills(query = {}) {
       closed: counts.CLOSED || 0,
       total: bills.length,
     },
-    unbilled,
+    unbilled: unbilledActive.totals,
+    unbilledAll: unbilledAll.totals,
+    unbilledItems: unbilledAll.items,
+    activeUnbilledItems: unbilledActive.items,
+    effectiveDate: settings?.EffectiveDate || null,
   };
 }
 

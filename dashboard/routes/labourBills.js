@@ -27,13 +27,17 @@ router.get('/api/labour-bills', async (req, res) => {
 router.get('/api/labour-bills/unbilled', async (req, res) => {
   try {
     const settings = labourBills.getSettings();
-    const includeHistorical = req.query.includeHistorical === 'true';
-    const startDate = includeHistorical ? null : (settings?.EffectiveDate || null);
-    const data = labourBills.fetchUnbilledLabour(connection._db, { startDate });
+    const allData = labourBills.fetchUnbilledLabour(connection._db, { startDate: null });
+    const activeData = labourBills.fetchUnbilledLabour(connection._db, { startDate: settings?.EffectiveDate || null });
     res.json({
-      ...data,
+      items: allData.items,
+      totals: allData.totals,
+      allTotals: allData.totals,
+      allItems: allData.items,
+      activeTotals: activeData.totals,
+      activeItems: activeData.items,
       effectiveDate: settings?.EffectiveDate || null,
-      filteredByEffectiveDate: Boolean(!includeHistorical && settings?.EffectiveDate),
+      filteredByEffectiveDate: Boolean(settings?.EffectiveDate),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
