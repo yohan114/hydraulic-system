@@ -48,7 +48,7 @@ interface WeldingRatesData {
 }
 
 const LATHE_PRESETS = [
-  { label: 'Lathe Charge', desc: 'Lathe Charge', rate: 500, unit: 'job' },
+  { label: 'Lathe Charge', desc: 'Lathe Charge', rate: 250, unit: 'Nos' },
   { label: 'Bushing Machining', desc: 'Bushing Machining & Turning', rate: 850, unit: 'pcs' },
   { label: 'Thread Repair', desc: 'Hydraulic Thread Repair / Re-threading', rate: 650, unit: 'job' },
   { label: 'Pin Fabrication', desc: 'Hardened Pin Machining & Turning', rate: 1200, unit: 'pcs' },
@@ -135,9 +135,9 @@ export const InvoicesPage: React.FC = () => {
 
   // Tab 3: Lathe Machining & Turning state
   const [latheDesc, setLatheDesc] = useState<string>('Lathe Charge');
-  const [latheUnit, setLatheUnit] = useState<string>('job');
+  const [latheUnit, setLatheUnit] = useState<string>('Nos');
   const [latheQty, setLatheQty] = useState<number>(1);
-  const [latheRate, setLatheRate] = useState<number>(500);
+  const [latheRate, setLatheRate] = useState<number>(250);
 
   // Tab 4: Technical Service state
   const [techDesc, setTechDesc] = useState<string>('Technical charges');
@@ -270,6 +270,12 @@ export const InvoicesPage: React.FC = () => {
 
   const handleOpenWorkshopModal = (tab: 'crimping' | 'welding' | 'lathe' | 'tech' = 'crimping') => {
     setWorkshopTab(tab);
+    if (tab === 'lathe') {
+      setLatheDesc('Lathe Charge');
+      setLatheRate(250);
+      setLatheUnit('Nos');
+      setLatheQty(1);
+    }
     setIsWorkshopModalOpen(true);
     if (crimpingRates.length === 0 || !weldingRates) {
       loadWorkshopRates();
@@ -1264,7 +1270,13 @@ export const InvoicesPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setWorkshopTab('lathe')}
+                onClick={() => {
+                  setWorkshopTab('lathe');
+                  if (latheDesc === 'Lathe Charge' && (latheRate === 500 || !latheRate)) {
+                    setLatheRate(250);
+                    setLatheUnit('Nos');
+                  }
+                }}
                 className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
                   workshopTab === 'lathe'
                     ? 'bg-cyan-600 text-white shadow-sm'
@@ -1737,9 +1749,9 @@ export const InvoicesPage: React.FC = () => {
                         onChange={(e) => setLatheUnit(e.target.value)}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
                       >
+                        <option value="Nos">Nos (Items / Standard)</option>
                         <option value="job">job (Fixed Job)</option>
                         <option value="hrs">hrs (Hourly)</option>
-                        <option value="Nos">Nos (Items)</option>
                         <option value="pcs">pcs (Pieces)</option>
                       </select>
                     </div>
