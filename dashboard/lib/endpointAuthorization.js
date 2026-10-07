@@ -26,6 +26,7 @@ const ROLE_PERMISSIONS = {
     'report.financial.view', 'report.financial.export', 'report.financial.reconcile', 'report.operational.view',
     'audit.security.view',
     'customer.manage', 'supplier.manage', 'pricing.manage', 'job.manage', 'procurement.manage',
+    'labourbill.view', 'labourbill.admin',
   ]),
   cashier: new Set([
     'invoice.read', 'invoice.create', 'invoice.finalize', 'invoice.revise',
@@ -43,6 +44,32 @@ const ROLE_PERMISSIONS = {
     'journal.read',
     'report.financial.view',
     'report.operational.view',
+  ]),
+  workshop_supervisor: new Set([
+    'labourbill.view', 'labourbill.certify',
+    'report.operational.view', 'job.manage',
+  ]),
+  operations_manager: new Set([
+    'labourbill.view', 'labourbill.approve.om',
+    'report.operational.view', 'job.manage',
+  ]),
+  ho_accounts: new Set([
+    'labourbill.view', 'labourbill.approve.ho',
+    'report.financial.view', 'report.operational.view', 'journal.read',
+  ]),
+  dgm: new Set([
+    'labourbill.view',
+    'report.financial.view', 'report.operational.view',
+    'invoice.read', 'journal.read', 'inventory.read',
+  ]),
+  chairman: new Set([
+    'labourbill.view',
+    'report.financial.view', 'report.operational.view',
+    'invoice.read', 'journal.read', 'inventory.read',
+  ]),
+  workshop_accounts: new Set([
+    'labourbill.view', 'labourbill.pay',
+    'receipt.read', 'receipt.create', 'report.operational.view', 'journal.read',
   ]),
 };
 
@@ -157,6 +184,20 @@ const POLICIES = [
   { method: 'ALL', pattern: /^\/api\/supplier-payments(\/.*)?$/, permission: 'procurement.manage' },
   { method: 'GET', pattern: /^\/api\/payables(\/.*)?$/, permission: 'procurement.manage' },
   { method: 'GET', pattern: /^\/api\/procurement(\/.*)?$/, permission: 'procurement.manage' },
+
+  // --- Workshop Labour Bills & Approvals ---
+  { method: 'GET', pattern: /^\/api\/labour-bills$/, permission: 'labourbill.view' },
+  { method: 'GET', pattern: /^\/api\/labour-bills\/settings$/, permission: 'labourbill.view' },
+  { method: 'PUT', pattern: /^\/api\/labour-bills\/settings$/, permission: 'labourbill.admin' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/check-now$/, permission: 'labourbill.admin' },
+  { method: 'GET', pattern: /^\/api\/labour-bills\/\d+$/, permission: 'labourbill.view' },
+  { method: 'GET', pattern: /^\/api\/labour-bills\/\d+\/pdf$/, permission: 'labourbill.view' },
+  { method: 'GET', pattern: /^\/api\/labour-bills\/\d+\/sealed$/, permission: 'labourbill.view' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/certify$/, permission: 'labourbill.certify' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/approve-om$/, permission: 'labourbill.approve.om' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/approve-ho$/, permission: 'labourbill.approve.ho' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/reject$/, permission: 'labourbill.view' },
+  { method: 'POST', pattern: /^\/api\/labour-bills\/\d+\/pay$/, permission: 'labourbill.pay' },
 ];
 
 /**

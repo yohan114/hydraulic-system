@@ -13,7 +13,11 @@ const TOKEN_TTL_SECONDS = 12 * 60 * 60;
 
 // The three roles, most→least privileged. Anything unrecognised is treated as
 // the built-in admin (covers legacy rows created before roles existed).
-const ROLES = ['admin', 'manager', 'cashier', 'viewer'];
+const ROLES = [
+  'admin', 'manager', 'cashier', 'viewer',
+  'workshop_supervisor', 'operations_manager', 'ho_accounts',
+  'dgm', 'chairman', 'workshop_accounts'
+];
 function normaliseRole(r) { return ROLES.includes(r) ? r : 'admin'; }
 
 // Persisted signing secret. Lives one level up from routes/ (repo dashboard/).
@@ -211,8 +215,9 @@ function viewerReadOnlyGuard(req, res, next) {
     if (!AUTH_ENABLED) return next();
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
     if (req.path.startsWith('/api/auth/')) return next(); // login/status/change-password
-    if (roleOf(req) === 'viewer') {
-        return res.status(403).json({ error: 'Viewers have read-only access.', code: 'FORBIDDEN' });
+    const currentRole = roleOf(req);
+    if (currentRole === 'viewer' || currentRole === 'dgm' || currentRole === 'chairman') {
+        return res.status(403).json({ error: 'Read-only access: mutating operations are prohibited for this role.', code: 'FORBIDDEN' });
     }
     next();
 }

@@ -15,7 +15,8 @@ import {
   ChevronUp,
   Percent,
   Layers,
-  Sparkles
+  Sparkles,
+  Lock
 } from 'lucide-react';
 
 export const JobProfitPage: React.FC = () => {
@@ -356,25 +357,39 @@ export const JobProfitPage: React.FC = () => {
                         </td>
                         <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           {techCharges > 0 ? (
-                            <button
-                              onClick={() => handleToggleLabourPaid(invNo, techPaid)}
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold transition ${
-                                techPaid
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
-                              }`}
-                              title="Click to toggle technician labour settlement"
-                            >
-                              {techPaid ? (
-                                <>
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Settled
-                                </>
-                              ) : (
-                                <>
-                                  <Clock className="w-3 h-3 text-amber-600" /> {formatLKR(techCharges)} Accrued
-                                </>
-                              )}
-                            </button>
+                            row.labourBill ? (
+                              <span
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold ${
+                                  row.labourBill.status === 'CLOSED'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                }`}
+                                title={`Managed by Labour Bill ${row.labourBill.billNo} (${row.labourBill.status})`}
+                              >
+                                <Lock className="w-3 h-3" />
+                                {row.labourBill.billNo}
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleLabourPaid(invNo, techPaid)}
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold transition ${
+                                  techPaid
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                                }`}
+                                title="Click to toggle technician labour settlement"
+                              >
+                                {techPaid ? (
+                                  <>
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Settled
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock className="w-3 h-3 text-amber-600" /> {formatLKR(techCharges)} Accrued
+                                  </>
+                                )}
+                              </button>
+                            )
                           ) : (
                             <span className="text-slate-400 text-xs">—</span>
                           )}

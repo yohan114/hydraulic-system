@@ -319,7 +319,7 @@ export interface BalanceSheet {
 export interface UserAccount {
   UserID: number;
   Username: string;
-  Role: 'admin' | 'manager' | 'cashier' | 'viewer';
+  Role: import('./auth').UserRole;
   IsActive: boolean;
   AuthVersion: number;
   CreatedAt: string;

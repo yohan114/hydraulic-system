@@ -12,6 +12,7 @@ import {
   Users,
   LogOut,
   Laptop,
+  FileCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -21,24 +22,29 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentSection, onNavigate, onOpenSessions }) => {
-  const { username, role, logout, isManager, isAdmin, sessions } = useAuth();
+  const { username, role, logout, isAdmin, sessions } = useAuth();
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, minRole: 'viewer' },
-    { id: 'invoices', label: 'Invoices & Billing', icon: Receipt, minRole: 'viewer' },
-    { id: 'jobs', label: 'Workshop Jobs', icon: Wrench, minRole: 'cashier' },
-    { id: 'inventory', label: 'Stock & Inventory', icon: Package, minRole: 'viewer' },
-    { id: 'job-profit', label: 'Job Profit Analysis', icon: TrendingUp, minRole: 'manager' },
-    { id: 'procurement', label: 'Procurement & Orders', icon: ShoppingCart, minRole: 'manager' },
-    { id: 'ledger', label: 'Accounting & Ledger', icon: BookOpen, minRole: 'admin' },
-    { id: 'users', label: 'Users & Roles', icon: Users, minRole: 'admin' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'invoices', label: 'Invoices & Billing', icon: Receipt },
+    { id: 'jobs', label: 'Workshop Jobs', icon: Wrench },
+    { id: 'inventory', label: 'Stock & Inventory', icon: Package },
+    { id: 'job-profit', label: 'Job Profit Analysis', icon: TrendingUp },
+    { id: 'labour-bills', label: 'Labour Bills Workflow', icon: FileCheck },
+    { id: 'procurement', label: 'Procurement & Orders', icon: ShoppingCart },
+    { id: 'ledger', label: 'Accounting & Ledger', icon: BookOpen },
+    { id: 'users', label: 'Users & Roles', icon: Users },
   ];
 
   const allowedItems = navItems.filter((item) => {
-    if (item.minRole === 'viewer') return true;
-    if (item.minRole === 'cashier') return role === 'cashier' || isManager;
-    if (item.minRole === 'manager') return isManager;
-    if (item.minRole === 'admin') return isAdmin;
+    // Executive / Admin sees all navigation tabs
+    if (isAdmin || role === 'dgm' || role === 'chairman') return true;
+    if (item.id === 'dashboard' || item.id === 'invoices' || item.id === 'inventory' || item.id === 'labour-bills') return true;
+    if (item.id === 'jobs') return role === 'cashier' || role === 'manager' || role === 'workshop_supervisor' || role === 'operations_manager';
+    if (item.id === 'job-profit') return role === 'manager' || role === 'workshop_supervisor' || role === 'operations_manager' || role === 'ho_accounts' || role === 'workshop_accounts';
+    if (item.id === 'procurement') return role === 'manager' || role === 'operations_manager';
+    if (item.id === 'ledger') return role === 'ho_accounts' || role === 'workshop_accounts';
+    if (item.id === 'users') return false;
     return false;
   });
 

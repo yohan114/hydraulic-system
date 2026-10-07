@@ -64,7 +64,7 @@ router.post('/api/job-profit/mark-paid', async (req, res) => {
     const changed = await jobProfit.markPaid(nums, !!b.paid);
     res.json({ success: true, changed });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
   }
 });
 

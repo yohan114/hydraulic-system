@@ -11,6 +11,7 @@ import { JobProfitPage } from './pages/JobProfitPage';
 import { ProcurementPage } from './pages/ProcurementPage';
 import { LedgerPage } from './pages/LedgerPage';
 import { UsersPage } from './pages/UsersPage';
+import { LabourBillsPage } from './pages/LabourBillsPage';
 import { SessionsModal } from './components/auth/SessionsModal';
 import { Loader2 } from 'lucide-react';
 
@@ -43,6 +44,7 @@ const MainLayout: React.FC = () => {
     procurement: 'Procurement & Purchase Orders',
     ledger: 'General Ledger & Financial Accounting',
     users: 'Staff User & Role Administration',
+    'labour-bills': 'Automated Labour Bills & Workflow',
   };
 
   const renderContent = () => {
@@ -57,6 +59,8 @@ const MainLayout: React.FC = () => {
         return <InventoryPage />;
       case 'job-profit':
         return <JobProfitPage />;
+      case 'labour-bills':
+        return <LabourBillsPage />;
       case 'procurement':
         return <ProcurementPage />;
       case 'ledger':

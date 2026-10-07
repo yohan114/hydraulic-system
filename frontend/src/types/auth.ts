@@ -1,4 +1,14 @@
-export type UserRole = 'admin' | 'manager' | 'cashier' | 'viewer';
+export type UserRole =
+  | 'admin'
+  | 'manager'
+  | 'cashier'
+  | 'viewer'
+  | 'workshop_supervisor'
+  | 'operations_manager'
+  | 'ho_accounts'
+  | 'dgm'
+  | 'chairman'
+  | 'workshop_accounts';
 
 export interface UserSession {
   sessionId: string;

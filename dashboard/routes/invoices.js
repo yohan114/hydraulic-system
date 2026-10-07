@@ -566,6 +566,13 @@ router.post('/api/invoices/finalize', async (req, res) => {
         if (key) {
             recordIdempotency(connection._db, key, actor, 'finalize_invoice', body, 200, resp);
         }
+
+        // Asynchronous check for workshop labour bill generation triggers
+        try {
+            const labourBills = require('../services/labourBills');
+            labourBills.evaluateTriggers({ actor: 'system' }).catch((e) => console.warn('Auto labour bill check:', e.message));
+        } catch (_) {}
+
         res.json(resp);
     } catch (err) {
         res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });

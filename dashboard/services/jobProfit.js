@@ -109,6 +109,17 @@ async function jobProfitData(opts = {}) {
     byInv.get(it.InvoiceID).push(it);
   }
 
+  const billedRows = await connection.query(`
+    SELECT lbi.InvoiceID, lb.BillID, lb.BillNo, lb.Status AS BillStatus
+    FROM LabourBillItems lbi
+    JOIN LabourBills lb ON lbi.BillID = lb.BillID
+    WHERE lbi.InvoiceID IN (${ids.join(',')})
+  `).catch(() => []);
+  const billByInv = new Map();
+  for (const b of billedRows) {
+    billByInv.set(b.InvoiceID, { billId: b.BillID, billNo: b.BillNo, status: b.BillStatus });
+  }
+
   const rows = invs.map((inv) => {
     const lines = (byInv.get(inv.InvoiceID) || []).map((it) => {
       const qty = money.num(it.Qty);
@@ -193,6 +204,7 @@ async function jobProfitData(opts = {}) {
       materialCost: t.ourCost,
       techCharges,
       techPaid: !!inv.TechChargePaid,
+      labourBill: billByInv.get(inv.InvoiceID) || null,
       lines,
     };
   });
@@ -254,6 +266,21 @@ async function unpaidSummary() {
 async function markPaid(invoiceNumbers, paid) {
   if (!Array.isArray(invoiceNumbers) || !invoiceNumbers.length) return 0;
   const list = invoiceNumbers.map((n) => sql.q(String(n))).join(', ');
+
+  // Prevent bypass: if an invoice is locked in a Labour Bill, it must be settled through the bill
+  const locked = await connection.query(`
+    SELECT lbi.InvoiceNo, lb.BillNo, lb.Status
+    FROM LabourBillItems lbi
+    JOIN LabourBills lb ON lbi.BillID = lb.BillID
+    WHERE lbi.InvoiceNo IN (${list})
+  `).catch(() => []);
+  if (locked.length > 0) {
+    const err = new Error(`Invoice ${locked[0].InvoiceNo} is locked under Labour Bill ${locked[0].BillNo} (${locked[0].Status}). Settle or reject through the Labour Bill approval workflow.`);
+    err.code = 'INVOICE_LOCKED_IN_LABOUR_BILL';
+    err.httpStatus = 409;
+    throw err;
+  }
+
   const info = await connection.execute(
     `UPDATE Invoices SET TechChargePaid = ${paid ? 1 : 0} WHERE InvoiceNo IN (${list})`
   );

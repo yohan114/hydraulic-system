@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { UserAccount } from '../types/models';
+import { UserRole } from '../types/auth';
 import { formatDate } from '../utils/format';
 import { RoleBadge } from '../components/common/Badge';
 import {
@@ -28,7 +29,7 @@ export const UsersPage: React.FC = () => {
   // Form Fields
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');
-  const [role, setRole] = useState<'admin' | 'manager' | 'cashier' | 'viewer'>('cashier');
+  const [role, setRole] = useState<UserRole>('cashier');
   const [isActive, setIsActive] = useState<boolean>(true);
 
   const loadUsers = useCallback(async () => {
@@ -294,6 +295,12 @@ export const UsersPage: React.FC = () => {
                 >
                   <option value="cashier">Cashier (Billing & Job Cards - Wholesale Costs Masked)</option>
                   <option value="manager">Manager (Billing, Inventory, Job Profit & Procurement)</option>
+                  <option value="workshop_supervisor">Workshop Supervisor (Certify Labour Bills)</option>
+                  <option value="operations_manager">Operations Manager (Approve Labour Bills)</option>
+                  <option value="ho_accounts">Head Office Accounts (Certify & Final Approve Labour Bills)</option>
+                  <option value="workshop_accounts">Workshop Accounts (Disburse Labour Payout & Seal)</option>
+                  <option value="dgm">Deputy General Manager / DGM (Executive View-Only)</option>
+                  <option value="chairman">Chairman (Executive View-Only)</option>
                   <option value="admin">Admin (Full Access & User Administration)</option>
                   <option value="viewer">Viewer (Read-only)</option>
                 </select>
