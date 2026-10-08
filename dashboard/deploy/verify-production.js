@@ -68,59 +68,67 @@ async function verify() {
 
   // 3. Database integrity checks via better-sqlite3
   let db;
+  let Database;
   try {
-    const Database = require('better-sqlite3');
-    db = new Database(DB_PATH, { readonly: false });
+    Database = require('better-sqlite3');
+  } catch (_) {
+    warn('Node Dependencies', "Module 'better-sqlite3' not yet installed. Run 'npm install' or proceed to 'setup-vps.sh' (which installs dependencies automatically)");
+  }
 
-    // SQLite PRAGMA integrity_check
-    const integrityRow = db.pragma('integrity_check');
-    const integrityRes = integrityRow[0] ? Object.values(integrityRow[0])[0] : 'unknown';
-    if (integrityRes === 'ok') {
-      pass('SQLite Integrity Check', 'PRAGMA integrity_check = ok');
-    } else {
-      fail('SQLite Integrity Check', `Corruption detected: ${JSON.stringify(integrityRow)}`);
-    }
+  if (Database) {
+    try {
+      db = new Database(DB_PATH, { readonly: false });
 
-    // SQLite PRAGMA foreign_key_check
-    const fkErrors = db.pragma('foreign_key_check');
-    if (fkErrors.length === 0) {
-      pass('Foreign Key Consistency', 'Zero orphaned foreign key references');
-    } else {
-      warn('Foreign Key Consistency', `${fkErrors.length} potential FK anomalies found`);
-    }
+      // SQLite PRAGMA integrity_check
+      const integrityRow = db.pragma('integrity_check');
+      const integrityRes = integrityRow[0] ? Object.values(integrityRow[0])[0] : 'unknown';
+      if (integrityRes === 'ok') {
+        pass('SQLite Integrity Check', 'PRAGMA integrity_check = ok');
+      } else {
+        fail('SQLite Integrity Check', `Corruption detected: ${JSON.stringify(integrityRow)}`);
+      }
 
-    // 4. Critical tables verification
-    const criticalTables = [
-      'Inventory', 'Invoices', 'InvoiceItems', 'Payments',
-      'Users', 'JobCards', 'JobCardItems', 'Quotations', 'JobLabour',
-      'LabourBills', 'LabourBillItems', 'Accounts',
-      'JournalEntries', 'SecurityAuditLog', 'Periods'
-    ];
-    const missingTables = [];
-    for (const tbl of criticalTables) {
-      const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(tbl);
-      if (!exists) missingTables.push(tbl);
-    }
-    if (missingTables.length === 0) {
-      pass('Database Tables Schema', `All ${criticalTables.length} required enterprise tables exist`);
-    } else {
-      fail('Database Tables Schema', `Missing tables: ${missingTables.join(', ')}`);
-    }
+      // SQLite PRAGMA foreign_key_check
+      const fkErrors = db.pragma('foreign_key_check');
+      if (fkErrors.length === 0) {
+        pass('Foreign Key Consistency', 'Zero orphaned foreign key references');
+      } else {
+        warn('Foreign Key Consistency', `${fkErrors.length} potential FK anomalies found`);
+      }
 
-    // 5. Admin user account check
-    const userCount = db.prepare('SELECT COUNT(*) AS c FROM Users').get().c;
-    const adminCount = db.prepare("SELECT COUNT(*) AS c FROM Users WHERE Role='admin'").get().c;
-    if (adminCount > 0) {
-      pass('User Access Security', `${userCount} total user(s) configured (${adminCount} admin account)`);
-    } else if (userCount > 0) {
-      warn('User Access Security', `${userCount} user(s) found but no role='admin' assigned`);
-    } else {
-      warn('User Access Security', 'No users found. Will rely on bootstrap BILLING_PASSWORD on first login');
+      // 4. Critical tables verification
+      const criticalTables = [
+        'Inventory', 'Invoices', 'InvoiceItems', 'Payments',
+        'Users', 'JobCards', 'JobCardItems', 'Quotations', 'JobLabour',
+        'LabourBills', 'LabourBillItems', 'Accounts',
+        'JournalEntries', 'SecurityAuditLog', 'Periods'
+      ];
+      const missingTables = [];
+      for (const tbl of criticalTables) {
+        const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(tbl);
+        if (!exists) missingTables.push(tbl);
+      }
+      if (missingTables.length === 0) {
+        pass('Database Tables Schema', `All ${criticalTables.length} required enterprise tables exist`);
+      } else {
+        fail('Database Tables Schema', `Missing tables: ${missingTables.join(', ')}`);
+      }
+
+      // 5. Admin user account check
+      const userCount = db.prepare('SELECT COUNT(*) AS c FROM Users').get().c;
+      const adminCount = db.prepare("SELECT COUNT(*) AS c FROM Users WHERE Role='admin'").get().c;
+      if (adminCount > 0) {
+        pass('User Access Security', `${userCount} total user(s) configured (${adminCount} admin account)`);
+      } else if (userCount > 0) {
+        warn('User Access Security', `${userCount} user(s) found but no role='admin' assigned`);
+      } else {
+        warn('User Access Security', 'No users found. Will rely on bootstrap BILLING_PASSWORD on first login');
+      }
+    } catch (err) {
+      fail('Database Connection', err.message);
+    } finally {
+      if (db) db.close();
     }
-  } catch (err) {
-    fail('Database Connection', err.message);
-  } finally {
-    if (db) db.close();
   }
 
   // 6. Modern React Frontend Build
