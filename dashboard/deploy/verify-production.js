@@ -156,6 +156,18 @@ async function verify() {
     fail('Backup Directory Permissions', `Cannot write to ${backupDir}: ${err.message}`);
   }
 
+  // 7b. PM2 logs directory check
+  const logsDir = path.join(DASHBOARD_DIR, 'logs');
+  try {
+    if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+    const testLogFile = path.join(logsDir, '.write-test');
+    fs.writeFileSync(testLogFile, 'ok');
+    fs.unlinkSync(testLogFile);
+    pass('PM2 Log Directory Permissions', `Writable at ${logsDir}`);
+  } catch (err) {
+    fail('PM2 Log Directory Permissions', `Cannot write to ${logsDir}: ${err.message}`);
+  }
+
   // 8. Environment Configuration
   const envPath = path.join(DASHBOARD_DIR, '.env');
   if (fs.existsSync(envPath)) {
