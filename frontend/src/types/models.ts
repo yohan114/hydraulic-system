@@ -273,6 +273,29 @@ export interface Account {
   Balance: number;
 }
 
+export interface AccountLedgerLine {
+  entryNo: string;
+  date: string;
+  memo: string;
+  entryMemo?: string | null;
+  lineMemo?: string | null;
+  sourceType: string;
+  sourceId?: string | number | null;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface AccountLedgerResponse {
+  account: {
+    code: string;
+    name: string;
+    type: string;
+  };
+  lines: AccountLedgerLine[];
+  closing: number;
+}
+
 export interface JournalEntry {
   JournalID: number;
   EntryDate: string;

@@ -210,10 +210,15 @@ function accountLedger(code, range = {}) {
   let running = 0;
   const lines = rows.map((r) => {
     running = money.round2(running + ledger.signedBalance(acct.Type, r.Debit, r.Credit));
+    const combinedMemo = r.entryMemo && r.lineMemo && r.entryMemo !== r.lineMemo
+      ? `${r.entryMemo} (${r.lineMemo})`
+      : (r.entryMemo || r.lineMemo || '—');
     return {
       entryNo: r.EntryNo,
       date: r.EntryDate,
-      memo: r.lineMemo || r.entryMemo,
+      memo: combinedMemo,
+      entryMemo: r.entryMemo,
+      lineMemo: r.lineMemo,
       sourceType: r.SourceType,
       sourceId: r.SourceID,
       debit: money.round2(r.Debit),
