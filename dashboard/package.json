@@ -8,7 +8,8 @@
     "migrate": "node migrate.js",
     "backup": "node backup-cli.js",
     "test": "node --test",
-    "migrate:status": "node migrate.js --dry-run"
+    "migrate:status": "node migrate.js --dry-run",
+    "verify:prod": "node deploy/verify-production.js"
   },
   "keywords": [],
   "author": "",

@@ -72,7 +72,7 @@ app.use((req, res, next) => {
 // Static assets (non-/api paths) are always served.
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api/')) return next();
-  if (req.path === '/api/auth/login' || req.path === '/api/auth/status' || req.path === '/api/auth/logout') return next();
+  if (req.path === '/api/auth/login' || req.path === '/api/auth/status' || req.path === '/api/auth/logout' || req.path === '/api/health') return next();
   return requireAuth(req, res, next);
 });
 
@@ -105,6 +105,21 @@ app.get('/classic', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Operational health check for VPS / Docker / Uptime monitoring
+app.get('/api/health', (req, res) => {
+  try {
+    const row = connection._db.prepare('SELECT 1 AS ok').get();
+    res.json({
+      status: 'ok',
+      database: row && row.ok === 1 ? 'connected' : 'degraded',
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(503).json({ status: 'error', database: 'disconnected', error: err.message });
+  }
+});
+
 // Feature routers — each owns its own /api/... paths.
 app.use(authRouter);
 app.use(require('./routes/inventory'));
@@ -128,7 +143,7 @@ app.use(require('./routes/labourBills'));
 // SPA HTML5 history fallback for client-side React routes
 if (hasViteBuild) {
   app.use((req, res, next) => {
-    if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api/')) return next();
     res.sendFile('index.html', { root: distPath });
   });
 }

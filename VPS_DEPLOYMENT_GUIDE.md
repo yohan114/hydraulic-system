@@ -69,19 +69,39 @@ In your DNS provider (Cloudflare, GoDaddy, Namecheap):
 ---
 
 ### Step 3.2: Transfer Project Files to the VPS
-From your local computer (PowerShell):
 
+**Option A (Recommended — Git Clone)**:
+On your VPS terminal:
+```bash
+git clone https://github.com/yohan114/hydraulic-system.git /var/www/hydraulic-system
+cd /var/www/hydraulic-system
+```
+*(If your `hydraulic.db` contains your latest local production data, upload your SQLite file to the VPS:)*
 ```powershell
-# Upload the project directory to the VPS:
-scp -r "D:\hy 1" root@<YOUR_VPS_IP>:/var/www/hydraulic-system
+# From local Windows PowerShell:
+scp "hydraulic.db" root@<YOUR_VPS_IP>:/var/www/hydraulic-system/hydraulic.db
 ```
 
-*(Ensure `hydraulic.db` and the `dashboard` folder are transferred).*
+**Option B (Direct SCP Upload)**:
+From your local Windows computer (PowerShell):
+```powershell
+scp -r "C:\Users\HP\.gemini\antigravity\worktrees\dashboard\create_super_plan" root@<YOUR_VPS_IP>:/var/www/hydraulic-system
+```
 
 ---
 
-### Step 3.3: Run the Hardened Automated Setup Script
-Log in to your VPS via SSH and run the setup script:
+### Step 3.3: Run the Pre-Flight Verification Check
+Before launching, confirm that your database, tables, frontend build, and Node environment pass all checks:
+```bash
+cd /var/www/hydraulic-system/dashboard
+npm run verify:prod
+```
+You will see a green `[PASS]` report for Node runtime, SQLite integrity, foreign keys, 15 enterprise tables, user accounts, and Vite React frontend bundle.
+
+---
+
+### Step 3.4: Automated VPS Deployment (PM2 + Nginx + Certbot SSL)
+Log in to your VPS via SSH and run the hardened setup script:
 
 ```bash
 ssh root@<YOUR_VPS_IP>
@@ -98,18 +118,34 @@ sudo ./setup-vps.sh --domain billing.yourshop.com --email admin@yourshop.com
 1. **Security Packages**: Installs `ufw`, `fail2ban`, `nginx`, `certbot`, `sqlite3`, `cron`, `logrotate`.
 2. **Headless Chromium Libraries**: Pre-installs all Linux shared libraries required by Puppeteer so invoice and job profit PDF exports run smoothly.
 3. **Node.js 20 LTS & PM2**: Installs the LTS runtime and PM2 supervisor with log rotation (`pm2-logrotate`).
-4. **Hardened Firewall (UFW)**: Blocks all inbound ports except SSH (rate-limited), HTTP (80), and HTTPS (443).
-5. **Fail2ban Anti-Intrusion**: Activates custom fail2ban filters that automatically ban IP addresses for 24 hours if they trigger 5 failed login attempts or aggressively scan endpoints.
-6. **Production Secrets**: Auto-generates a 256-bit cryptographic signing key (`BILLING_SECRET`) in `.env` and locks file permissions to `chmod 600`.
-7. **Database Security**: Hardens file permissions on `hydraulic.db` to `chmod 640`.
-8. **Nginx Reverse Proxy**:
-   - Enables rate limiting on `/api/auth/login` (10 req/min).
-   - Enables rate limiting on PDF exports (10 req/min).
-   - Configures Cloudflare Real-IP extraction (`CF-Connecting-IP`).
-   - Injects security headers (HSTS, nosniff, SAMEORIGIN).
-9. **Automatic SSL**: Obtains and configures a free Let's Encrypt SSL certificate via Certbot.
-10. **Automated Daily Backups**: Installs a daily cron job at 23:30 to run `backup-cli.js` with automated integrity checks.
-11. **PM2 Autostart**: Configures systemd startup so the service resumes automatically after server reboots.
+4. **Vite React Frontend Build**: Compiles `frontend/` into `dashboard/public_dist` and configures full HTML5 history URL routing.
+5. **Schema Migrations**: Automatically runs `node migrate.js` to ensure all 18 database migrations are applied.
+6. **Hardened Firewall (UFW)**: Blocks all inbound ports except SSH (rate-limited), HTTP (80), and HTTPS (443).
+7. **Fail2ban Anti-Intrusion**: Activates custom fail2ban filters that automatically ban IP addresses for 24 hours if they trigger 5 failed login attempts.
+8. **Production Secrets**: Auto-generates a 256-bit cryptographic signing key (`BILLING_SECRET`) in `.env` and locks file permissions to `chmod 600`.
+9. **Database Security**: Hardens file permissions on `hydraulic.db` to `chmod 640`.
+10. **Nginx Reverse Proxy**:
+    - Rate limits `/api/auth/login` (10 req/min).
+    - Rate limits PDF exports (10 req/min).
+    - Configures Cloudflare Real-IP extraction (`CF-Connecting-IP`).
+    - Injects security headers (HSTS, nosniff, SAMEORIGIN).
+11. **Automatic SSL**: Obtains and configures a free Let's Encrypt SSL certificate via Certbot.
+12. **Automated Daily Backups**: Installs a daily cron job at 23:30 to run `backup-cli.js` with automated integrity checks.
+13. **PM2 Autostart**: Configures systemd startup so the service resumes automatically after server reboots.
+
+---
+
+### Step 3.5: Alternative Deployment — Containerized Docker Compose
+If you prefer Docker containers:
+```bash
+cd /var/www/hydraulic-system
+# Launch the multi-stage production container:
+docker compose up -d --build
+
+# Verify container health:
+docker compose ps
+curl http://localhost:9999/api/health
+```
 
 ---
 
@@ -209,6 +245,12 @@ sudo systemctl reload nginx
 
 # Check database integrity via Node CLI
 node -e "const db = require('./db')._db; console.log(db.pragma('integrity_check'));"
+
+# Check live operational health & database ping
+curl http://127.0.0.1:9999/api/health
+
+# Run full pre-flight verification checklist
+npm run verify:prod
 ```
 
 ---

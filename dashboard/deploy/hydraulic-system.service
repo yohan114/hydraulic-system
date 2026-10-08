@@ -1,0 +1,26 @@
+# ==============================================================================
+# Systemd Service Unit for Hydraulic Hose Repair ERP
+# Path: /etc/systemd/system/hydraulic-system.service
+# ==============================================================================
+
+[Unit]
+Description=Hydraulic System ERP Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/hydraulic-system/dashboard
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=hydraulic-system
+Environment=NODE_ENV=production
+Environment=PORT=9999
+Environment=TRUST_PROXY=1
+Environment=BILLING_AUTH=on
+
+[Install]
+WantedBy=multi-user.target

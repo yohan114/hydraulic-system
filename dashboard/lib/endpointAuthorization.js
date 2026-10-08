@@ -241,8 +241,8 @@ function authorizeEndpoint(req, res, next) {
   // Static files and non-api routes bypass
   if (!req.path.startsWith('/api/')) return next();
 
-  // Public auth routes bypass
-  if (req.path === '/api/auth/login' || req.path === '/api/auth/status') return next();
+  // Public auth and health monitoring routes bypass
+  if (req.path === '/api/auth/login' || req.path === '/api/auth/status' || req.path === '/api/health') return next();
 
   const normalized = normalizeRequestPath(req.path);
 

@@ -287,11 +287,29 @@ chmod 644 /etc/cron.d/hydraulic-backup
 systemctl reload cron 2>/dev/null || systemctl restart cron 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# 10. Application Dependencies & PM2 Supervisor Boot
+# 10. Application Dependencies, Frontend Build & PM2 Supervisor Boot
 # ------------------------------------------------------------------------------
-echo "[10/10] Installing production dependencies and launching PM2..."
+echo "[10/10] Building frontend and installing production dependencies..."
+
+# If frontend source exists, build the modern Vite React SPA
+if [ -d "${PROJECT_ROOT}/frontend" ]; then
+    echo "       Building modern React frontend SPA..."
+    cd "${PROJECT_ROOT}/frontend"
+    npm install
+    npm run build
+    chown -R "${CALLING_USER}:${CALLING_USER}" "${APP_DIR}/public_dist" 2>/dev/null || true
+    chmod -R 755 "${APP_DIR}/public_dist" 2>/dev/null || true
+fi
+
 cd "${APP_DIR}"
 npm install --omit=dev
+
+# Install Puppeteer for PDF export if desired
+npm install puppeteer --save-optional >/dev/null 2>&1 || true
+
+# Run database migrations to ensure schema is at latest version
+echo "       Verifying database schema migrations..."
+node migrate.js 2>&1 || true
 
 mkdir -p logs backups
 chown -R "${CALLING_USER}:${CALLING_USER}" logs backups 2>/dev/null || true
@@ -310,7 +328,9 @@ pm2 startup systemd -u "${CALLING_USER}" --hp "${CALLING_HOME}" >/dev/null 2>&1 
 sleep 2
 echo ""
 echo "Performing local service health check..."
-if curl -sf http://127.0.0.1:9999/api/auth/status >/dev/null; then
+if curl -sf http://127.0.0.1:9999/api/health >/dev/null; then
+    HEALTH_STATUS="ONLINE (HTTP 200 OK)"
+elif curl -sf http://127.0.0.1:9999/api/auth/status >/dev/null; then
     HEALTH_STATUS="ONLINE (HTTP 200 OK)"
 else
     HEALTH_STATUS="STARTING (Will be active shortly)"

@@ -30,8 +30,25 @@ import {
 export const JobsPage: React.FC = () => {
   const { isManager, isAdmin, canWrite } = useAuth();
 
-  // Active Tab: 'jobs' | 'quotes' | 'labour'
-  const [activeTab, setActiveTab] = useState<'jobs' | 'quotes' | 'labour'>('jobs');
+  // Active Tab: 'jobs' | 'quotes' | 'labour' (synced with ?tab= query parameter)
+  const getInitialTab = (): 'jobs' | 'quotes' | 'labour' => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('tab');
+    if (t === 'quotes' || t === 'labour') return t;
+    return 'jobs';
+  };
+  const [activeTab, setActiveTab] = useState<'jobs' | 'quotes' | 'labour'>(getInitialTab);
+
+  const handleTabChange = (t: 'jobs' | 'quotes' | 'labour') => {
+    setActiveTab(t);
+    const url = new URL(window.location.href);
+    if (t === 'jobs') {
+      url.searchParams.delete('tab');
+    } else {
+      url.searchParams.set('tab', t);
+    }
+    window.history.replaceState({}, '', url.pathname + url.search);
+  };
 
   // Jobs state
   const [jobs, setJobs] = useState<JobCard[]>([]);
@@ -462,7 +479,7 @@ export const JobsPage: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl w-full sm:w-auto">
           <button
-            onClick={() => setActiveTab('jobs')}
+            onClick={() => handleTabChange('jobs')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
               activeTab === 'jobs'
                 ? 'bg-white text-indigo-600 shadow-sm'
@@ -472,7 +489,7 @@ export const JobsPage: React.FC = () => {
             <Wrench className="w-3.5 h-3.5" /> Job Cards
           </button>
           <button
-            onClick={() => setActiveTab('quotes')}
+            onClick={() => handleTabChange('quotes')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
               activeTab === 'quotes'
                 ? 'bg-white text-indigo-600 shadow-sm'
@@ -482,7 +499,7 @@ export const JobsPage: React.FC = () => {
             <FileText className="w-3.5 h-3.5" /> Quotations
           </button>
           <button
-            onClick={() => setActiveTab('labour')}
+            onClick={() => handleTabChange('labour')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
               activeTab === 'labour'
                 ? 'bg-white text-indigo-600 shadow-sm'

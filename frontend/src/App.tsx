@@ -15,10 +15,84 @@ import { LabourBillsPage } from './pages/LabourBillsPage';
 import { SessionsModal } from './components/auth/SessionsModal';
 import { Loader2 } from 'lucide-react';
 
+const VALID_SECTIONS = [
+  'dashboard',
+  'invoices',
+  'jobs',
+  'inventory',
+  'job-profit',
+  'labour-bills',
+  'procurement',
+  'ledger',
+  'users',
+];
+
+function getSectionFromUrl(): string {
+  // Check pathname first (e.g. /jobs -> jobs)
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (VALID_SECTIONS.includes(path)) return path;
+
+  // Check hash fallback (e.g. #/jobs or #jobs -> jobs)
+  const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+  if (VALID_SECTIONS.includes(hash)) return hash;
+
+  return 'dashboard';
+}
+
+const sectionTitles: Record<string, string> = {
+  dashboard: 'Dashboard Overview',
+  invoices: 'Invoices & Customer Billing',
+  jobs: 'Workshop Job Cards',
+  inventory: 'Stock & Inventory Management',
+  'job-profit': 'Job Profit Analysis',
+  procurement: 'Procurement & Purchase Orders',
+  ledger: 'General Ledger & Financial Accounting',
+  users: 'Staff User & Role Administration',
+  'labour-bills': 'Automated Labour Bills & Workflow',
+};
+
 const MainLayout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
-  const [currentSection, setCurrentSection] = useState('dashboard');
+  const [currentSection, setCurrentSection] = useState<string>(getSectionFromUrl);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
+
+  // Synchronize browser history and URL pathname
+  const navigateTo = React.useCallback((section: string, replace = false) => {
+    const target = VALID_SECTIONS.includes(section) ? section : 'dashboard';
+    setCurrentSection(target);
+    const newPath = target === 'dashboard' ? '/' : `/${target}`;
+    if (window.location.pathname !== newPath) {
+      if (replace) {
+        window.history.replaceState({ section: target }, '', newPath);
+      } else {
+        window.history.pushState({ section: target }, '', newPath);
+      }
+    }
+  }, []);
+
+  // Handle browser Back / Forward buttons
+  React.useEffect(() => {
+    const handlePopState = () => {
+      setCurrentSection(getSectionFromUrl());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Update document title dynamically
+  React.useEffect(() => {
+    const title = sectionTitles[currentSection] || 'System Management';
+    document.title = `${title} · Hydraulic System ERP`;
+  }, [currentSection]);
+
+  // Sync initial URL on mount if non-dashboard
+  React.useEffect(() => {
+    const initial = getSectionFromUrl();
+    const initialPath = initial === 'dashboard' ? '/' : `/${initial}`;
+    if (window.location.pathname !== initialPath && window.location.pathname !== '/') {
+      window.history.replaceState({ section: initial }, '', initialPath);
+    }
+  }, []);
 
   if (isLoading) {
     return (
@@ -35,22 +109,10 @@ const MainLayout: React.FC = () => {
     return <LoginPage />;
   }
 
-  const sectionTitles: Record<string, string> = {
-    dashboard: 'Dashboard Overview',
-    invoices: 'Invoices & Customer Billing',
-    jobs: 'Workshop Job Cards',
-    inventory: 'Stock & Inventory Management',
-    'job-profit': 'Job Profit Analysis',
-    procurement: 'Procurement & Purchase Orders',
-    ledger: 'General Ledger & Financial Accounting',
-    users: 'Staff User & Role Administration',
-    'labour-bills': 'Automated Labour Bills & Workflow',
-  };
-
   const renderContent = () => {
     switch (currentSection) {
       case 'dashboard':
-        return <DashboardPage onNavigate={setCurrentSection} />;
+        return <DashboardPage onNavigate={navigateTo} />;
       case 'invoices':
         return <InvoicesPage />;
       case 'jobs':
@@ -68,7 +130,7 @@ const MainLayout: React.FC = () => {
       case 'users':
         return <UsersPage />;
       default:
-        return <DashboardPage onNavigate={setCurrentSection} />;
+        return <DashboardPage onNavigate={navigateTo} />;
     }
   };
 
@@ -77,7 +139,7 @@ const MainLayout: React.FC = () => {
       {/* Left Sidebar */}
       <Sidebar
         currentSection={currentSection}
-        onNavigate={setCurrentSection}
+        onNavigate={navigateTo}
         onOpenSessions={() => setIsSessionsOpen(true)}
       />
 

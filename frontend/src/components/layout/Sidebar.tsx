@@ -69,10 +69,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentSection, onNavigate, on
         {allowedItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentSection === item.id;
+          const href = `/${item.id === 'dashboard' ? '' : item.id}`;
           return (
-            <button
+            <a
               key={item.id}
-              onClick={() => onNavigate(item.id)}
+              href={href}
+              onClick={(e) => {
+                if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                  e.preventDefault();
+                  onNavigate(item.id);
+                }
+              }}
               className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 isActive
                   ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 font-semibold'
@@ -81,7 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentSection, onNavigate, on
             >
               <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-300'}`} />
               <span>{item.label}</span>
-            </button>
+            </a>
           );
         })}
       </nav>

@@ -1,0 +1,36 @@
+# ==============================================================================
+# Production Docker Compose for Hydraulic Hose Repair ERP
+# Usage:
+#   docker compose up -d --build
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  hydraulic-erp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hydraulic-erp
+    restart: unless-stopped
+    ports:
+      - "9999:9999"
+    environment:
+      - NODE_ENV=production
+      - PORT=9999
+      - TRUST_PROXY=1
+      - BILLING_AUTH=on
+      - BILLING_SECRET=${BILLING_SECRET:-}
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+    volumes:
+      # Mount the persistent SQLite database file
+      - ./hydraulic.db:/app/hydraulic.db
+      # Mount backup and log folders to host machine
+      - ./backups:/app/dashboard/backups
+      - ./logs:/app/dashboard/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9999/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
