@@ -213,7 +213,7 @@ export const LabourBillsPage: React.FC = () => {
   const [settingsMinJobs, setSettingsMinJobs] = useState<number>(10);
   const [settingsMaxDays, setSettingsMaxDays] = useState<number>(15);
   const [settingsEnabled, setSettingsEnabled] = useState<boolean>(true);
-  const [settingsEffectiveDate, setSettingsEffectiveDate] = useState<string>('2026-10-06');
+  const [settingsEffectiveDate, setSettingsEffectiveDate] = useState<string>('');
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
 
   // Sealed Archive Modal State
@@ -272,7 +272,7 @@ export const LabourBillsPage: React.FC = () => {
         setSettingsMinJobs(settingsRes.MinJobs);
         setSettingsMaxDays(settingsRes.MaxDays);
         setSettingsEnabled(Boolean(settingsRes.Enabled));
-        if (settingsRes.EffectiveDate) setSettingsEffectiveDate(settingsRes.EffectiveDate);
+        setSettingsEffectiveDate(settingsRes.EffectiveDate || '');
       }
     } catch (err) {
       console.error('Failed to load labour bills:', err);
@@ -664,9 +664,9 @@ export const LabourBillsPage: React.FC = () => {
   const minJ = settings?.MinJobs ?? 10;
   const maxD = settings?.MaxDays ?? 15;
 
-  const currentAmt = unbilled?.totalAmount ?? 0;
-  const currentJobs = unbilled?.totalJobs ?? 0;
-  const currentDays = unbilled?.oldestDaysAge ?? 0;
+  const currentAmt = (unbilled && unbilled.totalAmount > 0) ? unbilled.totalAmount : (unbilledAllTotals?.totalAmount ?? (unbilledItems.reduce((s, i) => s + i.LineTotal, 0)));
+  const currentJobs = (unbilled && unbilled.totalJobs > 0) ? unbilled.totalJobs : (unbilledAllTotals?.totalJobs ?? unbilledItems.length);
+  const currentDays = (unbilled && unbilled.oldestDaysAge > 0) ? unbilled.oldestDaysAge : (unbilledAllTotals?.oldestDaysAge ?? 0);
 
   const amtPct = Math.min(100, Math.round((currentAmt / minAmt) * 100));
   const jobPct = Math.min(100, Math.round((currentJobs / minJ) * 100));
@@ -833,7 +833,7 @@ export const LabourBillsPage: React.FC = () => {
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Bills In Review Workflow</p>
           <p className="text-2xl font-bold text-indigo-600 mt-2">
-            {(counts.GENERATED || 0) + (counts.CERTIFIED || 0) + (counts.OM_APPROVED || 0) + (counts.RETURNED || 0)}
+            {(counts.GENERATED ?? counts.generated ?? 0) + (counts.CERTIFIED ?? counts.certified ?? 0) + (counts.OM_APPROVED ?? counts.omApproved ?? 0) + (counts.RETURNED ?? counts.returned ?? 0)}
           </p>
           <p className="text-xs text-slate-500 mt-1">
             Certify & approval stages across workshop & HO
@@ -844,7 +844,7 @@ export const LabourBillsPage: React.FC = () => {
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Approved Ready For Payout</p>
           <p className="text-2xl font-bold text-teal-600 mt-2">
-            {counts.HO_APPROVED || 0}
+            {counts.HO_APPROVED ?? counts.hoApproved ?? 0}
           </p>
           <p className="text-xs text-slate-500 mt-1">
             Certified by HO, waiting for workshop disbursement
@@ -855,7 +855,7 @@ export const LabourBillsPage: React.FC = () => {
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Closed & Sealed Archive</p>
           <p className="text-2xl font-bold text-emerald-600 mt-2">
-            {counts.CLOSED || 0}
+            {counts.CLOSED ?? counts.closed ?? 0}
           </p>
           <p className="text-xs text-slate-500 mt-1">
             Encrypted with AES-256-GCM & GL posted
@@ -904,7 +904,7 @@ export const LabourBillsPage: React.FC = () => {
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            Ready to Settle ({counts.HO_APPROVED || 0})
+            Ready to Settle ({counts.HO_APPROVED ?? counts.hoApproved ?? 0})
           </button>
 
           <button
@@ -915,7 +915,7 @@ export const LabourBillsPage: React.FC = () => {
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            Sealed Archive ({counts.CLOSED || 0})
+            Sealed Archive ({counts.CLOSED ?? counts.closed ?? 0})
           </button>
 
           <button

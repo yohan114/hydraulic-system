@@ -92,19 +92,62 @@ export const JobProfitPage: React.FC = () => {
 
   const totals = useMemo(() => {
     const t = data?.totals || {};
+    // Calculate fallback totals from invoices array if t is missing or search is active
+    let calcFromInvoices: any = null;
+    if (invoices.length > 0 && (!data?.totals || search.trim())) {
+      const calc = invoices.reduce((acc: any, inv: any) => {
+        const cost = Number(inv.ourCost ?? inv.OurCost ?? 0);
+        const bill = Number(inv.ourBill ?? inv.ourPrice ?? inv.OurBill ?? 0);
+        const prof = Number(inv.profit ?? inv.Profit ?? (bill - cost));
+        const saving = Number(inv.customerSaving ?? (Number(inv.outsidePrice ?? inv.outsideCost ?? 0) - bill));
+        const tech = Number(inv.techCharges ?? 0);
+        const unpaid = inv.techPaid ? 0 : tech;
+        return {
+          ourBill: acc.ourBill + bill,
+          ourCost: acc.ourCost + cost,
+          profit: acc.profit + prof,
+          customerSaving: acc.customerSaving + Math.max(0, saving),
+          techCharges: acc.techCharges + tech,
+          unpaidTech: acc.unpaidTech + unpaid,
+        };
+      }, { ourBill: 0, ourCost: 0, profit: 0, customerSaving: 0, techCharges: 0, unpaidTech: 0 });
+
+      const margin = calc.ourBill > 0 ? (calc.profit / calc.ourBill) * 100 : 0;
+      calcFromInvoices = {
+        ...calc,
+        margin,
+        sourcingGain: Number(t.sourcingGain ?? 0),
+        count: invoices.length,
+        unpaidCount: invoices.filter((i: any) => !i.techPaid && Number(i.techCharges || 0) > 0).length,
+      };
+    }
+
+    const src = (search.trim() && calcFromInvoices) ? calcFromInvoices : t;
+
+    const ourBill = Number(src.ourBill ?? src.ourPrice ?? calcFromInvoices?.ourBill ?? 0);
+    const ourCost = Number(src.ourCost ?? src.materialCost ?? calcFromInvoices?.ourCost ?? 0);
+    const profit = Number(src.profit ?? src.grossProfit ?? calcFromInvoices?.profit ?? 0);
+    const margin = src.margin != null ? Number(src.margin) : (src.grossMarginPct != null ? Number(src.grossMarginPct) : (calcFromInvoices?.margin ?? 0));
+    const customerSaving = Number(src.customerSaving ?? src.savings ?? calcFromInvoices?.customerSaving ?? 0);
+    const sourcingGain = Number(src.sourcingGain ?? calcFromInvoices?.sourcingGain ?? 0);
+    const techCharges = Number(src.techCharges ?? calcFromInvoices?.techCharges ?? 0);
+    const unpaidTech = Number(src.unpaidTech ?? calcFromInvoices?.unpaidTech ?? 0);
+    const count = Number(src.count ?? invoices.length);
+    const unpaidCount = Number(src.unpaidCount ?? calcFromInvoices?.unpaidCount ?? 0);
+
     return {
-      ourBill: Number(t.ourBill ?? t.ourPrice ?? 0),
-      ourCost: Number(t.ourCost ?? t.materialCost ?? 0),
-      profit: Number(t.profit ?? t.grossProfit ?? 0),
-      margin: t.margin != null ? Number(t.margin) : (t.grossMarginPct != null ? Number(t.grossMarginPct) : 0),
-      customerSaving: Number(t.customerSaving ?? t.savings ?? 0),
-      sourcingGain: Number(t.sourcingGain ?? 0),
-      techCharges: Number(t.techCharges ?? 0),
-      unpaidTech: Number(t.unpaidTech ?? 0),
-      count: Number(t.count ?? invoices.length),
-      unpaidCount: Number(t.unpaidCount ?? 0),
+      ourBill,
+      ourCost,
+      profit,
+      margin,
+      customerSaving,
+      sourcingGain,
+      techCharges,
+      unpaidTech,
+      count,
+      unpaidCount,
     };
-  }, [data, invoices.length]);
+  }, [data, invoices, search]);
 
   return (
     <div className="space-y-6">

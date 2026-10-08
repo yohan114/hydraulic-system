@@ -1071,6 +1071,12 @@ function listBills(query = {}) {
   return {
     bills,
     counts: {
+      GENERATED: counts.GENERATED || 0,
+      CERTIFIED: counts.CERTIFIED || 0,
+      OM_APPROVED: counts.OM_APPROVED || 0,
+      HO_APPROVED: counts.HO_APPROVED || 0,
+      RETURNED: counts.RETURNED || 0,
+      CLOSED: counts.CLOSED || 0,
       generated: counts.GENERATED || 0,
       certified: counts.CERTIFIED || 0,
       omApproved: counts.OM_APPROVED || 0,
