@@ -119,23 +119,6 @@ export const LoginPage: React.FC = () => {
               {isSubmitting ? 'Authenticating...' : 'Sign In to Dashboard'}
             </button>
           </form>
-
-          {/* Quick Info Box */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-              Default Access Credentials:
-            </h4>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
-                <span className="font-semibold text-slate-700 block">Admin:</span>
-                <span className="text-slate-500">admin / admin123</span>
-              </div>
-              <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
-                <span className="font-semibold text-slate-700 block">Cashier:</span>
-                <span className="text-slate-500">binara / cashier123</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Security Footer Note */}
