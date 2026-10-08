@@ -165,8 +165,28 @@ export const LabourBillsPage: React.FC = () => {
   const [unbilledFilter, setUnbilledFilter] = useState<'all' | 'preserved' | 'eligible'>('all');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'my_actions' | 'in_progress' | 'ready_to_pay' | 'closed' | 'all' | 'unbilled'>('my_actions');
   const [search, setSearch] = useState<string>('');
+  const getInitialTab = (): 'my_actions' | 'in_progress' | 'ready_to_pay' | 'closed' | 'all' | 'unbilled' => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab === 'my_actions' || tab === 'in_progress' || tab === 'ready_to_pay' || tab === 'closed' || tab === 'all') {
+        return tab;
+      }
+    } catch (_) {}
+    return 'unbilled'; // Default to Unpaid Labour Invoices so all 18 unpaid jobs show immediately
+  };
+
+  const [activeTab, setActiveTabState] = useState<'my_actions' | 'in_progress' | 'ready_to_pay' | 'closed' | 'all' | 'unbilled'>(getInitialTab);
+
+  const setActiveTab = (tab: 'my_actions' | 'in_progress' | 'ready_to_pay' | 'closed' | 'all' | 'unbilled') => {
+    setActiveTabState(tab);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState(null, '', url.toString());
+    } catch (_) {}
+  };
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
   // Detail Modal State
@@ -1204,7 +1224,19 @@ export const LabourBillsPage: React.FC = () => {
                   <tr>
                     <td colSpan={9} className="py-12 text-center text-slate-500">
                       <FileCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      No labour bills found in this view.
+                      <p className="font-semibold text-slate-700">No labour bills found in this view.</p>
+                      {unbilledItems.length > 0 && (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('unbilled')}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition shadow-sm"
+                          >
+                            <Clock className="w-4 h-4 text-white" />
+                            View {unbilledItems.length} Unpaid Labour Invoices Waiting ({formatLKR(unbilledAllTotals?.totalAmount ?? 29350)})
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ) : (
