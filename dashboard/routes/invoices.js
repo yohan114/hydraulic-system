@@ -1,10 +1,12 @@
 'use strict';
 const express = require('express');
+const crypto = require('crypto');
 const xlsx = require('xlsx');
 const connection = require('../db');
 const money = require('../lib/money');
 const sql = require('../lib/sql');
 const glPosting = require('../services/glPosting');
+const ledgerSvc = require('../services/ledger');
 const billing = require('../services/billing');
 const finance = require('../lib/finance');
 const invoiceNoLib = require('../lib/invoiceNo');
@@ -582,6 +584,270 @@ router.post('/api/invoices/finalize', async (req, res) => {
 
         res.json(resp);
     } catch (err) {
+        res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
+    }
+});
+
+/**
+ * Admin Reclassify Invoice: Convert between Internal (fleet) and External (commercial).
+ *
+ * Reverses the previous journal entry in the General Ledger (if one exists) and
+ * immediately posts the new balanced journal entry under the new classification.
+ * Updates Invoices.IsInternal and PaymentStatus, and creates an audit record.
+ */
+/**
+ * GET /api/invoices/pending-reclassifications
+ * Retrieves all pending 'Internal to External' revisions awaiting Manager approval.
+ */
+router.get('/api/invoices/pending-reclassifications', async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                i.InvoiceID,
+                i.InvoiceNo,
+                i.InvoiceDate,
+                i.BilledToName,
+                i.BilledToAddress,
+                i.DeliveredToName,
+                i.GrandTotal,
+                i.SubTotal,
+                i.Status,
+                i.IsInternal,
+                i.CustomerID,
+                i.CreatedAt,
+                a.ApprovalID,
+                a.RequestedBy,
+                a.RequestedAt,
+                a.DecisionReason AS RequestReason,
+                a.ExpiresAt
+            FROM Invoices i
+            LEFT JOIN Approvals a ON a.TargetEntity = 'Invoices' 
+                AND a.TargetID = CAST(i.InvoiceID AS TEXT) 
+                AND a.Status = 'pending'
+            WHERE i.Status = 'Pending Approval'
+            ORDER BY i.InvoiceID DESC
+        `;
+        const rows = await connection.query(query);
+        res.json(rows);
+    } catch (err) {
+        console.error('Error fetching pending reclassifications:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Reclassify Invoice Endpoint:
+ * - When switching from Internal to External: requires Manager authorization. Transitions
+ *   the invoice to 'Pending Approval' status; the General Ledger is NOT modified until
+ *   a Manager authorizes the reclassification.
+ * - When switching from External to Internal: executes directly.
+ */
+router.post('/api/invoices/:id/reclassify', async (req, res) => {
+    const id = sql.n(req.params.id);
+    const body = req.body || {};
+    const actor = (req.user && (req.user.username || req.user.sub)) || 'admin';
+    const role = (req.user && req.user.role) || 'viewer';
+
+    if (role !== 'admin' && role !== 'manager') {
+        return res.status(403).json({ error: 'Only managers and administrators can reclassify invoice accounting.' });
+    }
+
+    const reason = String(body.reason || '').trim();
+    if (!reason) {
+        return res.status(400).json({ error: 'A business reason is mandatory for bill reclassification.' });
+    }
+
+    try {
+        const invRows = await connection.query(`SELECT InvoiceID, InvoiceNo, Status, IsInternal, AmountPaid, GrandTotal, InvoiceDate FROM Invoices WHERE InvoiceID = ${id}`);
+        if (!invRows.length) return res.status(404).json({ error: 'Invoice not found' });
+        const inv = invRows[0];
+        const currentIsInternal = Boolean(inv.IsInternal);
+        const targetIsInternal = body.isInternal !== undefined ? Boolean(body.isInternal) : !currentIsInternal;
+
+        if (currentIsInternal === targetIsInternal && inv.Status !== 'Pending Approval') {
+            return res.status(400).json({ error: `Invoice is already classified as ${currentIsInternal ? 'Internal' : 'External'}.` });
+        }
+
+        // When switching from internal to external, transition to 'Pending Approval' status first,
+        // requiring Manager authorization before the journal reversal and reposting hit the General Ledger.
+        if (currentIsInternal && !targetIsInternal && inv.Status !== 'Pending Approval') {
+            const db = connection._db;
+            const payloadHash = crypto.createHash('sha256').update(JSON.stringify({ invoiceId: id, reason, actor, targetIsInternal: false })).digest('hex');
+
+            await connection.execute(`UPDATE Invoices SET Status = 'Pending Approval' WHERE InvoiceID = ${id}`);
+
+            // Insert into Approvals tracking table
+            try {
+                db.prepare(`
+                    INSERT INTO Approvals (ApprovalType, TargetEntity, TargetID, PayloadHash, RequestedBy, Status, DecisionReason, ExpiresAt)
+                    VALUES ('reclassify_internal_to_external', 'Invoices', ?, ?, ?, 'pending', ?, datetime('now', '+7 days'))
+                `).run(String(id), payloadHash, actor, reason);
+            } catch (_) {}
+
+            // Business audit log
+            auditLog.recordBusinessAudit(db, {
+                actorId: actor,
+                actorRole: role,
+                action: 'reclassify_request_pending_approval',
+                entityType: 'Invoices',
+                entityId: String(id),
+                payloadBefore: { status: inv.Status, isInternal: 1 },
+                payloadAfter: { status: 'Pending Approval', isInternal: 1, targetIsInternal: 0, reason },
+                reason,
+            });
+
+            return res.json({
+                success: true,
+                pendingApproval: true,
+                invoiceId: id,
+                invoiceNo: inv.InvoiceNo,
+                status: 'Pending Approval',
+                isInternal: true,
+                message: `Invoice ${inv.InvoiceNo} switched to 'Pending Approval' status. A Manager must authorize the journal reversal and reclassification before it hits the General Ledger.`,
+            });
+        }
+
+        // Direct execution (for external to internal, or pre-approved flow)
+        const result = await invoiceMutex.runExclusive(async () => {
+            return glPosting.reclassifyInvoice(id, targetIsInternal, {
+                postedBy: actor,
+                actorRole: role,
+                reason,
+            });
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('Reclassify invoice error:', err);
+        res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
+    }
+});
+
+/**
+ * Manager Authorize Reclassification:
+ * Authorizes a Pending Approval invoice (switched from internal to external),
+ * executing the journal reversal and reposting to the General Ledger.
+ */
+router.post('/api/invoices/:id/authorize-reclassification', async (req, res) => {
+    const id = sql.n(req.params.id);
+    const body = req.body || {};
+    const actor = (req.user && (req.user.username || req.user.sub)) || 'system';
+    const role = (req.user && req.user.role) || 'viewer';
+
+    if (role !== 'manager' && role !== 'admin') {
+        return res.status(403).json({ error: 'Only Managers and Administrators can authorize invoice reclassifications.' });
+    }
+
+    try {
+        const invRows = await connection.query(`SELECT InvoiceID, InvoiceNo, Status, IsInternal FROM Invoices WHERE InvoiceID = ${id}`);
+        if (!invRows.length) return res.status(404).json({ error: 'Invoice not found' });
+        const inv = invRows[0];
+
+        if (inv.Status !== 'Pending Approval') {
+            return res.status(400).json({ error: `Invoice is currently in '${inv.Status}' status, not 'Pending Approval'.` });
+        }
+
+        const reason = String(body.reason || 'Manager authorization approved').trim();
+
+        const result = await invoiceMutex.runExclusive(async () => {
+            const db = connection._db;
+
+            // Temporarily set status back to Finalized so glPosting.reclassifyInvoice passes its status validation
+            db.prepare("UPDATE Invoices SET Status = 'Finalized' WHERE InvoiceID = ?").run(id);
+
+            // Execute core accounting logic: reverse internal journal, update to IsInternal = 0, repost to external GL accounts
+            const reclassResult = glPosting.reclassifyInvoice(id, false, {
+                postedBy: actor,
+                actorRole: role,
+                reason: `Manager Authorization by ${actor}: ${reason}`,
+            });
+
+            // Update Approvals table
+            try {
+                db.prepare(`
+                    UPDATE Approvals
+                    SET Status = 'approved', ApprovedBy = ?, ApprovedAt = datetime('now', 'localtime'), DecisionReason = ?
+                    WHERE TargetEntity = 'Invoices' AND TargetID = ? AND Status = 'pending'
+                `).run(actor, reason, String(id));
+            } catch (_) {}
+
+            return reclassResult;
+        });
+
+        res.json({
+            ...result,
+            message: `Invoice ${inv.InvoiceNo} reclassification authorized by Manager (${actor}). Journal reversal and external revenue/AR postings successfully committed to General Ledger.`,
+        });
+    } catch (err) {
+        console.error('Authorize reclassification error:', err);
+        res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
+    }
+});
+
+// Alias for authorize
+router.post('/api/invoices/:id/reclassify/approve', async (req, res) => {
+    req.url = `/api/invoices/${req.params.id}/authorize-reclassification`;
+    return router.handle(req, res);
+});
+
+/**
+ * Manager Reject Reclassification:
+ * Rejects a Pending Approval reclassification, returning the invoice to Finalized Internal status.
+ */
+router.post('/api/invoices/:id/reclassify/reject', async (req, res) => {
+    const id = sql.n(req.params.id);
+    const body = req.body || {};
+    const actor = (req.user && (req.user.username || req.user.sub)) || 'system';
+    const role = (req.user && req.user.role) || 'viewer';
+
+    if (role !== 'manager' && role !== 'admin') {
+        return res.status(403).json({ error: 'Only Managers and Administrators can reject invoice reclassifications.' });
+    }
+
+    const reason = String(body.reason || 'Reclassification rejected by Manager').trim();
+
+    try {
+        const invRows = await connection.query(`SELECT InvoiceID, InvoiceNo, Status, IsInternal FROM Invoices WHERE InvoiceID = ${id}`);
+        if (!invRows.length) return res.status(404).json({ error: 'Invoice not found' });
+        const inv = invRows[0];
+
+        if (inv.Status !== 'Pending Approval') {
+            return res.status(400).json({ error: `Invoice is currently in '${inv.Status}' status, not 'Pending Approval'.` });
+        }
+
+        const db = connection._db;
+        // Revert status to Finalized keeping IsInternal = 1. Internal journal is untouched.
+        db.prepare("UPDATE Invoices SET Status = 'Finalized', IsInternal = 1 WHERE InvoiceID = ?").run(id);
+
+        try {
+            db.prepare(`
+                UPDATE Approvals
+                SET Status = 'rejected', ApprovedBy = ?, ApprovedAt = datetime('now', 'localtime'), DecisionReason = ?
+                WHERE TargetEntity = 'Invoices' AND TargetID = ? AND Status = 'pending'
+            `).run(actor, reason, String(id));
+        } catch (_) {}
+
+        auditLog.recordBusinessAudit(db, {
+            actorId: actor,
+            actorRole: role,
+            action: 'reclassify_rejected',
+            entityType: 'Invoices',
+            entityId: String(id),
+            payloadBefore: { status: 'Pending Approval', isInternal: 1 },
+            payloadAfter: { status: 'Finalized', isInternal: 1, reason },
+            reason,
+        });
+
+        res.json({
+            success: true,
+            invoiceId: id,
+            invoiceNo: inv.InvoiceNo,
+            status: 'Finalized',
+            isInternal: true,
+            message: `Invoice ${inv.InvoiceNo} reclassification rejected. Invoice remains Internal Fleet and General Ledger is unchanged.`,
+        });
+    } catch (err) {
+        console.error('Reject reclassification error:', err);
         res.status(err.httpStatus || 500).json({ error: err.message, code: err.code });
     }
 });

@@ -2,6 +2,21 @@
 <html lang="en" class="h-full bg-slate-50">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Compatibility shim for browser extensions / executors that assign window.fetch
+      (function() {
+        try {
+          var _origFetch = window.fetch;
+          var _currentFetch = _origFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() { return _currentFetch; },
+            set: function(v) { _currentFetch = v; },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (_) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hydraulic Hose Repair & Smart Billing ERP</title>

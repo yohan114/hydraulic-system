@@ -17,7 +17,7 @@ const connection = require('../db');
 const ROLE_PERMISSIONS = {
   admin: new Set(['*']),
   manager: new Set([
-    'invoice.read', 'invoice.create', 'invoice.finalize', 'invoice.revise', 'invoice.cancel',
+    'invoice.read', 'invoice.create', 'invoice.finalize', 'invoice.revise', 'invoice.cancel', 'invoice.reclassify',
     'receipt.read', 'receipt.create', 'receipt.correct',
     'refund.request', 'refund.approve', 'refund.execute',
     'inventory.read', 'inventory.adjust', 'inventory.cost.view',
@@ -26,16 +26,17 @@ const ROLE_PERMISSIONS = {
     'report.financial.view', 'report.financial.export', 'report.financial.reconcile', 'report.operational.view',
     'audit.security.view',
     'customer.manage', 'supplier.manage', 'pricing.manage', 'job.manage', 'procurement.manage',
-    'labourbill.view', 'labourbill.admin', 'labourbill.certify',
+    'labourbill.view', 'labourbill.admin', 'labourbill.certify', 'labourbill.pay',
   ]),
   cashier: new Set([
     'invoice.read', 'invoice.create', 'invoice.finalize', 'invoice.revise',
     'receipt.read', 'receipt.create',
     'refund.request',
-    'inventory.read',
+    'inventory.read', 'inventory.adjust',
     'customer.manage',
     'job.manage',
-    'report.operational.view',
+    'report.operational.view', 'report.financial.view',
+    'journal.read',
   ]),
   viewer: new Set([
     'invoice.read',
@@ -44,32 +45,40 @@ const ROLE_PERMISSIONS = {
     'journal.read',
     'report.financial.view',
     'report.operational.view',
+    'labourbill.view',
   ]),
   workshop_supervisor: new Set([
     'labourbill.view', 'labourbill.certify',
     'report.operational.view', 'job.manage',
+    'inventory.read', 'invoice.read',
   ]),
   operations_manager: new Set([
-    'labourbill.view', 'labourbill.approve.om',
-    'report.operational.view', 'job.manage',
+    'labourbill.view', 'labourbill.approve.om', 'labourbill.certify',
+    'report.operational.view', 'report.financial.view', 'job.manage',
+    'inventory.read', 'inventory.adjust', 'procurement.manage',
+    'invoice.read',
   ]),
   ho_accounts: new Set([
     'labourbill.view', 'labourbill.approve.ho',
-    'report.financial.view', 'report.operational.view', 'journal.read',
+    'report.financial.view', 'report.financial.export', 'report.financial.reconcile', 'report.operational.view',
+    'journal.read', 'journal.create', 'journal.reverse', 'period.close', 'period.reopen',
+    'invoice.read', 'receipt.read', 'receipt.create', 'receipt.correct',
   ]),
   dgm: new Set([
     'labourbill.view',
-    'report.financial.view', 'report.operational.view',
-    'invoice.read', 'journal.read', 'inventory.read',
+    'report.financial.view', 'report.financial.export', 'report.operational.view',
+    'invoice.read', 'journal.read', 'inventory.read', 'job.manage',
   ]),
   chairman: new Set([
     'labourbill.view',
-    'report.financial.view', 'report.operational.view',
-    'invoice.read', 'journal.read', 'inventory.read',
+    'report.financial.view', 'report.financial.export', 'report.operational.view',
+    'invoice.read', 'journal.read', 'inventory.read', 'job.manage',
   ]),
   workshop_accounts: new Set([
-    'labourbill.view', 'labourbill.pay',
-    'receipt.read', 'receipt.create', 'report.operational.view', 'journal.read',
+    'labourbill.view', 'labourbill.pay', 'labourbill.certify',
+    'receipt.read', 'receipt.create', 'receipt.correct', 'report.operational.view', 'report.financial.view',
+    'journal.read', 'journal.create',
+    'invoice.read', 'job.manage',
   ]),
 };
 
@@ -88,6 +97,7 @@ const POLICIES = [
 
   // --- Invoices ---
   { method: 'GET', pattern: /^\/api\/invoices$/, permission: 'invoice.read' },
+  { method: 'GET', pattern: /^\/api\/invoices\/pending-reclassifications$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/next-no$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/export$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+$/, permission: 'invoice.read' },
@@ -100,7 +110,10 @@ const POLICIES = [
   { method: 'PUT', pattern: /^\/api\/invoices\/draft\/\d+$/, permission: 'invoice.create' },
   { method: 'POST', pattern: /^\/api\/invoices\/finalize$/, permission: 'invoice.finalize' },
   { method: 'POST', pattern: /^\/api\/invoices\/\d+\/revise$/, permission: 'invoice.revise' },
-  { method: 'POST', pattern: /^\/api\/invoices\/\d+\/cancel$/, permission: 'invoice.cancel' },
+  { method: 'POST', pattern: /^\/api\/invoices\/\d+\/reclassify$/, permission: 'invoice.reclassify' },
+  { method: 'POST', pattern: /^\/api\/invoices\/\d+\/reclassify\/approve$/, permission: 'invoice.reclassify' },
+  { method: 'POST', pattern: /^\/api\/invoices\/\d+\/reclassify\/reject$/, permission: 'invoice.reclassify' },
+  { method: 'POST', pattern: /^\/api\/invoices\/\d+\/authorize-reclassification$/, permission: 'invoice.reclassify' },
 
   // --- Payments & Receipts ---
   { method: 'GET', pattern: /^\/api\/invoices\/\d+\/payments$/, permission: 'receipt.read' },
@@ -144,6 +157,7 @@ const POLICIES = [
   { method: 'GET', pattern: /^\/api\/ledger\/balance-sheet$/, permission: 'report.financial.view' },
   { method: 'GET', pattern: /^\/api\/ledger\/account\/.*$/, permission: 'journal.read' },
   { method: 'GET', pattern: /^\/api\/ledger\/journals(\/.*)?$/, permission: 'journal.read' },
+  { method: 'GET', pattern: /^\/api\/ledger\/reversal-logs$/, permission: 'journal.read' },
   { method: 'POST', pattern: /^\/api\/ledger\/journals$/, permission: 'journal.create' },
   { method: 'POST', pattern: /^\/api\/ledger\/journals\/\d+\/reverse$/, permission: 'journal.reverse' },
   { method: 'GET', pattern: /^\/api\/ledger\/periods$/, permission: 'journal.read' },

@@ -184,4 +184,34 @@ router.post('/api/ledger/periods/:period/reopen', async (req, res) => {
   } catch (err) { fail(res, err); }
 });
 
+/**
+ * GET /api/ledger/reversal-logs
+ * Retrieves reversal audit records from the hidden audit_reversal_log table.
+ */
+router.get('/api/ledger/reversal-logs', async (req, res) => {
+  try {
+    const db = connection._db;
+    ledgerSvc.ensureAuditReversalLogTable(db);
+    const { sourceId, limit } = req.query;
+    const max = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+
+    let rows;
+    if (sourceId) {
+      rows = db.prepare(`
+        SELECT * FROM audit_reversal_log
+        WHERE SourceID = ?
+        ORDER BY LogID DESC LIMIT ?
+      `).all(String(sourceId), max);
+    } else {
+      rows = db.prepare(`
+        SELECT * FROM audit_reversal_log
+        ORDER BY LogID DESC LIMIT ?
+      `).all(max);
+    }
+    res.json(rows);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 module.exports = router;

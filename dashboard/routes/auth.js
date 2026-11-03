@@ -259,10 +259,11 @@ router.post('/api/auth/login', async (req, res) => {
             sessionId,
         }, AUTH_SECRET, TOKEN_TTL_SECONDS);
 
+        const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
         res.cookie('billing_token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
+            secure: isSecure,
+            sameSite: isSecure ? 'none' : 'lax',
             maxAge: TOKEN_TTL_SECONDS * 1000,
             path: '/',
         });

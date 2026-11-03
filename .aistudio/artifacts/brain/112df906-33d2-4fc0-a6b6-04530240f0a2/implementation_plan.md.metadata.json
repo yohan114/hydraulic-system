@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive architectural implementation plan addressing external vs internal bill general ledger posting, admin bill reclassification workflow with journal reversal and reposting, and end-to-end RBAC permission and dashboard access alignment across all company roles.",
+  "updatedAt": "2026-11-03T03:54:18.574467367Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

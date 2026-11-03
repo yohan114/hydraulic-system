@@ -43,14 +43,18 @@ function clearAccountCache() { accountCache = null; }
 
 /** Next journal number for a date, e.g. JV/2026-08/0007. */
 function nextEntryNo(db, period) {
-  const row = db.prepare(
-    "SELECT EntryNo FROM JournalEntries WHERE Period = ? ORDER BY JournalID DESC LIMIT 1"
-  ).get(period);
-  let seq = 1;
-  if (row) {
-    const m = /(\d+)$/.exec(row.EntryNo);
-    if (m) seq = Number(m[1]) + 1;
+  const rows = db.prepare(
+    "SELECT EntryNo FROM JournalEntries WHERE Period = ?"
+  ).all(period);
+  let maxSeq = 0;
+  for (const r of rows) {
+    const m = /(\d+)$/.exec(r.EntryNo);
+    if (m) {
+      const n = Number(m[1]);
+      if (n > maxSeq) maxSeq = n;
+    }
   }
+  const seq = maxSeq + 1;
   return `JV/${period}/${String(seq).padStart(4, '0')}`;
 }
 
@@ -95,10 +99,13 @@ function postEntry(entry) {
   }
 
   // One event, one journal. Makes every posting path safely re-runnable.
-  if (entry.sourceType && entry.sourceID != null) {
-    const dup = db.prepare(
-      'SELECT JournalID, EntryNo FROM JournalEntries WHERE SourceType = ? AND SourceID = ? AND ReversalOf IS NULL'
-    ).get(String(entry.sourceType), String(entry.sourceID));
+  // Reversed entries are excluded so reclassifying or correcting an event can post its new active journal.
+  if (entry.sourceType && entry.sourceID != null && !entry.reversalOf) {
+    const dup = db.prepare(`
+      SELECT JournalID, EntryNo FROM JournalEntries
+      WHERE SourceType = ? AND SourceID = ? AND ReversalOf IS NULL
+        AND JournalID NOT IN (SELECT ReversalOf FROM JournalEntries WHERE ReversalOf IS NOT NULL)
+    `).get(String(entry.sourceType), String(entry.sourceID));
     if (dup) return { journalId: dup.JournalID, entryNo: dup.EntryNo, period, debit: check.debit, credit: check.credit, alreadyPosted: true };
   }
 
@@ -128,6 +135,95 @@ function postEntry(entry) {
 }
 
 /**
+ * Ensures the hidden audit_reversal_log table exists in SQLite.
+ *
+ * @param {object} [db]
+ */
+function ensureAuditReversalLogTable(db) {
+  const activeDb = db || connection._db;
+  activeDb.prepare(`
+    CREATE TABLE IF NOT EXISTS audit_reversal_log (
+      LogID INTEGER PRIMARY KEY AUTOINCREMENT,
+      OriginalJournalID INTEGER NOT NULL,
+      ReversalJournalID INTEGER,
+      OriginalEntryDate TEXT NOT NULL,
+      ReversalDate TEXT NOT NULL,
+      ReversalUser TEXT NOT NULL,
+      Reason TEXT NOT NULL,
+      SourceType TEXT,
+      SourceID TEXT,
+      Metadata TEXT,
+      CreatedAt TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+}
+
+/**
+ * Logs T31 reversal metadata (original entry date, user, and reason) into a hidden 'audit_reversal_log' table.
+ *
+ * @param {object} [db] - Database connection instance
+ * @param {object} params
+ * @param {number} params.originalJournalId - ID of original journal entry being reversed
+ * @param {number} [params.reversalJournalId] - ID of newly posted mirror reversal journal
+ * @param {string} params.originalEntryDate - Original journal entry date
+ * @param {string} params.user - User or manager authorizing the reversal
+ * @param {string} params.reason - Business reason / audit justification
+ * @param {string} [params.sourceType] - Reference source type (e.g. 'INVOICE')
+ * @param {string|number} [params.sourceId] - Reference source entity ID
+ * @param {object|string} [params.metadata] - Extended metadata
+ */
+function logAuditReversal(db, params = {}) {
+  const activeDb = (db && typeof db.prepare === 'function') ? db : connection._db;
+  ensureAuditReversalLogTable(activeDb);
+
+  const originalJournalId = Number(params.originalJournalId || 0);
+  const reversalJournalId = params.reversalJournalId != null ? Number(params.reversalJournalId) : null;
+  const originalEntryDate = String(params.originalEntryDate || '').slice(0, 10);
+  const user = String(params.user || params.postedBy || 'system').trim();
+  const reason = String(params.reason || params.memo || 'T31 reversal').trim();
+  const sourceType = params.sourceType ? String(params.sourceType) : null;
+  const sourceId = params.sourceId != null ? String(params.sourceId) : null;
+  const metadata = params.metadata
+    ? (typeof params.metadata === 'string' ? params.metadata : JSON.stringify(params.metadata))
+    : null;
+
+  const info = activeDb.prepare(`
+    INSERT INTO audit_reversal_log (
+      OriginalJournalID,
+      ReversalJournalID,
+      OriginalEntryDate,
+      ReversalDate,
+      ReversalUser,
+      Reason,
+      SourceType,
+      SourceID,
+      Metadata,
+      CreatedAt
+    ) VALUES (?, ?, ?, date('now', 'localtime'), ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+  `).run(
+    originalJournalId,
+    reversalJournalId,
+    originalEntryDate,
+    user,
+    reason,
+    sourceType,
+    sourceId,
+    metadata
+  );
+
+  return {
+    logId: info.lastInsertRowid,
+    originalJournalId,
+    reversalJournalId,
+    originalEntryDate,
+    user,
+    reason,
+    sourceType,
+    sourceId,
+  };
+}
+
+/**
  * Reverse an existing journal by posting its mirror image. The original is left
  * exactly as it was — that is the point.
  *
@@ -147,7 +243,7 @@ function reverseEntry(journalId, opts = {}) {
     FROM JournalLines l JOIN Accounts a ON a.AccountID = l.AccountID
     WHERE l.JournalID = ?`).all(journalId);
 
-  return postEntry({
+  const rev = postEntry({
     date: opts.date || original.EntryDate.slice(0, 10),
     memo: opts.memo || `Reversal of ${original.EntryNo}${original.Memo ? ` — ${original.Memo}` : ''}`,
     sourceType: original.SourceType ? `${original.SourceType}:reversal` : null,
@@ -165,6 +261,32 @@ function reverseEntry(journalId, opts = {}) {
       supplierId: l.SupplierID,
     })),
   });
+
+  // T31 Reversal Audit Logging: log original entry date, user, and reason into hidden audit_reversal_log table
+  try {
+    const reasonText = opts.reason || opts.memo || `T31 Reversal of journal ${original.EntryNo}`;
+    logAuditReversal(db, {
+      originalJournalId: journalId,
+      reversalJournalId: rev.journalId,
+      originalEntryDate: original.EntryDate,
+      user: opts.postedBy || 'system',
+      reason: reasonText,
+      sourceType: original.SourceType,
+      sourceId: original.SourceID,
+      metadata: {
+        originalEntryNo: original.EntryNo,
+        reversalEntryNo: rev.entryNo,
+        debit: rev.debit,
+        credit: rev.credit,
+        period: rev.period,
+        reversalOf: journalId,
+      },
+    });
+  } catch (err) {
+    console.error('Failed to write to audit_reversal_log table:', err);
+  }
+
+  return rev;
 }
 
 /**
@@ -294,15 +416,18 @@ function monthlyProfitAndLoss(range = {}) {
     .sort((a, b) => b.period.localeCompare(a.period));
 }
 
-/** Has this business event already been posted? */
+/** Has this business event already been posted and is currently active (not reversed)? */
 function isPosted(sourceType, sourceID) {
-  const row = connection._db.prepare(
-    'SELECT JournalID FROM JournalEntries WHERE SourceType = ? AND SourceID = ? AND ReversalOf IS NULL'
-  ).get(String(sourceType), String(sourceID));
+  const row = connection._db.prepare(`
+    SELECT JournalID FROM JournalEntries
+    WHERE SourceType = ? AND SourceID = ? AND ReversalOf IS NULL
+      AND JournalID NOT IN (SELECT ReversalOf FROM JournalEntries WHERE ReversalOf IS NOT NULL)
+  `).get(String(sourceType), String(sourceID));
   return row ? row.JournalID : null;
 }
 
 module.exports = {
-  LedgerError, postEntry, reverseEntry, accountTotals, accountLedger, monthlyProfitAndLoss,
+  LedgerError, postEntry, reverseEntry, logAuditReversal, ensureAuditReversalLogTable,
+  accountTotals, accountLedger, monthlyProfitAndLoss,
   isPosted, periodStatus, clearAccountCache, nextEntryNo,
 };

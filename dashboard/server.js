@@ -17,7 +17,7 @@ const { auditMiddleware } = require('./lib/audit');
 const { router: authRouter, requireAuth, viewerReadOnlyGuard } = require('./routes/auth');
 const { authorizeEndpoint, fieldScrubber } = require('./lib/endpointAuthorization');
 
-const PORT = process.env.PORT || 9999;
+const PORT = (process.env.PORT && process.env.PORT !== '8080') ? parseInt(process.env.PORT, 10) : 3000;
 if (process.env.NODE_ENV === 'production' && process.env.BILLING_AUTH === 'off') {
   console.error('FATAL: BILLING_AUTH cannot be set to "off" in production environment.');
   process.exit(1);
@@ -27,20 +27,14 @@ const FALLBACK_PASSWORD = process.env.BILLING_PASSWORD || 'admin123';
 
 const app = express();
 
-// Enable proxy trust for reverse proxies (Nginx, Caddy, Cloudflare) on VPS
-if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY) {
-  app.set('trust proxy', 1);
-}
+// Enable proxy trust for reverse proxies (Nginx, Cloud Run)
+app.set('trust proxy', 1);
 
-// Security headers
+// Security headers (allow iframe embedding inside AI Studio)
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  }
   next();
 });
 
@@ -191,8 +185,8 @@ async function start() {
     console.warn('Labour bill auto-check skipped:', e.message);
   }
 
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
     if (AUTH_ENABLED) {
       const isCustom = !!process.env.BILLING_PASSWORD;
       console.log(`Authentication ON. ${isCustom ? 'Configured password in use.' : 'Default admin password in use (change it in settings).'}`);

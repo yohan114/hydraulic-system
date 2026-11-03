@@ -28,6 +28,7 @@ import {
   Truck,
   Building2,
   Edit2,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface CrimpingRateRow {
@@ -81,6 +82,19 @@ export const InvoicesPage: React.FC = () => {
   // View modal state
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [compareData, setCompareData] = useState<any | null>(null);
+
+  // Admin Reclassify modal state
+  const [reclassifyInvoice, setReclassifyInvoice] = useState<Invoice | null>(null);
+  const [reclassifyReason, setReclassifyReason] = useState<string>('');
+  const [reclassifying, setReclassifying] = useState<boolean>(false);
+  const [reclassifyError, setReclassifyError] = useState<string | null>(null);
+
+  // Manager Approval modal state
+  const [approvalModalInvoice, setApprovalModalInvoice] = useState<Invoice | null>(null);
+  const [approvalAction, setApprovalAction] = useState<'authorize' | 'reject'>('authorize');
+  const [approvalReason, setApprovalReason] = useState<string>('');
+  const [isAuthorizing, setIsAuthorizing] = useState<boolean>(false);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   // Create / Edit modal state
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -641,6 +655,86 @@ export const InvoicesPage: React.FC = () => {
     }
   };
 
+  // Reclassify bill between Internal and Commercial
+  const handleReclassify = async () => {
+    if (!reclassifyInvoice) return;
+    if (!reclassifyReason.trim()) {
+      setReclassifyError('Please enter a business reason for reclassifying this invoice.');
+      return;
+    }
+    setReclassifying(true);
+    setReclassifyError(null);
+    try {
+      const targetIsInternal = reclassifyInvoice.IsInternal !== 1;
+      const res = await apiRequest<{
+        paymentStatus?: string;
+        pendingApproval?: boolean;
+        requiresApproval?: boolean;
+        status?: string;
+        message?: string;
+      }>(`/invoices/${reclassifyInvoice.InvoiceID}/reclassify`, {
+        method: 'POST',
+        body: JSON.stringify({
+          isInternal: targetIsInternal,
+          reason: reclassifyReason.trim(),
+        }),
+      });
+      await loadInvoices();
+      if (selectedInvoice && selectedInvoice.InvoiceID === reclassifyInvoice.InvoiceID) {
+        if (res.pendingApproval || res.status === 'Pending Approval') {
+          setSelectedInvoice({
+            ...selectedInvoice,
+            Status: 'Pending Approval',
+          });
+        } else {
+          setSelectedInvoice({
+            ...selectedInvoice,
+            IsInternal: targetIsInternal ? 1 : 0,
+            PaymentStatus: res.paymentStatus || (targetIsInternal ? 'Not Applicable' : 'Unpaid'),
+          });
+        }
+      }
+      setReclassifyInvoice(null);
+      setReclassifyReason('');
+      if (res.message) {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      setReclassifyError(err.message || 'Failed to reclassify invoice.');
+    } finally {
+      setReclassifying(false);
+    }
+  };
+
+  // Manager Authorize or Reject Reclassification
+  const handleProcessApproval = async () => {
+    if (!approvalModalInvoice) return;
+    setIsAuthorizing(true);
+    setApprovalError(null);
+    try {
+      const endpoint = approvalAction === 'authorize'
+        ? `/invoices/${approvalModalInvoice.InvoiceID}/authorize-reclassification`
+        : `/invoices/${approvalModalInvoice.InvoiceID}/reclassify/reject`;
+
+      const res = await apiRequest<{ message?: string }>(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ reason: approvalReason.trim() }),
+      });
+
+      alert(res.message || (approvalAction === 'authorize' ? 'Reclassification successfully authorized and posted to General Ledger.' : 'Reclassification request rejected.'));
+      setApprovalModalInvoice(null);
+      setApprovalReason('');
+      if (selectedInvoice && selectedInvoice.InvoiceID === approvalModalInvoice.InvoiceID) {
+        setSelectedInvoice(null);
+      }
+      await loadInvoices();
+    } catch (err: any) {
+      setApprovalError(err.message || 'Failed to process authorization.');
+    } finally {
+      setIsAuthorizing(false);
+    }
+  };
+
   // Filtered invoices
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
@@ -653,6 +747,7 @@ export const InvoicesPage: React.FC = () => {
         statusFilter === 'All' ||
         (statusFilter === 'Paid' && inv.PaymentStatus === 'Paid') ||
         (statusFilter === 'Unpaid' && (inv.PaymentStatus === 'Unpaid' || inv.PaymentStatus === 'Partial')) ||
+        (statusFilter === 'Pending Approval' && inv.Status === 'Pending Approval') ||
         inv.Status.toLowerCase() === statusFilter.toLowerCase();
 
       return matchesSearch && matchesStatus;
@@ -664,8 +759,10 @@ export const InvoicesPage: React.FC = () => {
     let totalVal = 0;
     let unpaidBal = 0;
     let drafts = 0;
+    let pendingApproval = 0;
     invoices.forEach((i) => {
       if (i.Status === 'Draft') drafts++;
+      if (i.Status === 'Pending Approval') pendingApproval++;
       if (i.Status === 'Finalized') {
         totalVal += i.GrandTotal || 0;
         unpaidBal += i.Balance || 0;
@@ -676,12 +773,20 @@ export const InvoicesPage: React.FC = () => {
       totalVal: round2(totalVal),
       unpaidBal: round2(unpaidBal),
       drafts,
+      pendingApproval,
     };
   }, [invoices]);
 
   const getStatusBadge = (inv: Invoice) => {
     if (inv.Status === 'Draft') {
       return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3 h-3" /> Draft</span>;
+    }
+    if (inv.Status === 'Pending Approval') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+          <Clock className="w-3 h-3 text-amber-600" /> Pending Approval
+        </span>
+      );
     }
     if (inv.Status === 'Cancelled') {
       return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200"><Ban className="w-3 h-3" /> Cancelled</span>;
@@ -727,6 +832,23 @@ export const InvoicesPage: React.FC = () => {
         </div>
       </div>
 
+      {stats.pendingApproval > 0 && (
+        <div className="p-4 bg-amber-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-xs">
+          <div className="flex items-center gap-2.5 font-medium">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>{stats.pendingApproval}</strong> invoice{stats.pendingApproval === 1 ? '' : 's'} awaiting Manager authorization for Internal &rarr; External reclassification.
+            </span>
+          </div>
+          <button
+            onClick={() => setStatusFilter('Pending Approval')}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold text-xs shadow-xs transition shrink-0"
+          >
+            Review Pending Approval
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs flex items-center gap-2 font-medium">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -748,18 +870,23 @@ export const InvoicesPage: React.FC = () => {
             />
           </div>
 
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
-            {['All', 'Draft', 'Finalized', 'Paid', 'Unpaid', 'Cancelled'].map((tab) => (
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold overflow-x-auto">
+            {['All', 'Draft', 'Pending Approval', 'Finalized', 'Paid', 'Unpaid', 'Cancelled'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setStatusFilter(tab)}
-                className={`px-3 py-1.5 rounded-lg transition ${
+                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
                   statusFilter === tab
                     ? 'bg-white text-indigo-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {tab}
+                {tab === 'Pending Approval' && stats.pendingApproval > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.2 bg-amber-500 text-white text-[10px] rounded-full">
+                    {stats.pendingApproval}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -890,6 +1017,47 @@ export const InvoicesPage: React.FC = () => {
                         >
                           <Printer className="w-4 h-4" />
                         </a>
+                        {(isAdmin || isManager) && inv.Status === 'Pending Approval' && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setApprovalModalInvoice(inv);
+                                setApprovalAction('authorize');
+                                setApprovalReason('');
+                                setApprovalError(null);
+                              }}
+                              title="Authorize Reclassification (Reverse & Repost to GL)"
+                              className="p-1.5 hover:bg-emerald-50 rounded-lg text-emerald-600 transition"
+                            >
+                              <ShieldCheck className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setApprovalModalInvoice(inv);
+                                setApprovalAction('reject');
+                                setApprovalReason('');
+                                setApprovalError(null);
+                              }}
+                              title="Reject Reclassification"
+                              className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 transition"
+                            >
+                              <Ban className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                        {(isAdmin || isManager) && inv.Status === 'Finalized' && (
+                          <button
+                            onClick={() => {
+                              setReclassifyInvoice(inv);
+                              setReclassifyReason('');
+                              setReclassifyError(null);
+                            }}
+                            title={`Reclassify to ${inv.IsInternal === 1 ? 'Commercial (External)' : 'Internal Fleet'}`}
+                            className="p-1.5 hover:bg-indigo-50 rounded-lg text-indigo-600 transition"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2167,6 +2335,20 @@ export const InvoicesPage: React.FC = () => {
 
             {/* Scrollable details */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+              {selectedInvoice.Status === 'Pending Approval' && (
+                <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-4 flex items-start gap-3 text-xs">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-amber-900 text-sm">
+                      Pending Manager Authorization
+                    </p>
+                    <p className="text-amber-800 leading-relaxed">
+                      This invoice has been requested to transition from <strong>Internal Fleet</strong> to <strong>Commercial Customer</strong>. To maintain accounting integrity, the existing internal maintenance journal entries will remain in the General Ledger until a Manager authorizes the journal reversal and external commercial posting.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                 <div>
                   <p className="text-xs text-slate-400">Grand Total</p>
@@ -2271,6 +2453,45 @@ export const InvoicesPage: React.FC = () => {
                     </button>
                   </div>
                 )}
+                {(isAdmin || isManager) && selectedInvoice.Status === 'Pending Approval' && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setApprovalModalInvoice(selectedInvoice);
+                        setApprovalAction('reject');
+                        setApprovalReason('');
+                        setApprovalError(null);
+                      }}
+                      className="px-3 py-1.5 border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-semibold transition"
+                    >
+                      Reject Reclassification
+                    </button>
+                    <button
+                      onClick={() => {
+                        setApprovalModalInvoice(selectedInvoice);
+                        setApprovalAction('authorize');
+                        setApprovalReason('');
+                        setApprovalError(null);
+                      }}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" /> Authorize &amp; Post to GL
+                    </button>
+                  </div>
+                )}
+                {(isAdmin || isManager) && selectedInvoice.Status === 'Finalized' && (
+                  <button
+                    onClick={() => {
+                      setReclassifyInvoice(selectedInvoice);
+                      setReclassifyReason('');
+                      setReclassifyError(null);
+                    }}
+                    className="px-3.5 py-1.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Reclassify to {selectedInvoice.IsInternal === 1 ? 'Commercial (External)' : 'Internal Fleet'}
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -2297,6 +2518,243 @@ export const InvoicesPage: React.FC = () => {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RECLASSIFY MODAL (ADMIN ONLY) */}
+      {reclassifyInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-lg w-full space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <RefreshCw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-slate-800">
+                    Reclassify Bill — {reclassifyInvoice.InvoiceNo}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Switch accounting classification &amp; General Ledger entries
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setReclassifyInvoice(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Current Classification:</span>
+                <span className={`font-bold ${reclassifyInvoice.IsInternal === 1 ? 'text-blue-600' : 'text-indigo-600'}`}>
+                  {reclassifyInvoice.IsInternal === 1 ? 'Internal Fleet (GL 6900 R&M)' : 'Commercial Customer (GL 1200 AR)'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">New Classification:</span>
+                <span className={`font-bold ${reclassifyInvoice.IsInternal === 1 ? 'text-indigo-600' : 'text-blue-600'}`}>
+                  {reclassifyInvoice.IsInternal === 1 ? 'Commercial Customer (GL 1200 AR & Revenue)' : 'Internal Fleet (GL 6900 R&M)'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+                <span className="text-slate-500">Billed Total:</span>
+                <span className="font-bold text-slate-800">{formatLKR(reclassifyInvoice.GrandTotal)}</span>
+              </div>
+            </div>
+
+            {reclassifyInvoice.IsInternal === 1 ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  Manager Authorization Required:
+                </p>
+                <p>
+                  Switching an Internal Fleet invoice to Commercial Customer requires Manager authorization before it hits the General Ledger.
+                </p>
+                <p>
+                  Submitting will place this invoice into <strong>'Pending Approval'</strong> status. Internal journal entries will remain untouched until authorized.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-blue-600 shrink-0" />
+                  Automated Ledger Treatment:
+                </p>
+                <p>
+                  1. The original commercial journal entry will be <strong>reversed</strong> with an offsetting JV in the ledger.
+                </p>
+                <p>
+                  2. A fresh internal balanced journal will be <strong>reposted</strong> to Internal Workshop Fleet Cost (GL 6900 R&amp;M).
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                Audit Reason for Reclassification <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Invoiced as commercial customer by mistake; unit belongs to internal fleet"
+                value={reclassifyReason}
+                onChange={(e) => setReclassifyReason(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            </div>
+
+            {reclassifyError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{reclassifyError}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={reclassifying}
+                onClick={() => setReclassifyInvoice(null)}
+                className="px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reclassifying}
+                onClick={handleReclassify}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition"
+              >
+                {reclassifying ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Processing...
+                  </>
+                ) : reclassifyInvoice.IsInternal === 1 ? (
+                  <>
+                    <Clock className="w-3.5 h-3.5" />
+                    Submit for Manager Approval
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Confirm &amp; Reclassify
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANAGER AUTHORIZATION / REJECTION MODAL */}
+      {approvalModalInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 max-w-md w-full space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    approvalAction === 'authorize' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                  }`}
+                >
+                  {approvalAction === 'authorize' ? <ShieldCheck className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-slate-800">
+                    {approvalAction === 'authorize' ? 'Authorize Reclassification' : 'Reject Reclassification'}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Invoice {approvalModalInvoice.InvoiceNo} &bull; {formatLKR(approvalModalInvoice.GrandTotal)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setApprovalModalInvoice(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {approvalAction === 'authorize' ? (
+                <>
+                  By authorizing, the system will reverse the internal fleet expense journal and repost this invoice as an external commercial receivable (<span className="font-mono font-semibold">1200 AR</span>) with sales revenue (<span className="font-mono font-semibold">4100/4200 Sales</span>) in the General Ledger.
+                </>
+              ) : (
+                <>
+                  Rejecting this request will keep the invoice as an <strong>Internal Fleet</strong> repair and return its status to <strong>Finalized</strong>. No changes will be made to the General Ledger.
+                </>
+              )}
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700">
+                Decision Notes / Reason <span className="text-slate-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder={
+                  approvalAction === 'authorize'
+                    ? 'e.g. Approved after reviewing customer purchase order'
+                    : 'e.g. Rejected, customer PO not found'
+                }
+                value={approvalReason}
+                onChange={(e) => setApprovalReason(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            </div>
+
+            {approvalError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{approvalError}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isAuthorizing}
+                onClick={() => setApprovalModalInvoice(null)}
+                className="px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isAuthorizing}
+                onClick={handleProcessApproval}
+                className={`px-4 py-2 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5 transition ${
+                  approvalAction === 'authorize'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : 'bg-rose-600 hover:bg-rose-700'
+                } disabled:opacity-50`}
+              >
+                {isAuthorizing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Processing...
+                  </>
+                ) : approvalAction === 'authorize' ? (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Authorize &amp; Post to GL
+                  </>
+                ) : (
+                  <>
+                    <Ban className="w-3.5 h-3.5" />
+                    Confirm Rejection
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

@@ -23,6 +23,14 @@ export async function apiRequest<T = any>(
     headers.set('Content-Type', 'application/json');
   }
 
+  // Send Bearer token if stored in localStorage (for cross-origin iframe resilience)
+  try {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('billing_token') : null;
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+  } catch (_) {}
+
   // Always include HttpOnly session cookies across requests
   const response = await fetch(url, {
     ...options,

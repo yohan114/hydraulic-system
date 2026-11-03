@@ -40,11 +40,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentSection, onNavigate, on
     // Executive / Admin sees all navigation tabs
     if (isAdmin || role === 'dgm' || role === 'chairman') return true;
     if (item.id === 'dashboard' || item.id === 'invoices' || item.id === 'inventory' || item.id === 'labour-bills') return true;
-    if (item.id === 'jobs') return role === 'cashier' || role === 'manager' || role === 'workshop_supervisor' || role === 'operations_manager';
+    if (item.id === 'jobs') return role === 'cashier' || role === 'manager' || role === 'workshop_supervisor' || role === 'operations_manager' || role === 'workshop_accounts';
     if (item.id === 'job-profit') return role === 'manager' || role === 'workshop_supervisor' || role === 'operations_manager' || role === 'ho_accounts' || role === 'workshop_accounts';
     if (item.id === 'procurement') return role === 'manager' || role === 'operations_manager';
-    if (item.id === 'ledger') return role === 'ho_accounts' || role === 'workshop_accounts';
-    if (item.id === 'users') return false;
+    if (item.id === 'ledger') return role === 'manager' || role === 'ho_accounts' || role === 'workshop_accounts';
+    if (item.id === 'users') return isAdmin;
     return false;
   });
 

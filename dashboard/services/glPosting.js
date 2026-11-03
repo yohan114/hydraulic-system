@@ -40,6 +40,7 @@
 const connection = require('../db');
 const money = require('../lib/money');
 const ledgerSvc = require('./ledger');
+const auditLog = require('../lib/auditLog');
 
 const ACC = {
   CASH: '1110',
@@ -111,19 +112,49 @@ function postInvoice(invoiceId, opts = {}) {
     // Own plant: stock becomes a workshop cost. Nothing else moves.
     if (cost <= 0) return null;
     lines.push(
-      { accountCode: ACC.INTERNAL_WORK, debit: cost, memo: `Internal work ${inv.InvoiceNo}`, customerId: inv.CustomerID },
+      { accountCode: ACC.INTERNAL_WORK, debit: cost, memo: `Internal work ${inv.InvoiceNo}`, customerId: inv.CustomerID || null },
       { accountCode: ACC.STOCK, credit: cost, memo: `Parts used on ${inv.InvoiceNo}` }
     );
   } else {
-    const revenue = splitRevenue(items);
+    const rawRevenue = splitRevenue(items);
     const tax = money.round2(money.num(inv.SSCLAmount) + money.num(inv.VATAmount));
-    const receivable = money.round2(revenue.parts + revenue.technical + tax);
+    const discount = money.round2(money.num(inv.Discount));
+    const roundOff = money.round2(money.num(inv.RoundOff));
+    const grandTotal = money.round2(money.num(inv.GrandTotal));
+
+    // Total gross before discount/roundoff
+    const grossTotal = money.round2(rawRevenue.parts + rawRevenue.technical);
+    let netParts = rawRevenue.parts;
+    let netTech = rawRevenue.technical;
+
+    // Adjust revenue proportionally for discounts & roundoffs so AR exactly equals GrandTotal
+    if (grossTotal > 0 && (discount !== 0 || roundOff !== 0)) {
+      const netGross = money.round2(grossTotal - discount + roundOff);
+      const ratio = netGross / grossTotal;
+      netParts = money.round2(rawRevenue.parts * ratio);
+      netTech = money.round2(netGross - netParts);
+    }
+
+    const receivable = grandTotal > 0 ? grandTotal : money.round2(netParts + netTech + tax);
     if (receivable <= 0 && cost <= 0) return null;
 
-    if (receivable > 0) lines.push({ accountCode: ACC.AR, debit: receivable, memo: `Invoice ${inv.InvoiceNo}`, customerId: inv.CustomerID });
-    if (revenue.parts > 0) lines.push({ accountCode: ACC.SALES_PARTS, credit: revenue.parts, customerId: inv.CustomerID });
-    if (revenue.technical > 0) lines.push({ accountCode: ACC.SALES_TECHNICAL, credit: revenue.technical, customerId: inv.CustomerID });
-    if (tax > 0) lines.push({ accountCode: ACC.TAX_PAYABLE, credit: tax, memo: 'SSCL / VAT collected' });
+    if (receivable > 0) {
+      lines.push({
+        accountCode: ACC.AR,
+        debit: receivable,
+        memo: `Invoice ${inv.InvoiceNo}${inv.BilledToName ? ` (${inv.BilledToName})` : ''}`,
+        customerId: inv.CustomerID || null,
+      });
+    }
+    if (netParts > 0) {
+      lines.push({ accountCode: ACC.SALES_PARTS, credit: netParts, customerId: inv.CustomerID || null });
+    }
+    if (netTech > 0) {
+      lines.push({ accountCode: ACC.SALES_TECHNICAL, credit: netTech, customerId: inv.CustomerID || null });
+    }
+    if (tax > 0) {
+      lines.push({ accountCode: ACC.TAX_PAYABLE, credit: tax, memo: 'SSCL / VAT collected' });
+    }
 
     if (cost > 0) {
       lines.push(
@@ -261,6 +292,119 @@ function reverseInvoice(invoiceId, opts = {}) {
 }
 
 /**
+ * Core accounting handler for invoice classification changes (Internal <-> External).
+ * Automatically reverses existing journal entries using double-entry reversal logic (T31)
+ * and triggers reposting of the invoice to the appropriate General Ledger accounts.
+ *
+ * @param {number|string} invoiceId
+ * @param {boolean|number} targetIsInternal
+ * @param {object} [opts] { postedBy, actorRole, reason, allowClosedPeriod }
+ * @returns {object} { success, invoiceId, invoiceNo, isInternal, paymentStatus, reversalJournal, newJournal, message }
+ */
+function reclassifyInvoice(invoiceId, targetIsInternal, opts = {}) {
+  const db = connection._db;
+  const id = Number(invoiceId);
+  const actor = opts.postedBy || 'system';
+  const role = opts.actorRole || 'admin';
+  const reason = String(opts.reason || 'Invoice classification changed').trim();
+  const isInternal = Boolean(targetIsInternal);
+
+  const inv = db.prepare('SELECT * FROM Invoices WHERE InvoiceID = ?').get(id);
+  if (!inv) throw new ledgerSvc.LedgerError(`Invoice ${id} not found`, 404);
+  if (inv.Status !== 'Finalized') {
+    throw new ledgerSvc.LedgerError(`Cannot reclassify invoice in '${inv.Status}' status. Only Finalized invoices can be reclassified.`, 400);
+  }
+
+  const currentIsInternal = Boolean(inv.IsInternal);
+  if (currentIsInternal === isInternal) {
+    throw new ledgerSvc.LedgerError(`Invoice ${inv.InvoiceNo} is already classified as ${isInternal ? 'Internal' : 'External'}.`, 400);
+  }
+
+  // Payments cannot exist on internal work
+  if (isInternal) {
+    const pay = db.prepare('SELECT COUNT(*) AS c FROM Payments WHERE InvoiceID = ?').get(id);
+    if (pay && pay.c > 0) {
+      throw new ledgerSvc.LedgerError('Cannot convert to Internal while customer payments exist. Reallocate or refund payments first.', 409);
+    }
+  }
+
+  // Period status check
+  const invDate = String(inv.InvoiceDate || '').slice(0, 10);
+  const period = invDate.slice(0, 7);
+  if (!opts.allowClosedPeriod && ledgerSvc.periodStatus(db, period) === 'closed') {
+    throw new ledgerSvc.LedgerError(`Period ${period} is closed — cannot reclassify invoice in a closed period.`, 409);
+  }
+
+  return db.transaction(() => {
+    // 1. Automatically reverse existing journal entry using double-entry reversal
+    let reversal = null;
+    const prevJournalId = ledgerSvc.isPosted('invoice', id);
+    if (prevJournalId) {
+      reversal = ledgerSvc.reverseEntry(prevJournalId, {
+        postedBy: actor,
+        memo: `Reversal of ${inv.InvoiceNo} due to reclassification from ${currentIsInternal ? 'Internal' : 'External'} to ${isInternal ? 'Internal' : 'External'}: ${reason}`,
+        allowClosedPeriod: opts.allowClosedPeriod,
+      });
+    }
+
+    // 2. Adjust payment status and customer assignment
+    let newPaymentStatus = 'Unpaid';
+    if (isInternal) {
+      newPaymentStatus = 'Not Applicable';
+    } else {
+      const paid = money.num(inv.AmountPaid);
+      const grand = money.num(inv.GrandTotal);
+      newPaymentStatus = paid >= grand ? 'Paid' : (paid > 0 ? 'Partial' : 'Unpaid');
+    }
+
+    let customerId = inv.CustomerID;
+    if (isInternal && !customerId) {
+      const internalCust = db.prepare("SELECT CustomerID FROM Customers WHERE Kind = 'internal' ORDER BY CustomerID ASC LIMIT 1").get();
+      if (internalCust) customerId = internalCust.CustomerID;
+    }
+
+    db.prepare(`
+      UPDATE Invoices
+      SET IsInternal = ?, PaymentStatus = ?, CustomerID = ?
+      WHERE InvoiceID = ?
+    `).run(isInternal ? 1 : 0, newPaymentStatus, customerId || null, id);
+
+    // 3. Post to General Ledger with the new classification
+    //    - Internal: Dr 6900 (Internal R&M) / Cr 1300 (Stock at landed cost)
+    //    - External: Dr 1200 (AR) / Cr 4100/4200 (Sales) / Cr 2300 (Taxes) / Dr 5100 (COGS) / Cr 1300 (Stock)
+    const newJournal = postInvoice(id, {
+      postedBy: actor,
+      allowClosedPeriod: opts.allowClosedPeriod,
+    });
+
+    // 4. Record Business Audit Log
+    try {
+      auditLog.recordBusinessAudit(db, {
+        actorId: actor,
+        actorRole: role,
+        action: 'reclassify_invoice',
+        entityType: 'Invoices',
+        entityId: String(id),
+        payloadBefore: { isInternal: currentIsInternal, paymentStatus: inv.PaymentStatus },
+        payloadAfter: { isInternal, paymentStatus: newPaymentStatus, reason },
+        reason,
+      });
+    } catch (_) {}
+
+    return {
+      success: true,
+      invoiceId: id,
+      invoiceNo: inv.InvoiceNo,
+      isInternal,
+      paymentStatus: newPaymentStatus,
+      reversalJournal: reversal,
+      newJournal,
+      message: `Invoice ${inv.InvoiceNo} successfully reclassified to ${isInternal ? 'Internal Fleet' : 'Commercial (External)'}.`,
+    };
+  })();
+}
+
+/**
  * Post a customer credit liability (e.g. from downward revision overpayment).
  * Cash in till was preserved, so:
  * Dr Cash (1110)
@@ -324,5 +468,6 @@ module.exports = {
   ACC, TECHNICAL_RE,
   splitRevenue, costOfLines, accountForExpense,
   postInvoice, postPayment, postExpense, postLabourPayment, postPurchase, reverseInvoice,
+  reclassifyInvoice, logAuditReversal: ledgerSvc.logAuditReversal,
   postCustomerCredit, postRefund,
 };

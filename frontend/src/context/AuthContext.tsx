@@ -73,6 +73,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       method: 'POST',
       body: JSON.stringify({ username: user, password: pass }),
     });
+    if (res && res.token) {
+      try { localStorage.setItem('billing_token', res.token); } catch (_) {}
+    }
     setUsername(res.username);
     setRole(res.role);
     setIsAuthenticated(true);
@@ -83,6 +86,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await apiRequest('/auth/logout', { method: 'POST' });
     } catch (_) {}
+    try { localStorage.removeItem('billing_token'); } catch (_) {}
     setUsername(null);
     setRole(null);
     setIsAuthenticated(false);

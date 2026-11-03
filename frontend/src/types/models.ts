@@ -76,7 +76,7 @@ export interface Invoice {
   GrandTotal: number;
   AmountPaid: number;
   Balance: number;
-  Status: 'Draft' | 'Finalized' | 'Paid' | 'Cancelled' | 'Revised';
+  Status: 'Draft' | 'Finalized' | 'Paid' | 'Cancelled' | 'Revised' | 'Pending Approval';
   PaymentStatus: string;
   PaymentStatusDerived?: string;
   IsInternal: number;
