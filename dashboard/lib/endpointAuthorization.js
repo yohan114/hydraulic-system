@@ -98,6 +98,7 @@ const POLICIES = [
   // --- Invoices ---
   { method: 'GET', pattern: /^\/api\/invoices$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/pending-reclassifications$/, permission: 'invoice.read' },
+  { method: 'GET', pattern: /^\/api\/invoices\/bulk-html$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/next-no$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/export$/, permission: 'invoice.read' },
   { method: 'GET', pattern: /^\/api\/invoices\/\d+$/, permission: 'invoice.read' },
@@ -110,6 +111,7 @@ const POLICIES = [
   { method: 'PUT', pattern: /^\/api\/invoices\/draft\/\d+$/, permission: 'invoice.create' },
   { method: 'POST', pattern: /^\/api\/invoices\/finalize$/, permission: 'invoice.finalize' },
   { method: 'POST', pattern: /^\/api\/invoices\/\d+\/revise$/, permission: 'invoice.revise' },
+  { method: 'POST', pattern: /^\/api\/invoices\/\d+\/cancel$/, permission: 'invoice.cancel' },
   { method: 'POST', pattern: /^\/api\/invoices\/\d+\/reclassify$/, permission: 'invoice.reclassify' },
   { method: 'POST', pattern: /^\/api\/invoices\/\d+\/reclassify\/approve$/, permission: 'invoice.reclassify' },
   { method: 'POST', pattern: /^\/api\/invoices\/\d+\/reclassify\/reject$/, permission: 'invoice.reclassify' },

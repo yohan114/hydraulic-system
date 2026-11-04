@@ -51,6 +51,12 @@ export async function apiRequest<T = any>(
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      try { localStorage.removeItem('billing_token'); } catch (_) {}
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:revoked', { detail: data }));
+      }
+    }
     const errorMsg = (data && data.error) || response.statusText || 'Request failed';
     throw new ApiError(errorMsg, response.status, data);
   }

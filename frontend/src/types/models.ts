@@ -90,6 +90,7 @@ export interface Invoice {
   RevisedAt?: string;
   RevisionReason?: string;
   SupersededBy?: number;
+  Notes?: string;
   items?: Array<{
     InvoiceItemID: number;
     InvoiceID: number;

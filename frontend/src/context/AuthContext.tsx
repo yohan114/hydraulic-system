@@ -63,6 +63,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [checkAuthStatus]);
 
   useEffect(() => {
+    const handleRevoked = () => {
+      setUsername(null);
+      setRole(null);
+      setIsAuthenticated(false);
+      setSessions([]);
+    };
+    window.addEventListener('auth:revoked', handleRevoked);
+    return () => window.removeEventListener('auth:revoked', handleRevoked);
+  }, []);
+
+  useEffect(() => {
     if (isAuthenticated) {
       refreshSessions();
     }

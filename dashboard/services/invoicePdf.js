@@ -76,15 +76,82 @@ function outsideDesc(desc, unit) {
   return (i >= 0 ? d.slice(0, i) : d).trim();
 }
 
+function getInvoiceStyles(isBulk = false) {
+  return `
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; }
+  /* Full-A4 flex sheet: content grows to fill, footer pinned to the bottom. */
+  .sheet { min-height: 297mm; display: flex; flex-direction: column; page-break-after: always; break-after: page; }
+  .sheet:last-child { page-break-after: auto; break-after: auto; }
+  .wrap { flex: 1 0 auto; padding: 26px 34px 0; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid ${INK}; padding-bottom: 12px; }
+  .brand img { max-height: 44px; display: block; margin-bottom: 6px; }
+  .brand .name { font-size: 18px; font-weight: 700; color: ${INK}; }
+  .brand .strip { display: inline-block; margin-top: 6px; background: ${INK}; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; padding: 4px 12px; }
+  .brand .strip .dot { color: ${ACCENT}; }
+  .doc { text-align: right; }
+  .doc .title { font-size: 22px; font-weight: 800; letter-spacing: 1px; color: ${INK}; }
+  .doc .title span { color: ${ACCENT}; }
+  .doc .ref { font-size: 12px; margin-top: 4px; }
+  .doc .copy { display:inline-block; margin-top:8px; font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:3px 9px; border-radius:3px; background:${INK}; color:#fff; }
+  .doc .copy.outside { background:${ACCENT}; }
+  .parties { display: flex; gap: 24px; margin: 18px 0; }
+  .parties .box { flex: 1; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; }
+  .parties h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+  .parties .v { font-weight: 600; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  table.items th { background: ${INK}; color: #fff; font-weight: 600; text-align: left; padding: 8px 10px; font-size: 11px; }
+  table.items td { padding: 7px 10px; border-bottom: 1px solid #eef2f7; }
+  table.items td.c, table.items th.c { text-align: center; }
+  table.items td.r, table.items th.r { text-align: right; }
+  .totals { width: 300px; margin-left: auto; margin-top: 14px; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 5px 10px; }
+  .totals td.r { text-align: right; }
+  .totals tr.grand td { border-top: 2px solid ${INK}; font-size: 15px; font-weight: 700; color: ${INK}; padding-top: 8px; }
+  .notes { margin-top: 16px; font-size: 11px; color: #4b5563; }
+  .sign { margin: 28px 0 18px; display: flex; justify-content: flex-end; }
+  .sign .box { text-align: center; }
+  .sign img { max-height: 56px; display: block; margin: 0 auto 4px; }
+  .sign .line { border-top: 1px dashed #94a3b8; width: 210px; margin: 0 auto 6px; }
+  .sign .label { font-size: 11px; color: #64748b; font-weight: 500; }
+  .footer { flex-shrink: 0; background: ${INK}; color: #fff; border-top: 3px solid ${ACCENT}; padding: 12px 34px; display: flex; align-items: center; gap: 18px; font-size: 10px; }
+  .footer .brandmini { font-weight: 700; font-size: 14px; white-space: nowrap; }
+  .footer .brandmini span { color: ${ACCENT}; }
+  .footer .col { display: flex; gap: 7px; align-items: flex-start; line-height: 1.4; flex: 1; }
+  .footer .ic { width: 15px; height: 15px; border-radius: 50%; background: ${ACCENT}; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #fff; margin-top: 1px; }
+  .footer .vat { text-align: right; letter-spacing: 1.5px; font-size: 9px; white-space: nowrap; }
+  .footer .vat .k { color: ${ACCENT}; display: block; margin-bottom: 2px; }
+  .voided { background: #7f1d1d; color: #fff; text-align: center; font-weight: 800; letter-spacing: 2px;
+            text-transform: uppercase; font-size: 12px; padding: 8px 12px; }
+  ${isBulk ? `
+  @media screen {
+    body { background: #0f172a; padding-bottom: 40px; }
+    .bulk-toolbar { position: sticky; top: 0; z-index: 999; background: #1e293b; color: #f8fafc; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .bulk-toolbar h2 { margin: 0; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .bulk-toolbar .badge { background: #3b82f6; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+    .bulk-toolbar-actions { display: flex; gap: 10px; align-items: center; }
+    .bulk-toolbar-btn { background: #2563eb; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(37,99,235,0.4); }
+    .bulk-toolbar-btn:hover { background: #1d4ed8; }
+    .bulk-close-btn { background: #475569; color: #f8fafc; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; }
+    .bulk-close-btn:hover { background: #64748b; }
+    .sheet { background: #fff; margin: 24px auto; max-width: 210mm; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4); border-radius: 2px; }
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .bulk-toolbar { display: none !important; }
+    .sheet { margin: 0; box-shadow: none; border-radius: 0; }
+  }
+  ` : ''}
+  `;
+}
+
 /**
- * Build the full HTML document for one invoice.
- * @param {object} invoice invoice header row (as returned by GET /api/invoices/:id)
- * @param {Array<object>} items InvoiceItems rows (ItemDescription, Qty, Rate, Unit)
- * @param {object} [opts]
- * @param {'inside'|'outside'} [opts.billType='inside']
- * @returns {string}
+ * Build one A4 invoice sheet HTML fragment.
  */
-function buildInvoiceHtml(invoice, items, opts = {}) {
+function buildInvoiceSheet(invoice, items, opts = {}) {
   const docView = opts.documentView || (opts.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
   const outside = docView === 'CUSTOMER' || opts.billType === 'outside';
   const isDetailed = docView === 'COMPANY_DETAILED';
@@ -134,64 +201,13 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
         ? 'OUTSIDE BILL — Customer Copy'
         : 'INTERNAL BILL — Company Copy';
 
-  // A superseded or void invoice must never be mistaken for a live one once it
-  // is off the screen and on paper in someone's hand.
   const voidBanner = invoice.Status === 'Revised'
     ? 'NOT VALID — this invoice has been revised and replaced'
     : invoice.Status === 'Cancelled'
       ? 'CANCELLED — this invoice is void'
       : null;
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invoice.InvoiceNo || 'Invoice')}</title>
-<style>
-  * { box-sizing: border-box; }
-  @page { size: A4; margin: 0; }
-  html, body { margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 12px; }
-  /* Full-A4 flex sheet: content grows to fill, footer pinned to the bottom. */
-  .sheet { min-height: 297mm; display: flex; flex-direction: column; }
-  .wrap { flex: 1 0 auto; padding: 26px 34px 0; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid ${INK}; padding-bottom: 12px; }
-  .brand img { max-height: 44px; display: block; margin-bottom: 6px; }
-  .brand .name { font-size: 18px; font-weight: 700; color: ${INK}; }
-  .brand .strip { display: inline-block; margin-top: 6px; background: ${INK}; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; padding: 4px 12px; }
-  .brand .strip .dot { color: ${ACCENT}; }
-  .doc { text-align: right; }
-  .doc .title { font-size: 22px; font-weight: 800; letter-spacing: 1px; color: ${INK}; }
-  .doc .title span { color: ${ACCENT}; }
-  .doc .ref { font-size: 12px; margin-top: 4px; }
-  .doc .copy { display:inline-block; margin-top:8px; font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; padding:3px 9px; border-radius:3px; background:${INK}; color:#fff; }
-  .doc .copy.outside { background:${ACCENT}; }
-  .parties { display: flex; gap: 24px; margin: 18px 0; }
-  .parties .box { flex: 1; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; }
-  .parties h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
-  .parties .v { font-weight: 600; }
-  table.items { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  table.items th { background: ${INK}; color: #fff; font-weight: 600; text-align: left; padding: 8px 10px; font-size: 11px; }
-  table.items td { padding: 7px 10px; border-bottom: 1px solid #eef2f7; }
-  table.items td.c, table.items th.c { text-align: center; }
-  table.items td.r, table.items th.r { text-align: right; }
-  .totals { width: 300px; margin-left: auto; margin-top: 14px; }
-  .totals table { width: 100%; border-collapse: collapse; }
-  .totals td { padding: 5px 10px; }
-  .totals td.r { text-align: right; }
-  .totals tr.grand td { border-top: 2px solid ${INK}; font-size: 15px; font-weight: 700; color: ${INK}; padding-top: 8px; }
-  .notes { margin-top: 16px; font-size: 11px; color: #4b5563; }
-  .sign { margin: 28px 0 18px; display: flex; justify-content: flex-end; }
-  .sign .box { text-align: center; }
-  .sign img { max-height: 56px; display: block; margin: 0 auto 4px; }
-  .sign .line { border-top: 1px dashed #94a3b8; width: 210px; margin: 0 auto 6px; }
-  .sign .label { font-size: 11px; color: #64748b; font-weight: 500; }
-  .footer { flex-shrink: 0; background: ${INK}; color: #fff; border-top: 3px solid ${ACCENT}; padding: 12px 34px; display: flex; align-items: center; gap: 18px; font-size: 10px; }
-  .footer .brandmini { font-weight: 700; font-size: 14px; white-space: nowrap; }
-  .footer .brandmini span { color: ${ACCENT}; }
-  .footer .col { display: flex; gap: 7px; align-items: flex-start; line-height: 1.4; flex: 1; }
-  .footer .ic { width: 15px; height: 15px; border-radius: 50%; background: ${ACCENT}; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #fff; margin-top: 1px; }
-  .footer .vat { text-align: right; letter-spacing: 1.5px; font-size: 9px; white-space: nowrap; }
-  .footer .vat .k { color: ${ACCENT}; display: block; margin-bottom: 2px; }
-  .voided { background: #7f1d1d; color: #fff; text-align: center; font-weight: 800; letter-spacing: 2px;
-            text-transform: uppercase; font-size: 12px; padding: 8px 12px; }
-</style></head><body>
+  return `
   <div class="sheet">
   ${voidBanner ? `<div class="voided">${esc(voidBanner)}</div>` : ''}
   <div class="wrap">
@@ -247,8 +263,57 @@ function buildInvoiceHtml(invoice, items, opts = {}) {
     <div class="col"><div class="ic">◎</div><div>${BUSINESS.address}</div></div>
     <div class="vat"><span class="k">VAT REG</span>${esc(BUSINESS.vat)}</div>
   </div>
-  </div>
+  </div>`;
+}
+
+/**
+ * Build the full HTML document for one invoice.
+ * @param {object} invoice invoice header row (as returned by GET /api/invoices/:id)
+ * @param {Array<object>} items InvoiceItems rows (ItemDescription, Qty, Rate, Unit)
+ * @param {object} [opts]
+ * @param {'inside'|'outside'} [opts.billType='inside']
+ * @returns {string}
+ */
+function buildInvoiceHtml(invoice, items, opts = {}) {
+  const sheet = buildInvoiceSheet(invoice, items, opts);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(invoice.InvoiceNo || 'Invoice')}</title>
+<style>
+${getInvoiceStyles(false)}
+</style></head><body>
+${sheet}
 </body></html>`;
 }
 
-module.exports = { buildInvoiceHtml, BUSINESS, outsideDesc };
+/**
+ * Build a single print-friendly HTML document containing multiple invoices sequentially.
+ * @param {Array<{invoice: object, items: Array<object>}>} invoicesWithItems
+ * @param {object} [opts]
+ * @returns {string}
+ */
+function buildBulkInvoiceHtml(invoicesWithItems, opts = {}) {
+  const sheets = (invoicesWithItems || []).map((entry) => buildInvoiceSheet(entry.invoice, entry.items, opts)).join('\n');
+  const count = invoicesWithItems.length;
+  const title = `Bulk Print — ${count} Finalized Invoices`;
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>
+${getInvoiceStyles(true)}
+</style></head><body>
+  <div class="bulk-toolbar">
+    <h2>
+      <span>Bulk Invoice Print</span>
+      <span class="badge">${count} Invoices</span>
+    </h2>
+    <div class="bulk-toolbar-actions">
+      <button class="bulk-toolbar-btn" onclick="window.print()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        Print All Invoices
+      </button>
+      <button class="bulk-close-btn" onclick="window.close()">Close Window</button>
+    </div>
+  </div>
+  ${sheets}
+</body></html>`;
+}
+
+module.exports = { buildInvoiceHtml, buildBulkInvoiceHtml, buildInvoiceSheet, BUSINESS, outsideDesc };

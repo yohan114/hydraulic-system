@@ -277,7 +277,32 @@ router.post('/api/auth/login', async (req, res) => {
 
 router.get('/api/auth/status', async (req, res) => {
     const token = extractToken(req);
-    const claims = token ? authLib.verifyToken(token, AUTH_SECRET) : null;
+    let claims = token ? authLib.verifyToken(token, AUTH_SECRET) : null;
+    
+    // Check revocation in database
+    if (claims && claims.sub) {
+        try {
+            const user = connection._db.prepare(
+                'SELECT UserID, AuthVersion, IsActive, Role FROM Users WHERE Username = ?'
+            ).get(claims.sub);
+            if (!user || user.IsActive === 0) {
+                claims = null;
+            } else if (claims.authVersion != null && user.AuthVersion != null && claims.authVersion !== user.AuthVersion) {
+                claims = null;
+            } else if (claims.sessionId) {
+                const session = connection._db.prepare('SELECT RevokedAt FROM Sessions WHERE SessionID = ?').get(claims.sessionId);
+                if (session && session.RevokedAt) {
+                    claims = null;
+                }
+            }
+        } catch (_) {}
+    }
+
+    if (!claims && token) {
+        // Clear invalid or revoked cookie
+        res.clearCookie('billing_token', { path: '/' });
+    }
+
     res.json({
         authEnabled: AUTH_ENABLED,
         authenticated: !!claims || !AUTH_ENABLED,

@@ -3,6 +3,7 @@ import { apiRequest } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Invoice, InvoiceLineItem, Customer, Machine, InventoryItem } from '../types/models';
 import { formatLKR, formatDate, round2 } from '../utils/format';
+import { BulkPrintModal } from '../components/BulkPrintModal';
 import {
   FileText,
   Plus,
@@ -78,6 +79,13 @@ export const InvoicesPage: React.FC = () => {
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [error, setError] = useState<string | null>(null);
+
+  // Bulk Print state
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
+  const [isBulkPrintOpen, setIsBulkPrintOpen] = useState<boolean>(false);
+  const [bulkInvoices, setBulkInvoices] = useState<Invoice[]>([]);
+  const [loadingBulkInvoices, setLoadingBulkInvoices] = useState<boolean>(false);
+  const [bulkDocumentView, setBulkDocumentView] = useState<'CUSTOMER' | 'COMPANY_DETAILED'>('CUSTOMER');
 
   // View modal state
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
@@ -754,6 +762,57 @@ export const InvoicesPage: React.FC = () => {
     });
   }, [invoices, search, statusFilter]);
 
+  // Finalized invoices eligible for bulk printing
+  const finalizedInFiltered = useMemo(() => {
+    return filteredInvoices.filter((inv) => inv.Status === 'Finalized');
+  }, [filteredInvoices]);
+
+  const isAllFinalizedSelected =
+    finalizedInFiltered.length > 0 &&
+    finalizedInFiltered.every((inv) => selectedInvoiceIds.includes(inv.InvoiceID));
+
+  const isSomeFinalizedSelected =
+    finalizedInFiltered.some((inv) => selectedInvoiceIds.includes(inv.InvoiceID)) && !isAllFinalizedSelected;
+
+  const handleToggleSelectAll = () => {
+    if (isAllFinalizedSelected) {
+      setSelectedInvoiceIds((prev) =>
+        prev.filter((id) => !finalizedInFiltered.some((inv) => inv.InvoiceID === id))
+      );
+    } else {
+      const newIds = Array.from(new Set([...selectedInvoiceIds, ...finalizedInFiltered.map((i) => i.InvoiceID)]));
+      setSelectedInvoiceIds(newIds);
+    }
+  };
+
+  const handleToggleSelectInvoice = (id: number) => {
+    setSelectedInvoiceIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleOpenBulkPrint = async () => {
+    if (selectedInvoiceIds.length === 0) return;
+    setIsBulkPrintOpen(true);
+    setLoadingBulkInvoices(true);
+    try {
+      const detailed = await Promise.all(
+        selectedInvoiceIds.map((id) => apiRequest<Invoice>(`/invoices/${id}`))
+      );
+      detailed.sort((a, b) => {
+        const dA = new Date(a.InvoiceDate).getTime();
+        const dB = new Date(b.InvoiceDate).getTime();
+        if (dA !== dB) return dB - dA;
+        return b.InvoiceID - a.InvoiceID;
+      });
+      setBulkInvoices(detailed);
+    } catch (err: any) {
+      alert(err.message || 'Failed to fetch invoice details for bulk print');
+    } finally {
+      setLoadingBulkInvoices(false);
+    }
+  };
+
   // Statistics
   const stats = useMemo(() => {
     let totalVal = 0;
@@ -893,6 +952,28 @@ export const InvoicesPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
+          {selectedInvoiceIds.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200/90 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={handleOpenBulkPrint}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer"
+                title="Open Bulk Print modal for selected finalized invoices"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Bulk Print ({selectedInvoiceIds.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedInvoiceIds([])}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-indigo-100/50 transition cursor-pointer"
+                title="Clear selection"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <button
             onClick={loadInvoices}
             title="Refresh Invoices"
@@ -918,6 +999,25 @@ export const InvoicesPage: React.FC = () => {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
               <tr>
+                <th className="py-3.5 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    title={
+                      finalizedInFiltered.length === 0
+                        ? 'No finalized invoices in this filter'
+                        : isAllFinalizedSelected
+                        ? 'Deselect all finalized invoices'
+                        : `Select all ${finalizedInFiltered.length} finalized invoices for bulk printing`
+                    }
+                    disabled={finalizedInFiltered.length === 0}
+                    checked={isAllFinalizedSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomeFinalizedSelected;
+                    }}
+                    onChange={handleToggleSelectAll}
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer disabled:opacity-30"
+                  />
+                </th>
                 <th className="py-3.5 px-4">Invoice No</th>
                 <th className="py-3.5 px-4">Date</th>
                 <th className="py-3.5 px-4">Billed Customer</th>
@@ -930,21 +1030,47 @@ export const InvoicesPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-2" />
                     Loading invoices...
                   </td>
                 </tr>
               ) : filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                     No invoices match your search criteria.
                   </td>
                 </tr>
               ) : (
-                filteredInvoices.map((inv) => (
-                  <tr key={inv.InvoiceID} className="hover:bg-slate-50/60 transition">
+                filteredInvoices.map((inv) => {
+                  const isSelected = selectedInvoiceIds.includes(inv.InvoiceID);
+                  const isFinalized = inv.Status === 'Finalized';
+                  return (
+                  <tr
+                    key={inv.InvoiceID}
+                    className={`transition ${
+                      isSelected ? 'bg-indigo-50/70 hover:bg-indigo-50' : 'hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <td className="py-3.5 px-3 text-center">
+                      {isFinalized ? (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelectInvoice(inv.InvoiceID)}
+                          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                          title={`Select ${inv.InvoiceNo} for bulk printing`}
+                        />
+                      ) : (
+                        <input
+                          type="checkbox"
+                          disabled
+                          className="w-4 h-4 rounded border-slate-200 opacity-20 cursor-not-allowed"
+                          title="Only finalized invoices can be bulk printed"
+                        />
+                      )}
+                    </td>
                     <td className="py-3.5 px-4 font-bold text-slate-800">
                       {inv.InvoiceNo}
                       {inv.IsInternal === 1 && (
@@ -1061,8 +1187,8 @@ export const InvoicesPage: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>
@@ -2792,6 +2918,46 @@ export const InvoicesPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* FLOATING ACTION BAR FOR SELECTED FINALIZED INVOICES */}
+      {selectedInvoiceIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700/80 backdrop-blur-md flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-semibold">
+              <strong>{selectedInvoiceIds.length}</strong> finalized invoice{selectedInvoiceIds.length === 1 ? '' : 's'} selected
+            </span>
+          </div>
+          <div className="h-4 w-px bg-slate-700" />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenBulkPrint}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" /> Bulk Print Preview
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedInvoiceIds([])}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-medium transition cursor-pointer"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BULK PRINT MODAL */}
+      <BulkPrintModal
+        isOpen={isBulkPrintOpen}
+        onClose={() => setIsBulkPrintOpen(false)}
+        selectedIds={selectedInvoiceIds}
+        invoices={bulkInvoices}
+        loading={loadingBulkInvoices}
+        documentView={bulkDocumentView}
+        onDocumentViewChange={setBulkDocumentView}
+      />
     </div>
   );
 };

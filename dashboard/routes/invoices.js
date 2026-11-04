@@ -15,7 +15,7 @@ const { invoiceMutex } = require('../lib/mutex');
 const { loadRateCardSafe, matchLineRate, lineMarketMid } = require('../services/ratecard');
 const ledger = require('../services/stockLedger');
 const pdf = require('../services/pdf');
-const { buildInvoiceHtml } = require('../services/invoicePdf');
+const { buildInvoiceHtml, buildBulkInvoiceHtml } = require('../services/invoicePdf');
 const priceAnalysis = require('../services/priceAnalysis');
 const pricingEngine = require('../services/pricingEngine');
 const { sanitizeFormula } = require('../lib/sanitize');
@@ -178,10 +178,88 @@ router.get('/api/invoices/export', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/invoices/pending-reclassifications
+ * Retrieves all pending 'Internal to External' revisions awaiting Manager approval.
+ */
+router.get('/api/invoices/pending-reclassifications', async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                i.InvoiceID,
+                i.InvoiceNo,
+                i.InvoiceDate,
+                i.BilledToName,
+                i.BilledToAddress,
+                i.DeliveredToName,
+                i.GrandTotal,
+                i.SubTotal,
+                i.Status,
+                i.IsInternal,
+                i.CustomerID,
+                i.CreatedAt,
+                a.ApprovalID,
+                a.RequestedBy,
+                a.RequestedAt,
+                a.DecisionReason AS RequestReason,
+                a.ExpiresAt
+            FROM Invoices i
+            LEFT JOIN Approvals a ON a.TargetEntity = 'Invoices' 
+                AND a.TargetID = CAST(i.InvoiceID AS TEXT) 
+                AND a.Status = 'pending'
+            WHERE i.Status = 'Pending Approval'
+            ORDER BY i.InvoiceID DESC
+        `;
+        const rows = await connection.query(query);
+        res.json(rows);
+    } catch (err) {
+        console.error('Error fetching pending reclassifications:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/api/invoices/bulk-html', async (req, res) => {
+    try {
+        const idsParam = req.query.ids;
+        if (!idsParam) return res.status(400).send('No invoice IDs provided');
+        const ids = String(idsParam)
+            .split(',')
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => Number.isFinite(n) && n > 0);
+        if (ids.length === 0) return res.status(400).send('No valid invoice IDs provided');
+
+        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
+        const billType = docView === 'CUSTOMER' ? 'outside' : 'inside';
+
+        const inClause = ids.map((id) => sql.n(id)).join(', ');
+        const invoices = await connection.query(`SELECT * FROM Invoices WHERE InvoiceID IN (${inClause}) ORDER BY InvoiceDate DESC, InvoiceID DESC`);
+        if (invoices.length === 0) return res.status(404).send('No matching invoices found');
+
+        const invoicesWithItems = [];
+        for (const inv of invoices) {
+            const items = await connection.query(`
+                SELECT InvoiceItems.*, Inventory.ProductName, Inventory.SpecificationCode, Inventory.Cost
+                FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
+                WHERE InvoiceItems.InvoiceID = ${inv.InvoiceID}`);
+            invoicesWithItems.push({ invoice: inv, items });
+        }
+
+        const html = buildBulkInvoiceHtml(invoicesWithItems, { billType, documentView: docView });
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    } catch (err) {
+        console.error('Bulk HTML generation failed:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Outstanding receivables (finalized, non-cancelled invoices with a balance).
 
 router.get('/api/invoices/:id', async (req, res) => {
     try {
+        if (!/^\d+$/.test(String(req.params.id || '').trim())) {
+            return res.status(404).json({ error: 'Invoice not found', code: 'NOT_FOUND' });
+        }
         const id = sql.n(req.params.id);
         const invoice = await connection.query(`SELECT * FROM Invoices WHERE InvoiceID = ${id}`);
         if (invoice.length === 0) return res.status(404).json({ error: 'Invoice not found', code: 'NOT_FOUND' });
@@ -595,46 +673,6 @@ router.post('/api/invoices/finalize', async (req, res) => {
  * immediately posts the new balanced journal entry under the new classification.
  * Updates Invoices.IsInternal and PaymentStatus, and creates an audit record.
  */
-/**
- * GET /api/invoices/pending-reclassifications
- * Retrieves all pending 'Internal to External' revisions awaiting Manager approval.
- */
-router.get('/api/invoices/pending-reclassifications', async (req, res) => {
-    try {
-        const query = `
-            SELECT 
-                i.InvoiceID,
-                i.InvoiceNo,
-                i.InvoiceDate,
-                i.BilledToName,
-                i.BilledToAddress,
-                i.DeliveredToName,
-                i.GrandTotal,
-                i.SubTotal,
-                i.Status,
-                i.IsInternal,
-                i.CustomerID,
-                i.CreatedAt,
-                a.ApprovalID,
-                a.RequestedBy,
-                a.RequestedAt,
-                a.DecisionReason AS RequestReason,
-                a.ExpiresAt
-            FROM Invoices i
-            LEFT JOIN Approvals a ON a.TargetEntity = 'Invoices' 
-                AND a.TargetID = CAST(i.InvoiceID AS TEXT) 
-                AND a.Status = 'pending'
-            WHERE i.Status = 'Pending Approval'
-            ORDER BY i.InvoiceID DESC
-        `;
-        const rows = await connection.query(query);
-        res.json(rows);
-    } catch (err) {
-        console.error('Error fetching pending reclassifications:', err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
 /**
  * Reclassify Invoice Endpoint:
  * - When switching from Internal to External: requires Manager authorization. Transitions

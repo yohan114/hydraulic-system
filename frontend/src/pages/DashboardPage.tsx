@@ -19,7 +19,19 @@ import {
   Loader2,
   X,
   FileCheck,
+  Search,
 } from 'lucide-react';
+
+export interface LowStockItem {
+  InventoryID: number;
+  UniqueID?: string;
+  ProductName: string;
+  SpecificationCode?: string;
+  Qty: number;
+  Unit: string;
+  ReorderLevel: number;
+  SupplierName?: string;
+}
 
 interface DashboardStats {
   totalInvoices: number;
@@ -76,24 +88,53 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const [actionSubmitting, setActionSubmitting] = useState<boolean>(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Low Stock Notification & Modal state
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
+  const [showLowStockToast, setShowLowStockToast] = useState<boolean>(true);
+  const [showLowStockModal, setShowLowStockModal] = useState<boolean>(false);
+  const [lowStockSearch, setLowStockSearch] = useState<string>('');
+
   // Fetch dashboard stats
   const fetchStats = useCallback(async () => {
     try {
-      const [invoices, jobs, inventory] = await Promise.allSettled([
+      const [invoices, jobs, inventory, lowStockData] = await Promise.allSettled([
         apiRequest('/invoices'),
         apiRequest('/jobs'),
         apiRequest('/inventory'),
+        apiRequest<LowStockItem[]>('/inventory/low-stock'),
       ]);
 
       const invCount = invoices.status === 'fulfilled' && Array.isArray(invoices.value) ? invoices.value.length : 0;
       const jobCount = jobs.status === 'fulfilled' && Array.isArray(jobs.value) ? jobs.value.length : 0;
       const stockItems = inventory.status === 'fulfilled' && Array.isArray(inventory.value) ? inventory.value : [];
-      const lowStock = stockItems.filter((i: any) => (i.Qty || 0) <= (i.MinQty || 5)).length;
 
+      let lowItems: LowStockItem[] = [];
+      if (lowStockData.status === 'fulfilled' && Array.isArray(lowStockData.value)) {
+        lowItems = lowStockData.value;
+      } else {
+        lowItems = stockItems
+          .filter((i: any) => {
+            const qty = Number(i.Qty) || 0;
+            const threshold = i.ReorderLevel != null && Number(i.ReorderLevel) > 0 ? Number(i.ReorderLevel) : 5;
+            return qty <= threshold;
+          })
+          .map((i: any) => ({
+            InventoryID: i.InventoryID,
+            UniqueID: i.UniqueID,
+            ProductName: i.ProductName,
+            SpecificationCode: i.SpecificationCode,
+            Qty: Number(i.Qty) || 0,
+            Unit: i.Unit || 'nos',
+            ReorderLevel: i.ReorderLevel != null && Number(i.ReorderLevel) > 0 ? Number(i.ReorderLevel) : 5,
+            SupplierName: i.SupplierName,
+          }));
+      }
+
+      setLowStockItems(lowItems);
       setStats({
         totalInvoices: invCount,
         totalJobs: jobCount,
-        lowStockCount: lowStock,
+        lowStockCount: lowItems.length,
         totalStockItems: stockItems.length,
       });
     } catch (err) {
@@ -198,13 +239,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           {/* Welcome Hero Banner */}
           <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden border border-slate-800">
             <div className="relative z-10 max-w-2xl">
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
                   <ShieldCheck className="w-3.5 h-3.5" /> High-Security Production ERP
                 </span>
                 <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
                   {roleTitle}
                 </span>
+                {lowStockItems.length > 0 && (
+                  <button
+                    onClick={() => setShowLowStockModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/25 text-rose-200 border border-rose-400/40 hover:bg-rose-500/35 transition cursor-pointer shadow-xs"
+                    title="Click to view low stock items"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-300 animate-pulse" />
+                    <span>{lowStockItems.length} Low Stock Alert{lowStockItems.length === 1 ? '' : 's'}</span>
+                  </button>
+                )}
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
                 Welcome back, {username || 'Operator'}
@@ -248,6 +299,80 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
             {/* Decorative background circle */}
             <div className="absolute -right-12 -bottom-12 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
           </div>
+
+          {/* LOW STOCK NOTIFICATION TOAST / BANNER */}
+          {showLowStockToast && lowStockItems.length > 0 && (
+            <div className="p-4 bg-gradient-to-r from-amber-50 via-rose-50 to-amber-50 border-2 border-amber-300/80 rounded-2xl shadow-sm text-slate-800 transition relative overflow-hidden">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl shrink-0 mt-0.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-600" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-600 text-white shadow-2xs">
+                        LOW STOCK NOTIFICATION
+                      </span>
+                      <span className="text-xs font-bold text-amber-900">
+                        {lowStockItems.length} product{lowStockItems.length > 1 ? 's' : ''} fell below minimum reorder level
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Warehouse stock has fallen below the defined threshold. Reorder from suppliers to prevent hose assembly delays.
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-2.5">
+                      {lowStockItems.slice(0, 3).map((item) => (
+                        <span
+                          key={item.InventoryID}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/95 border border-amber-200 rounded-lg text-xs font-medium text-slate-700 shadow-2xs"
+                        >
+                          <span className="font-semibold text-slate-900 truncate max-w-[150px] sm:max-w-[220px]">
+                            {item.ProductName}
+                          </span>
+                          <span className="text-rose-600 font-bold">
+                            {item.Qty} {item.Unit}
+                          </span>
+                          <span className="text-slate-400 text-[10px]">
+                            (Reorder: {item.ReorderLevel})
+                          </span>
+                        </span>
+                      ))}
+                      {lowStockItems.length > 3 && (
+                        <button
+                          onClick={() => setShowLowStockModal(true)}
+                          className="text-xs text-indigo-700 hover:text-indigo-900 font-bold self-center underline ml-1"
+                        >
+                          +{lowStockItems.length - 3} more items &rarr;
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full md:w-auto justify-end shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-amber-200/60">
+                  <button
+                    onClick={() => setShowLowStockModal(true)}
+                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5"
+                  >
+                    <Package className="w-3.5 h-3.5" /> View Breakdown
+                  </button>
+                  <button
+                    onClick={() => onNavigate('inventory')}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" /> Reorder in Inventory
+                  </button>
+                  <button
+                    onClick={() => setShowLowStockToast(false)}
+                    title="Dismiss alert"
+                    className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-white/80 transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Pending Revision Attention Banner for Managers */}
           {pendingReclassifications.length > 0 && (
@@ -327,19 +452,37 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
               </div>
             </div>
 
-            {/* Low Stock Reorder Alerts */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
+            {/* Low Stock Reorder Alerts - Clickable to Open Breakdown */}
+            <div
+              onClick={() => setShowLowStockModal(true)}
+              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition cursor-pointer group hover:border-amber-300"
+              title="Click to view all products below reorder level"
+            >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Low Stock Alerts</span>
-                <div className={`p-2.5 rounded-xl ${stats.lowStockCount > 0 ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-600'}`}>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 group-hover:text-amber-700 transition">
+                  Low Stock Alerts
+                </span>
+                <div className={`p-2.5 rounded-xl transition ${stats.lowStockCount > 0 ? 'bg-amber-100 text-amber-700 group-hover:bg-amber-200' : 'bg-slate-50 text-slate-600'}`}>
                   <AlertTriangle className="w-5 h-5" />
                 </div>
               </div>
               <div className="mt-3">
-                <div className={`text-2xl font-bold ${stats.lowStockCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
-                  {loadingStats ? '...' : stats.lowStockCount}
+                <div className="flex items-baseline justify-between">
+                  <div className={`text-2xl font-bold ${stats.lowStockCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
+                    {loadingStats ? '...' : stats.lowStockCount}
+                  </div>
+                  {stats.lowStockCount > 0 && (
+                    <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                      Action Required
+                    </span>
+                  )}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Items below minimum reorder level</p>
+                <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                  <span>Items below reorder level</span>
+                  <span className="text-indigo-600 text-[11px] font-semibold group-hover:underline">
+                    View list &rarr;
+                  </span>
+                </p>
               </div>
             </div>
           </div>
@@ -734,6 +877,148 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LOW STOCK BREAKDOWN MODAL */}
+      {showLowStockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/75 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <span>Low Stock Inventory Alerts</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                      {lowStockItems.length} Products Depleted
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Warehouse products whose in-stock quantity has fallen at or below their defined Reorder Level.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLowStockModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter / Search Bar */}
+            <div className="p-4 border-b border-slate-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative w-full sm:w-72">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Filter low stock items..."
+                  value={lowStockSearch}
+                  onChange={(e) => setLowStockSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  onClick={() => {
+                    setShowLowStockModal(false);
+                    onNavigate('inventory');
+                  }}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition"
+                >
+                  <Package className="w-3.5 h-3.5" /> Open Inventory Page
+                </button>
+              </div>
+            </div>
+
+            {/* Table Area */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-600 uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-3">Product Name</th>
+                      <th className="py-2.5 px-3">Specification / Code</th>
+                      <th className="py-2.5 px-3 text-right">In Stock Qty</th>
+                      <th className="py-2.5 px-3 text-right">Reorder Level</th>
+                      <th className="py-2.5 px-3 text-right">Shortage</th>
+                      <th className="py-2.5 px-3 text-center">Urgency</th>
+                      <th className="py-2.5 px-3">Supplier</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lowStockItems
+                      .filter((i) => {
+                        if (!lowStockSearch.trim()) return true;
+                        const s = lowStockSearch.toLowerCase();
+                        return (
+                          i.ProductName.toLowerCase().includes(s) ||
+                          (i.SpecificationCode && i.SpecificationCode.toLowerCase().includes(s)) ||
+                          (i.SupplierName && i.SupplierName.toLowerCase().includes(s))
+                        );
+                      })
+                      .map((item) => {
+                        const shortage = Math.max(0, item.ReorderLevel - item.Qty);
+                        const isZero = item.Qty <= 0;
+                        return (
+                          <tr key={item.InventoryID} className="hover:bg-slate-50/70 transition">
+                            <td className="py-2.5 px-3 font-semibold text-slate-800">
+                              {item.ProductName}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 font-mono">
+                              {item.SpecificationCode || '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold text-rose-600">
+                              {item.Qty} {item.Unit}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-slate-700 font-medium">
+                              {item.ReorderLevel} {item.Unit}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-semibold text-amber-600">
+                              +{shortage} {item.Unit}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {isZero ? (
+                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-red-100 text-red-800 border border-red-300">
+                                  OUT OF STOCK
+                                </span>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                  LOW STOCK
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500">
+                              {item.SupplierName || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <span className="text-xs text-slate-500 font-medium">
+                Showing {lowStockItems.length} products below defined threshold
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowLowStockModal(false)}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold transition"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

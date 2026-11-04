@@ -3,17 +3,77 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Compatibility shim for browser extensions / executors that assign window.fetch
+      // Compatibility shim for browser extensions / executors (e.g. Urban VPN) that assign window.fetch
       (function() {
         try {
-          var _origFetch = window.fetch;
-          var _currentFetch = _origFetch;
-          Object.defineProperty(window, 'fetch', {
-            get: function() { return _currentFetch; },
-            set: function(v) { _currentFetch = v; },
-            configurable: true,
-            enumerable: true
-          });
+          var origFetch = window.fetch;
+
+          // Traverse prototype chain to attach setter to Window.prototype / WindowProperties
+          var curr = window;
+          while (curr) {
+            try {
+              var d = Object.getOwnPropertyDescriptor(curr, 'fetch');
+              if (d && (d.configurable || !d.set)) {
+                Object.defineProperty(curr, 'fetch', {
+                  get: function() {
+                    return (this && this._customFetch) ? this._customFetch : origFetch;
+                  },
+                  set: function(val) {
+                    if (this) this._customFetch = val;
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            } catch (_) {}
+            curr = Object.getPrototypeOf(curr);
+          }
+
+          // Also define directly on window as a writable property
+          try {
+            Object.defineProperty(window, 'fetch', {
+              value: origFetch,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          } catch (_) {
+            try {
+              Object.defineProperty(window, 'fetch', {
+                get: function() { return window._customFetch || origFetch; },
+                set: function(val) { window._customFetch = val; },
+                configurable: true,
+                enumerable: true
+              });
+            } catch (_) {}
+          }
+
+          // Error event listener to suppress extension-injected script errors
+          window.addEventListener('error', function(event) {
+            var msg = event.message || (event.error && event.error.message) || '';
+            var file = event.filename || '';
+            if (
+              file.indexOf('chrome-extension://') !== -1 ||
+              (msg.indexOf('fetch') !== -1 && msg.indexOf('getter') !== -1)
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              return true;
+            }
+          }, true);
+
+          var prevOnError = window.onerror;
+          window.onerror = function(msg, url) {
+            if (
+              (url && url.indexOf('chrome-extension://') !== -1) ||
+              (typeof msg === 'string' && msg.indexOf('fetch') !== -1 && msg.indexOf('getter') !== -1)
+            ) {
+              return true;
+            }
+            if (typeof prevOnError === 'function') {
+              return prevOnError.apply(this, arguments);
+            }
+          };
         } catch (_) {}
       })();
     </script>
