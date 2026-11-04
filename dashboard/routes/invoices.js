@@ -228,8 +228,8 @@ router.get('/api/invoices/bulk-html', async (req, res) => {
             .filter((n) => Number.isFinite(n) && n > 0);
         if (ids.length === 0) return res.status(400).send('No valid invoice IDs provided');
 
-        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
-        const billType = docView === 'CUSTOMER' ? 'outside' : 'inside';
+        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'inside' ? 'COMPANY_DETAILED' : 'CUSTOMER');
+        const billType = docView === 'COMPANY_DETAILED' ? 'inside' : 'outside';
 
         const inClause = ids.map((id) => sql.n(id)).join(', ');
         const invoices = await connection.query(`SELECT * FROM Invoices WHERE InvoiceID IN (${inClause}) ORDER BY InvoiceDate DESC, InvoiceID DESC`);
@@ -1385,9 +1385,9 @@ router.get('/api/invoices/:id/pdf', async (req, res) => {
             FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}`);
 
-        // billType / DocumentView preference
-        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
-        const billType = docView === 'CUSTOMER' ? 'outside' : 'inside';
+        // billType / DocumentView preference: default to clean Customer Copy unless requested
+        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'inside' ? 'COMPANY_DETAILED' : 'CUSTOMER');
+        const billType = docView === 'COMPANY_DETAILED' ? 'inside' : 'outside';
         const html = buildInvoiceHtml(invoice[0], items, { billType, documentView: docView });
         const buffer = await pdf.htmlToPdf(html);
         const safeNo = String(invoice[0].InvoiceNo || `invoice-${id}`).replace(/[^\w.-]+/g, '_');
@@ -1411,8 +1411,8 @@ router.get('/api/invoices/:id/html', async (req, res) => {
             FROM InvoiceItems LEFT JOIN Inventory ON InvoiceItems.InventoryID = Inventory.InventoryID
             WHERE InvoiceItems.InvoiceID = ${id}`);
 
-        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'outside' ? 'CUSTOMER' : 'COMPANY_DETAILED');
-        const billType = docView === 'CUSTOMER' ? 'outside' : 'inside';
+        const docView = req.query.DocumentView || req.query.view || (req.query.billType === 'inside' ? 'COMPANY_DETAILED' : 'CUSTOMER');
+        const billType = docView === 'COMPANY_DETAILED' ? 'inside' : 'outside';
         const html = buildInvoiceHtml(invoice[0], items, { billType, documentView: docView });
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
